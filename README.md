@@ -1,4 +1,4 @@
-# swift-mojo
+# 🔥 swift-mojo
 
 `swift-mojo` is an experimental bridge for implementing a Swift function in Mojo and shipping the compiled implementation as part of a Swift package. Swift owns the public API and application structure; Mojo owns the compute implementation. Generated C symbols, headers, binding IDs, and artifact paths stay private.
 
