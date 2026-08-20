@@ -10,7 +10,6 @@ let package = Package(
     ],
     products: [
         .library(name: "Mojo", targets: ["Mojo"]),
-        .executable(name: "swift-mojo", targets: ["swift-mojo"]),
         .plugin(name: "MojoBuildPlugin", targets: ["MojoBuildPlugin"]),
         .plugin(name: "MojoCommandPlugin", targets: ["MojoCommandPlugin"]),
     ],
