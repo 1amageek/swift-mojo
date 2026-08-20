@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "Mojo", targets: ["Mojo"]),
         .executable(name: "swift-mojo", targets: ["swift-mojo"]),
         .plugin(name: "MojoBuildPlugin", targets: ["MojoBuildPlugin"]),
+        .plugin(name: "MojoCommandPlugin", targets: ["MojoCommandPlugin"]),
     ],
     dependencies: [
         .package(
@@ -24,6 +25,10 @@ let package = Package(
             name: "MojoBindingCore",
             dependencies: [
                 .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(
+                    name: "SwiftParserDiagnostics",
+                    package: "swift-syntax"
+                ),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
             ]
         ),
@@ -44,15 +49,57 @@ let package = Package(
         .target(name: "MojoCompilerCore"),
         .target(
             name: "MojoArtifactCore",
-            dependencies: ["MojoBindingCore", "MojoCompilerCore"]
+            dependencies: [
+                "MojoBindingCore",
+                "MojoCompilerCore",
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(
+                    name: "SwiftParserDiagnostics",
+                    package: "swift-syntax"
+                ),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+            ]
+        ),
+        .target(
+            name: "MojoCommandCore",
+            dependencies: ["MojoArtifactCore", "MojoCompilerCore"]
+        ),
+        .binaryTarget(
+            name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
+            path: "Generated/MojoBuildPluginIntegrationFixture/SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
+        ),
+        .target(
+            name: "MojoBuildPluginIntegrationFixture",
+            dependencies: [
+                "Mojo",
+                "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
+            ],
+            plugins: [
+                .plugin(name: "MojoBuildPlugin"),
+            ]
         ),
         .executableTarget(
             name: "swift-mojo",
-            dependencies: ["MojoArtifactCore"]
+            dependencies: ["MojoCommandCore"]
         ),
         .plugin(
             name: "MojoBuildPlugin",
             capability: .buildTool(),
+            dependencies: ["swift-mojo"]
+        ),
+        .plugin(
+            name: "MojoCommandPlugin",
+            capability: .command(
+                intent: .custom(
+                    verb: "mojo",
+                    description: "Prepare and validate Mojo artifacts"
+                ),
+                permissions: [
+                    .writeToPackageDirectory(
+                        reason: "Prepare versioned Mojo artifacts"
+                    ),
+                ]
+            ),
             dependencies: ["swift-mojo"]
         ),
         .testTarget(
@@ -82,12 +129,12 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "MojoCommandCoreTests",
+            dependencies: ["MojoCommandCore"]
+        ),
+        .testTarget(
             name: "MojoBuildPluginIntegrationTests",
-            dependencies: [
-                "MojoArtifactCore",
-                "MojoBindingCore",
-                "MojoCompilerCore",
-            ]
+            dependencies: ["MojoBuildPluginIntegrationFixture"]
         ),
     ]
 )

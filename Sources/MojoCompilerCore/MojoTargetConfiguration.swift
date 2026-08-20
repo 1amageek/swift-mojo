@@ -1,8 +1,13 @@
 package struct MojoTargetConfiguration: Codable, Equatable, Sendable {
     package let triple: String
     package let cpu: String
+    package let accelerator: String?
 
-    package init(triple: String, cpu: String) throws {
+    package init(
+        triple: String,
+        cpu: String,
+        accelerator: String? = nil
+    ) throws {
         try Self.validate(
             triple,
             option: "--target-triple",
@@ -13,16 +18,32 @@ package struct MojoTargetConfiguration: Codable, Equatable, Sendable {
             option: "--target-cpu",
             allowedPunctuation: [43, 45, 46, 95]
         )
+        if let accelerator {
+            try Self.validate(
+                accelerator,
+                option: "--target-accelerator",
+                allowedPunctuation: [43, 45, 46, 58, 95]
+            )
+        }
 
         self.triple = triple
         self.cpu = cpu
+        self.accelerator = accelerator
+    }
+
+    package var identity: String {
+        [triple, cpu, accelerator ?? "none"].joined(separator: "|")
     }
 
     package var compilerArguments: [String] {
-        [
+        var arguments = [
             "--target-triple", triple,
             "--target-cpu", cpu,
         ]
+        if let accelerator {
+            arguments.append(contentsOf: ["--target-accelerator", accelerator])
+        }
+        return arguments
     }
 
     private static func validate(

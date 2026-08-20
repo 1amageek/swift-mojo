@@ -1,11 +1,26 @@
 import CryptoKit
 import Foundation
 
+package enum MojoCanonicalDigestError: Error, Equatable, CustomStringConvertible {
+    case symbolicLink(String)
+
+    package var description: String {
+        switch self {
+        case .symbolicLink(let path):
+            "Canonical trees cannot contain symbolic links: '\(path)'"
+        }
+    }
+}
+
 package enum MojoCanonicalDigest {
     package static func hex(_ value: String) -> String {
         SHA256.hash(data: Data(value.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
+    }
+
+    package static func hex(_ data: Data) -> String {
+        digestHex(data)
     }
 
     package static func identifier(_ value: String) -> UInt64 {
@@ -24,18 +39,24 @@ package enum MojoCanonicalDigest {
 
     package static func tree(at rootURL: URL) throws -> String {
         let fileManager = FileManager.default
+        let rootValues = try rootURL.resourceValues(
+            forKeys: [.isSymbolicLinkKey]
+        )
+        guard rootValues.isSymbolicLink != true else {
+            throw MojoCanonicalDigestError.symbolicLink(rootURL.path)
+        }
         guard let enumerator = fileManager.enumerator(atPath: rootURL.path) else {
             throw CocoaError(.fileReadNoSuchFile)
         }
         var relativePaths: [String] = []
         for case let relativePath as String in enumerator {
-            guard !relativePath.split(separator: "/").contains(where: {
-                $0.hasPrefix(".")
-            }) else {
-                continue
-            }
             let url = rootURL.appendingPathComponent(relativePath)
-            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            let values = try url.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+            )
+            guard values.isSymbolicLink != true else {
+                throw MojoCanonicalDigestError.symbolicLink(url.path)
+            }
             if values.isRegularFile == true {
                 relativePaths.append(relativePath)
             }

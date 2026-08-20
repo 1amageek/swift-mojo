@@ -3,6 +3,7 @@ import Foundation
 package struct MojoPackageLayout: Equatable, Sendable {
     package let packageRootURL: URL
     package let targetName: String
+    package let identity: MojoArtifactIdentity
 
     package init(packageRootURL: URL, targetName: String) throws {
         guard Self.isIdentifier(targetName) else {
@@ -14,6 +15,7 @@ package struct MojoPackageLayout: Equatable, Sendable {
             .resolvingSymlinksInPath()
             .standardizedFileURL
         self.targetName = targetName
+        self.identity = try MojoArtifactIdentity(targetName: targetName)
     }
 
     package var outputDirectoryURL: URL {
@@ -23,7 +25,7 @@ package struct MojoPackageLayout: Equatable, Sendable {
     }
 
     package var binaryTargetRelativePath: String {
-        "Generated/\(targetName)/\(MojoStaticABI.artifactName)"
+        "Generated/\(targetName)/\(identity.artifactName)"
     }
 
     package func validatePackageTarget() throws {
@@ -67,7 +69,18 @@ package struct MojoPackageLayout: Equatable, Sendable {
         return sources.sorted { $0.path < $1.path }
     }
 
-    private var sourceRootURL: URL {
+    package func externalPackages(names: [String]) throws -> [MojoExternalPackage] {
+        try names.sorted().map { name in
+            try MojoExternalPackage(
+                name: name,
+                rootURL: packageRootURL
+                    .appendingPathComponent("Mojo", isDirectory: true)
+                    .appendingPathComponent(name, isDirectory: true)
+            )
+        }
+    }
+
+    package var sourceRootURL: URL {
         packageRootURL
             .appendingPathComponent("Sources", isDirectory: true)
             .appendingPathComponent(targetName, isDirectory: true)

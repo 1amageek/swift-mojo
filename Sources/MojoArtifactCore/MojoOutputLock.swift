@@ -37,11 +37,11 @@ package struct MojoOutputLock: Sendable {
             )
         }
         defer {
-            _ = Darwin.flock(descriptor, LOCK_UN)
+            _ = flock(descriptor, LOCK_UN)
             _ = Darwin.close(descriptor)
         }
 
-        guard Darwin.flock(descriptor, LOCK_EX) == 0 else {
+        guard flock(descriptor, LOCK_EX) == 0 else {
             throw MojoArtifactError.outputLockFailed(
                 path: lockURL.path,
                 diagnostic: Self.systemErrorDescription()

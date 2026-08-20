@@ -4,6 +4,10 @@
 - Date: 2026-08-20
 - Scope: Post-P1 model authoring and distribution
 
+## Implementation status
+
+ADR-0003 implements and verifies the scalar bridge substrate for real external packages、target-scoped identities、arm64/x86_64 universal Apple artifacts、compiler pins、build/release verification、and compiler-free relocated consumption. This ADR remains Proposed because two-target collision acceptance、model/session ownership、weights compatibility、real inference、remote artifacts、and model-level failure behavior are not complete.
+
 ## Context
 
 `swift-mojo` の主要な実用候補は、Mojoで実装したLLMやcompute modelをSwift applicationから利用することです。model実装は複数module、kernel、model/session stateを持つため、Swift-parseableなinline DSLだけへ収めることは現実的ではありません。一方、Swift consumerはmodelを通常のSwift Package dependencyとして追加し、Mojo compilerやC ABIを意識せず利用できる必要があります。
@@ -17,7 +21,7 @@
 | native ABI artifact | prepare/release workflow | Swift linker/process | release/platform slice |
 | model weights | application/model resolver | model session | model revision/cache policy |
 
-現在のP1は `Sources/<Target>/**/*.swift` だけをscanし、allowlisted IRから単一の `Bindings.mojo` を生成します。external `.mojo` packageはsource graph、cache、plugin verification、artifact generationの入力ではありません。また、generated C module名が固定されているため、1 packageにつきMojo対応targetは1つです。
+このdecisionの起点となったschema-3 baselineは `Sources/<Target>/**/*.swift` だけをscanし、fixed C moduleを生成していました。ADR-0003のschema-4 sourceはexternal `.mojo` packageをinput graph、cache、plugin verification、artifact generationへ含め、generated identityをtarget scopeへ分離しています。model distribution全体のacceptanceは引き続き本ADRの未完了範囲です。
 
 ## Decision
 
@@ -32,7 +36,10 @@ model実装は、`swift-mojo` repositoryへ組み込むのではなく、model�
 │   └── *.mojo
 ├── Generated/<ModelTarget>/
 │   ├── <GeneratedModule>.xcframework
+│   ├── Bindings.mojo
+│   ├── MojoSourceMap.json
 │   └── MojoArtifact.json
+├── SwiftMojo.json
 └── Tests/<ModelTarget>Tests/
 ```
 
@@ -100,8 +107,8 @@ public execution boundaryはprepared native artifact、semantic compatibility bo
 
 ### Negative
 
-- external Mojo packageを含む新しいsource graphとmanifest schemaが必要になる。
-- model/targetごとに衝突しないbinary module namingが必要になる。
+- external Mojo packageを含むinput graphとmanifest schemaを維持するcostが増える。
+- model/targetごとに衝突しないbinary module namingをrelease互換性として維持する必要がある。
 - supported platform/CPU/acceleratorごとのnative artifactをreleaseする必要がある。
 - sourceとbinary artifactのrepository size、remote distribution、signing policyを決める必要がある。
 - model sourceの変更とartifact更新を同じreview/release transactionで管理する必要がある。

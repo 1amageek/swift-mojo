@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "MojoBuildPluginIntegrationFixture": {
+      "compilerVersion": "Mojo 1.0.0 (ed45d567)",
+      "mojoPackages": [],
+      "slices": [
+        {
+          "cpu": "generic",
+          "triple": "arm64-apple-macosx14.0"
+        },
+        {
+          "cpu": "x86-64",
+          "triple": "x86_64-apple-macosx14.0"
+        }
+      ]
+    }
+  }
+}

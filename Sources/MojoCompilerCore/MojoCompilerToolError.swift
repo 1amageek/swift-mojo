@@ -1,5 +1,6 @@
 package enum MojoCompilerToolError: Error, Equatable, CustomStringConvertible {
     case invalidTargetValue(option: String, value: String)
+    case importSearchPathMustBeAbsolute(String)
     case executablePathMustBeAbsolute(String)
     case executableNotFound
     case processLaunchFailed(command: String, message: String)
@@ -17,6 +18,8 @@ package enum MojoCompilerToolError: Error, Equatable, CustomStringConvertible {
         switch self {
         case .invalidTargetValue(let option, let value):
             "Invalid value '\(value)' for \(option)"
+        case .importSearchPathMustBeAbsolute(let path):
+            "Mojo import search path must be absolute; received '\(path)'"
         case .executablePathMustBeAbsolute(let path):
             "SWIFT_MOJO_EXECUTABLE must be an absolute path; received '\(path)'"
         case .executableNotFound:

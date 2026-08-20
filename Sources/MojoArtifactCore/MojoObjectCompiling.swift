@@ -6,7 +6,8 @@ package protocol MojoObjectCompiling: Sendable {
     func compileObject(
         inputPath: String,
         outputPath: String,
-        target: MojoTargetConfiguration
+        target: MojoTargetConfiguration,
+        importSearchPaths: [String]
     ) throws -> String
 }
 

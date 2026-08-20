@@ -1,27 +1,60 @@
 import Foundation
 import MojoBindingCore
+import MojoCompilerCore
 
 package struct MojoArtifactVerifier: Sendable {
     private let generationPipelineDigest: String
     private let registryWriter: MojoStaticRegistryWriter
+    private let renderer: MojoStaticSourceRenderer
+    private let transaction: MojoOutputTransaction
 
     package init(
         generationPipelineDigest: String = MojoGenerationPipeline.digest,
-        registryWriter: MojoStaticRegistryWriter = MojoStaticRegistryWriter()
+        registryWriter: MojoStaticRegistryWriter = MojoStaticRegistryWriter(),
+        renderer: MojoStaticSourceRenderer = MojoStaticSourceRenderer(),
+        transaction: MojoOutputTransaction = MojoOutputTransaction()
     ) {
         self.generationPipelineDigest = generationPipelineDigest
         self.registryWriter = registryWriter
+        self.renderer = renderer
+        self.transaction = transaction
     }
 
     @discardableResult
     package func verify(options: MojoVerifyOptions) throws -> MojoArtifactManifest {
+        try transaction.withExclusiveAccess(
+            to: options.outputDirectoryURL
+        ) { _ in
+            let validation = try validateAssumingOutputLock(options: options)
+            guard try options.inputGraph() == validation.inputGraph else {
+                throw MojoArtifactError.inputsChangedDuringOperation(
+                    "build verification"
+                )
+            }
+            try FileManager.default.createDirectory(
+                at: options.generatedSourceURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try registryWriter.source(
+                manifest: validation.manifest,
+                inputGraph: validation.inputGraph
+            ).write(
+                to: options.generatedSourceURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            return validation.manifest
+        }
+    }
+
+    package func validateAssumingOutputLock(
+        options: MojoVerifyOptions
+    ) throws -> MojoArtifactValidation {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: options.manifestURL.path) else {
             throw MojoArtifactError.manifestMissing(options.manifestURL.path)
         }
-        guard fileManager.fileExists(atPath: options.artifactURL.path) else {
-            throw MojoArtifactError.artifactMissing(options.artifactURL.path)
-        }
+        try MojoRegularFile.validate(at: options.manifestURL)
 
         let manifest: MojoArtifactManifest
         do {
@@ -32,7 +65,71 @@ package struct MojoArtifactVerifier: Sendable {
         } catch {
             throw MojoArtifactError.invalidManifest(String(describing: error))
         }
-        guard manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion else {
+        try validateSchemaAndPipeline(manifest: manifest)
+
+        let identity = manifest.effectiveIdentity
+        if let expectedIdentity = options.expectedIdentity,
+           identity != expectedIdentity {
+            throw MojoArtifactError.artifactIdentityMismatch(
+                expected: expectedIdentity.moduleName,
+                actual: identity.moduleName
+            )
+        }
+        if let expectedCompilerVersion = options.expectedCompilerVersion,
+           manifest.compilerVersion != expectedCompilerVersion {
+            throw MojoArtifactError.compilerVersionMismatch(
+                expected: expectedCompilerVersion,
+                actual: manifest.compilerVersion
+            )
+        }
+        if let expectedSlices = options.expectedSlices {
+            let actualSlices = manifest.effectiveSlices.map(\.target).sorted {
+                $0.identity < $1.identity
+            }
+            guard actualSlices == expectedSlices else {
+                throw MojoArtifactError.releaseSliceMismatch(
+                    expected: expectedSlices.map(\.identity).joined(
+                        separator: ", "
+                    ),
+                    actual: actualSlices.map(\.identity).joined(
+                        separator: ", "
+                    )
+                )
+            }
+        }
+        let artifactURL = options.artifactURL(identity: identity)
+        guard fileManager.fileExists(atPath: artifactURL.path) else {
+            throw MojoArtifactError.artifactMissing(artifactURL.path)
+        }
+        try validateTarget(manifest: manifest, requested: options.target)
+
+        let inputGraph = try options.inputGraph()
+        try validateGraph(manifest: manifest, inputGraph: inputGraph)
+        try validateGeneratedSources(
+            manifest: manifest,
+            inputGraph: inputGraph,
+            preparedSourceURL: options.preparedSourceURL,
+            sourceMapURL: options.sourceMapURL
+        )
+        try validateArtifact(
+            manifest: manifest,
+            artifactURL: artifactURL,
+            identity: identity
+        )
+        return MojoArtifactValidation(
+            manifest: manifest,
+            inputGraph: inputGraph
+        )
+    }
+
+    private func validateSchemaAndPipeline(
+        manifest: MojoArtifactManifest
+    ) throws {
+        let supportedSchema = manifest.schemaVersion
+            == MojoArtifactManifest.currentSchemaVersion
+            || manifest.schemaVersion
+                == MojoArtifactManifest.legacySchemaVersion
+        guard supportedSchema else {
             throw MojoArtifactError.invalidManifest(
                 "unsupported schema version \(manifest.schemaVersion)"
             )
@@ -42,58 +139,215 @@ package struct MojoArtifactVerifier: Sendable {
                 "unsupported ABI version \(manifest.abiVersion)"
             )
         }
-        guard manifest.generationPipelineDigest == generationPipelineDigest else {
+        let expectedPipeline = manifest.schemaVersion
+            == MojoArtifactManifest.legacySchemaVersion
+            ? MojoGenerationPipeline.legacyDigest
+            : generationPipelineDigest
+        guard manifest.generationPipelineDigest == expectedPipeline else {
             throw MojoArtifactError.generationPipelineMismatch(
-                expected: generationPipelineDigest,
+                expected: expectedPipeline,
                 actual: manifest.generationPipelineDigest
             )
         }
-        guard manifest.target == options.target else {
-            throw MojoArtifactError.targetMismatch(
-                expectedTriple: manifest.target.triple,
-                expectedCPU: manifest.target.cpu,
-                actualTriple: options.target.triple,
-                actualCPU: options.target.cpu
+    }
+
+    private func validateTarget(
+        manifest: MojoArtifactManifest,
+        requested: MojoTargetConfiguration?
+    ) throws {
+        guard let requested else {
+            return
+        }
+        if manifest.schemaVersion == MojoArtifactManifest.legacySchemaVersion {
+            guard let prepared = manifest.target,
+                  prepared == requested else {
+                let prepared = manifest.target
+                throw MojoArtifactError.targetMismatch(
+                    expectedTriple: prepared?.triple ?? "missing",
+                    expectedCPU: prepared?.cpu ?? "missing",
+                    actualTriple: requested.triple,
+                    actualCPU: requested.cpu
+                )
+            }
+            return
+        }
+        guard manifest.effectiveSlices.contains(where: {
+            $0.target == requested
+        }) else {
+            let prepared = manifest.effectiveSlices
+                .map(\.target.identity).joined(separator: ", ")
+            throw MojoArtifactError.targetSliceMissing(
+                requested: requested.identity,
+                prepared: prepared
             )
         }
+    }
 
-        let graph = try MojoSourceGraph(sourceURLs: options.sourceURLs)
-        guard manifest.sourceGraphDigest == graph.digest,
-              manifest.sourceGraphIdentifier == graph.digestIdentifier else {
+    private func validateGraph(
+        manifest: MojoArtifactManifest,
+        inputGraph: MojoInputGraph
+    ) throws {
+        guard manifest.sourceGraphDigest == inputGraph.bindingGraph.digest,
+              manifest.sourceGraphIdentifier
+                == inputGraph.bindingGraph.digestIdentifier else {
             throw MojoArtifactError.sourceGraphMismatch(
                 expected: manifest.sourceGraphDigest,
-                actual: graph.digest
+                actual: inputGraph.bindingGraph.digest
             )
         }
-        guard manifest.bindings == graph.bindings.map(MojoArtifactManifest.Binding.init) else {
+        guard manifest.bindings
+                == inputGraph.bindingGraph.bindings.map(
+                    MojoArtifactManifest.Binding.init
+                ) else {
             throw MojoArtifactError.bindingGraphMismatch
         }
+        if manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion {
+            guard manifest.inputGraphDigest == inputGraph.digest,
+                  manifest.inputGraphIdentifier == inputGraph.digestIdentifier,
+                  manifest.externalPackages
+                    == inputGraph.externalPackages.map(\.manifestRecord) else {
+                throw MojoArtifactError.inputGraphMismatch(
+                    expected: manifest.inputGraphDigest ?? "missing",
+                    actual: inputGraph.digest
+                )
+            }
+        } else if !inputGraph.externalPackages.isEmpty {
+            throw MojoArtifactError.invalidManifest(
+                "schema-3 artifacts cannot verify external Mojo packages"
+            )
+        }
+    }
 
-        let archives = try Self.archiveURLs(in: options.artifactURL)
-        guard archives.count == 1 else {
+    private func validateGeneratedSources(
+        manifest: MojoArtifactManifest,
+        inputGraph: MojoInputGraph,
+        preparedSourceURL: URL,
+        sourceMapURL: URL
+    ) throws {
+        guard manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion else {
+            return
+        }
+        guard FileManager.default.fileExists(atPath: preparedSourceURL.path) else {
+            throw MojoArtifactError.generatedSourceMissing(
+                preparedSourceURL.path
+            )
+        }
+        guard FileManager.default.fileExists(atPath: sourceMapURL.path) else {
+            throw MojoArtifactError.sourceMapMissing(sourceMapURL.path)
+        }
+        try MojoRegularFile.validate(at: preparedSourceURL)
+        try MojoRegularFile.validate(at: sourceMapURL)
+        let sourceData = try Data(contentsOf: preparedSourceURL)
+        let data = try Data(contentsOf: sourceMapURL)
+        let sourceMap: MojoSourceMap
+        do {
+            sourceMap = try JSONDecoder().decode(MojoSourceMap.self, from: data)
+        } catch {
+            throw MojoArtifactError.invalidManifest(
+                "source map decode failed: \(error)"
+            )
+        }
+        let expected = renderer.render(
+            inputGraph: inputGraph,
+            identity: manifest.effectiveIdentity
+        )
+        let expectedSourceData = Data(expected.source.utf8)
+        let expectedSourceMapData = try expected.sourceMap.encode()
+        let sourceDigest = MojoCanonicalDigest.hex(sourceData)
+        let digest = MojoCanonicalDigest.hex(data)
+        guard manifest.generatedSourceDigest == sourceDigest,
+              sourceData == expectedSourceData else {
+            throw MojoArtifactError.generatedSourceMismatch(
+                expected: manifest.generatedSourceDigest ?? "missing",
+                actual: sourceDigest
+            )
+        }
+        guard manifest.sourceMapDigest == digest,
+              sourceMap.schemaVersion == MojoSourceMap.currentSchemaVersion,
+              sourceMap.inputGraphDigest == inputGraph.digest,
+              data == expectedSourceMapData else {
+            throw MojoArtifactError.sourceMapMismatch(
+                expected: manifest.sourceMapDigest ?? "missing",
+                actual: digest
+            )
+        }
+    }
+
+    private func validateArtifact(
+        manifest: MojoArtifactManifest,
+        artifactURL: URL,
+        identity: MojoArtifactIdentity
+    ) throws {
+        let archives = try Self.archiveURLs(
+            in: artifactURL,
+            identity: identity
+        )
+        let packagedLibraryCount = Set(
+            manifest.effectiveSlices.map(\.libraryIdentifier)
+        ).count
+        guard archives.count == packagedLibraryCount else {
             throw MojoArtifactError.artifactArchiveCount(archives.count)
         }
-        let digest = try MojoCanonicalDigest.tree(at: options.artifactURL)
+        if manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion {
+            let infoPlist = artifactURL.appendingPathComponent("Info.plist")
+            guard FileManager.default.fileExists(atPath: infoPlist.path) else {
+                throw MojoArtifactError.artifactInterfaceMissing(infoPlist.path)
+            }
+            for slice in manifest.effectiveSlices {
+                let sliceURL = artifactURL
+                    .appendingPathComponent(
+                        slice.libraryIdentifier,
+                        isDirectory: true
+                    )
+                let archiveURL = sliceURL
+                    .appendingPathComponent(identity.libraryName)
+                guard FileManager.default.fileExists(atPath: archiveURL.path) else {
+                    throw MojoArtifactError.sliceArchiveMissing(
+                        slice.target.identity
+                    )
+                }
+                let digest = try MojoCanonicalDigest.file(at: archiveURL)
+                guard digest == slice.archiveDigest else {
+                    throw MojoArtifactError.sliceArchiveDigestMismatch(
+                        target: slice.target.identity,
+                        expected: slice.archiveDigest,
+                        actual: digest
+                    )
+                }
+                let headersURL = sliceURL.appendingPathComponent(
+                    "Headers",
+                    isDirectory: true
+                )
+                for required in [
+                    headersURL.appendingPathComponent("module.modulemap"),
+                    headersURL.appendingPathComponent(
+                        "\(identity.moduleName).h"
+                    ),
+                ] where !FileManager.default.fileExists(atPath: required.path) {
+                    throw MojoArtifactError.artifactInterfaceMissing(
+                        required.path
+                    )
+                }
+            }
+            try MojoXCFrameworkInspector.validate(
+                artifactURL: artifactURL,
+                identity: identity,
+                slices: manifest.effectiveSlices
+            )
+        }
+        let digest = try MojoCanonicalDigest.tree(at: artifactURL)
         guard digest == manifest.artifactDigest else {
             throw MojoArtifactError.artifactDigestMismatch(
                 expected: manifest.artifactDigest,
                 actual: digest
             )
         }
-
-        try fileManager.createDirectory(
-            at: options.generatedSourceURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try registryWriter.source(manifest: manifest, graph: graph).write(
-            to: options.generatedSourceURL,
-            atomically: true,
-            encoding: .utf8
-        )
-        return manifest
     }
 
-    package static func archiveURLs(in artifactURL: URL) throws -> [URL] {
+    package static func archiveURLs(
+        in artifactURL: URL,
+        identity: MojoArtifactIdentity = .legacy
+    ) throws -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
             at: artifactURL,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -103,7 +357,7 @@ package struct MojoArtifactVerifier: Sendable {
         }
         var result: [URL] = []
         for case let url as URL in enumerator
-        where url.lastPathComponent == MojoStaticABI.libraryName {
+        where url.lastPathComponent == identity.libraryName {
             result.append(url)
         }
         return result.sorted { $0.path < $1.path }

@@ -150,7 +150,7 @@ private struct ArtifactFixture {
     let reversedSource = """
     @mojo
     func add(_ a: Int32, _ b: Int32) -> Int32 {
-        mojo { return b + a }
+        return b + a
     }
     """
 
@@ -184,7 +184,7 @@ private struct ArtifactFixture {
         let source = """
         @mojo
         func add(_ a: Int32, _ b: Int32) -> Int32 {
-            mojo { return a + b }
+            return a + b
         }
         """
         try source.write(to: sourceURL, atomically: true, encoding: .utf8)

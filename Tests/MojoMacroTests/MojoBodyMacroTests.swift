@@ -8,9 +8,7 @@ final class MojoBodyMacroTests: XCTestCase {
             """
             @mojo
             func add(_ a: Int32, _ b: Int32) -> Int32 {
-                mojo {
-                    return a + b
-                }
+                return a + b
             }
             """,
             expandedSource: """
@@ -30,22 +28,21 @@ final class MojoBodyMacroTests: XCTestCase {
         )
     }
 
-    func testArgumentsAreRejected() {
+    func testExternalBindingExpansionDoesNotAssumeAdditionSemantics() {
         assertMacroExpansion(
             """
-            @mojo(symbol: "swift_mojo_add", library: "MojoBindings")
-            func add(_ a: Int32, _ b: Int32) throws -> Int32
+            @mojo(package: "MathModel", function: "add")
+            func add(_ a: Int32, _ b: Int32) -> Int32
             """,
             expandedSource: """
-            func add(_ a: Int32, _ b: Int32) throws -> Int32
+            func add(_ a: Int32, _ b: Int32) -> Int32 {
+                return __SwiftMojoGeneratedBindings.invokeInt32Binary(
+                    bindingID: UInt64(788870723690667806),
+                    lhs: a,
+                    rhs: b
+                )
+            }
             """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "@mojo does not accept arguments; write Mojo code in the function's mojo block",
-                    line: 1,
-                    column: 1
-                ),
-            ],
             macros: ["mojo": MojoBodyMacro.self],
             indentationWidth: .spaces(4)
         )

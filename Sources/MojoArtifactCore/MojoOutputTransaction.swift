@@ -31,9 +31,15 @@ package struct MojoOutputTransaction: Sendable {
 
     package func isManaged(_ outputURL: URL) -> Bool {
         do {
-            let contents = try Data(
-                contentsOf: outputURL.appendingPathComponent(Self.markerName)
+            let markerURL = outputURL.appendingPathComponent(Self.markerName)
+            let values = try markerURL.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
             )
+            guard values.isRegularFile == true,
+                  values.isSymbolicLink != true else {
+                return false
+            }
+            let contents = try Data(contentsOf: markerURL)
             return contents == Self.markerContents
         } catch {
             return false

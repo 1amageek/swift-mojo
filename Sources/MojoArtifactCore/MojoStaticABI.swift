@@ -1,8 +1,13 @@
 package enum MojoStaticABI {
     package static let version: UInt32 = 1
-    package static let moduleName = "GeneratedMojoABI"
-    package static let artifactName = "GeneratedMojoABI.xcframework"
+    package static let legacyModuleName = "GeneratedMojoABI"
+    package static let legacyArtifactName = "GeneratedMojoABI.xcframework"
     package static let manifestName = "MojoArtifact.json"
+    package static let generatedMojoSourceName = "Bindings.mojo"
+    package static let sourceMapName = "MojoSourceMap.json"
     package static let generatedSourceName = "SwiftMojoBindings.generated.swift"
-    package static let libraryName = "libGeneratedMojoABI.a"
+    package static let legacyLibraryName = "libGeneratedMojoABI.a"
+    package static let moduleName = legacyModuleName
+    package static let artifactName = legacyArtifactName
+    package static let libraryName = legacyLibraryName
 }

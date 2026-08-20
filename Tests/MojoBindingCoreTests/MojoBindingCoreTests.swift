@@ -10,16 +10,14 @@ struct MojoBindingCoreTests {
             source: """
             @mojo
             func add(_ a: Int32, _ b: Int32) -> Int32 {
-                mojo {
-                    return a + b
-                }
+                return a + b
             }
             """
         )
         let reformatted = try graph(
             source: """
             @mojo()
-            func add(_ a: Int32, _ b: Int32) -> Int32 { mojo { return a+b } }
+            func add(_ a: Int32, _ b: Int32) -> Int32 { return a+b }
             """
         )
 
@@ -27,7 +25,7 @@ struct MojoBindingCoreTests {
         #expect(first.digestIdentifier == reformatted.digestIdentifier)
         #expect(first.bindings.count == 1)
         #expect(first.bindings[0].functionName == "add")
-        #expect(first.bindings[0].operation == .addForward)
+        #expect(first.bindings[0].implementation == .inline(.addForward))
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -36,7 +34,7 @@ struct MojoBindingCoreTests {
             source: """
             @mojo
             func add(_ a: Int32, _ b: Int32) -> Int32 {
-                mojo { return a + b }
+                return a + b
             }
             """
         )
@@ -44,7 +42,7 @@ struct MojoBindingCoreTests {
             source: """
             @mojo
             func add(_ a: Int32, _ b: Int32) -> Int32 {
-                mojo { return b + a }
+                return b + a
             }
             """
         )
@@ -64,7 +62,7 @@ struct MojoBindingCoreTests {
                 source: """
                 @mojo
                 func subtract(_ a: Int32, _ b: Int32) -> Int32 {
-                    mojo { return a - b }
+                    return a - b
                 }
                 """
             )
@@ -77,17 +75,51 @@ struct MojoBindingCoreTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func externalBindingIsNotPartOfInlineSourceGraph() throws {
+    func externalBindingProducesCanonicalImplementationIdentity() throws {
+        let external = try graph(
+            source: """
+            @mojo(package: "MathModel", function: "add")
+            func add(_ a: Int32, _ b: Int32) -> Int32
+            """
+        )
+
+        #expect(
+            external.bindings[0].implementation
+                == .external(package: "MathModel", function: "add")
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func externalBindingRejectsReservedMojoIdentifiers() throws {
         do {
             _ = try graph(
                 source: """
-                @mojo(symbol: "swift_mojo_add")
-                func add(_ a: Int32, _ b: Int32) throws -> Int32
+                @mojo(package: "MathModel", function: "return")
+                func add(_ a: Int32, _ b: Int32) -> Int32
                 """
             )
-            Issue.record("External binding unexpectedly entered inline graph")
+            Issue.record("Reserved Mojo identifier unexpectedly succeeded")
         } catch let error as MojoBindingError {
-            #expect(error == .noBindings)
+            #expect(
+                error == .unsupportedExternalFunctionName("return")
+            )
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func externalBindingRejectsKeywordOperatorIdentifiers() throws {
+        do {
+            _ = try graph(
+                source: """
+                @mojo(package: "MathModel", function: "and")
+                func add(_ a: Int32, _ b: Int32) -> Int32
+                """
+            )
+            Issue.record("Mojo keyword unexpectedly succeeded")
+        } catch let error as MojoBindingError {
+            #expect(
+                error == .unsupportedExternalFunctionName("and")
+            )
         }
     }
 
@@ -99,7 +131,7 @@ struct MojoBindingCoreTests {
                 #if DEBUG
                 @mojo
                 func add(_ a: Int32, _ b: Int32) -> Int32 {
-                    mojo { return a + b }
+                    return a + b
                 }
                 #endif
                 """
@@ -118,9 +150,9 @@ struct MojoBindingCoreTests {
                 @mojo
                 func add(_ a: Int32, _ b: Int32) -> Int32 {
                     #if DEBUG
-                    mojo { return a + b }
+                    return a + b
                     #else
-                    mojo { return b + a }
+                    return b + a
                     #endif
                 }
                 """
@@ -128,6 +160,81 @@ struct MojoBindingCoreTests {
             Issue.record("Conditional binding body unexpectedly succeeded")
         } catch let error as MojoBindingError {
             #expect(error == .conditionalCompilationUnsupported)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func memberBindingIsRejectedUntilIdentityIncludesTypeContext() throws {
+        do {
+            _ = try graph(
+                source: """
+                struct Math {
+                    @mojo
+                    func add(_ a: Int32, _ b: Int32) -> Int32 {
+                        return a + b
+                    }
+                }
+                """
+            )
+            Issue.record("Member binding unexpectedly succeeded")
+        } catch let error as MojoBindingError {
+            #expect(error == .nonFileScopeUnsupported)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func malformedSwiftSourceIsRejectedBeforeBindingExtraction() throws {
+        do {
+            _ = try graph(
+                source: """
+                @mojo
+                func add(_ a: Int32, _ b: Int32) -> Int32 {
+                    return a + b
+                """
+            )
+            Issue.record("Malformed Swift source unexpectedly succeeded")
+        } catch let error as MojoBindingError {
+            guard case .invalidSwiftSyntax(
+                file: "Bindings.swift",
+                diagnosticCount: let count
+            ) = error else {
+                Issue.record("Unexpected binding error: \(error)")
+                return
+            }
+            #expect(count > 0)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func symbolicLinkSwiftSourceIsRejected() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        let source = root.appendingPathComponent("Actual.swift")
+        let link = root.appendingPathComponent("Bindings.swift")
+        try """
+        @mojo
+        func add(_ a: Int32, _ b: Int32) -> Int32 {
+            return a + b
+        }
+        """.write(to: source, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(at: link, withDestinationURL: source)
+        defer {
+            do {
+                try fileManager.removeItem(at: root)
+            } catch {
+                Issue.record("Failed to remove symbolic source fixture: \(error)")
+            }
+        }
+
+        #expect(throws: MojoBindingError.invalidSourceFile(link.path)) {
+            _ = try MojoSourceGraph(sourceURLs: [link])
         }
     }
 

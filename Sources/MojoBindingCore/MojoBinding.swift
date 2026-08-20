@@ -16,17 +16,35 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         }
     }
 
+    package enum Implementation: Codable, Equatable, Sendable {
+        case inline(Operation)
+        case external(package: String, function: String)
+
+        package var canonicalRecord: String {
+            switch self {
+            case .inline(let operation):
+                "inline:\(operation.rawValue)"
+            case .external(let package, let function):
+                "external:\(package).\(function)"
+            }
+        }
+    }
+
     package static let schemaVersion = 1
 
     package let bindingID: UInt64
     package let functionName: String
     package let lhsName: String
     package let rhsName: String
-    package let operation: Operation
+    package let implementation: Implementation
     package let abiDigest: String
     package let implementationDigest: String
+    package let sourceReference: MojoSourceReference?
 
-    package init(function: FunctionDeclSyntax) throws {
+    package init(
+        function: FunctionDeclSyntax,
+        sourceReference: MojoSourceReference? = nil
+    ) throws {
         guard !Self.containsConditionalCompilation(in: Syntax(function)) else {
             throw MojoBindingError.conditionalCompilationUnsupported
         }
@@ -62,24 +80,31 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             throw MojoBindingError.unsupportedSignature
         }
 
-        let operation = try Self.operation(
+        let implementation = try Self.implementation(
             function: function,
             lhsName: lhsName,
             rhsName: rhsName
         )
         let abiKey = "swift-mojo-binding-v1|\(functionName)|(Int32,Int32)->Int32"
-        let implementationKey = "\(abiKey)|operation=\(operation.rawValue)"
+        let implementationKey: String
+        switch implementation {
+        case .inline(let operation):
+            implementationKey = "\(abiKey)|operation=\(operation.rawValue)"
+        case .external:
+            implementationKey = "\(abiKey)|\(implementation.canonicalRecord)"
+        }
 
         self.bindingID = MojoCanonicalDigest.identifier(abiKey)
         self.functionName = functionName
         self.lhsName = lhsName
         self.rhsName = rhsName
-        self.operation = operation
+        self.implementation = implementation
         self.abiDigest = MojoCanonicalDigest.hex(abiKey)
         self.implementationDigest = MojoCanonicalDigest.hex(implementationKey)
+        self.sourceReference = sourceReference
     }
 
-    package static func isInlineMojoFunction(
+    package static func isMojoFunction(
         _ function: FunctionDeclSyntax
     ) -> Bool {
         function.attributes.contains { element in
@@ -87,13 +112,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                   attribute.attributeName.trimmedDescription == "mojo" else {
                 return false
             }
-            guard let arguments = attribute.arguments else {
-                return true
-            }
-            if case .argumentList(let list) = arguments {
-                return list.isEmpty
-            }
-            return false
+            return true
         }
     }
 
@@ -107,36 +126,98 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         ].joined(separator: "|")
     }
 
-    package var mojoExpression: String {
-        operation.mojoExpression(lhs: "lhs", rhs: "rhs")
+    package var requiresCheckedAddition: Bool {
+        if case .inline = implementation {
+            return true
+        }
+        return false
     }
 
-    private static func operation(
+    private static func implementation(
         function: FunctionDeclSyntax,
         lhsName: String,
         rhsName: String
-    ) throws -> Operation {
-        guard let body = function.body,
-              body.statements.count == 1,
-              let call = body.statements.first?.item.as(FunctionCallExprSyntax.self),
-              call.calledExpression.trimmedDescription == "mojo",
-              call.arguments.isEmpty,
-              call.additionalTrailingClosures.isEmpty,
-              let closure = call.trailingClosure,
-              closure.statements.count == 1,
-              let returnStatement = closure.statements.first?.item.as(ReturnStmtSyntax.self),
-              let expression = returnStatement.expression?.trimmedDescription else {
-            throw MojoBindingError.missingInlineBody
+    ) throws -> Implementation {
+        let arguments = try mojoArguments(function: function)
+        if !arguments.isEmpty {
+            guard arguments.count == 2,
+                  let package = arguments["package"],
+                  let externalFunction = arguments["function"] else {
+                throw MojoBindingError.invalidExternalArguments
+            }
+            guard MojoPortableIdentifier.isValid(package) else {
+                throw MojoBindingError.unsupportedPackageName(package)
+            }
+            guard MojoPortableIdentifier.isValid(externalFunction) else {
+                throw MojoBindingError.unsupportedExternalFunctionName(
+                    externalFunction
+                )
+            }
+            guard function.body == nil || function.body?.statements.isEmpty == true else {
+                throw MojoBindingError.externalBodyUnsupported
+            }
+            return .external(
+                package: package,
+                function: externalFunction
+            )
         }
+
+        let expression = try inlineExpression(function: function)
 
         let compact = expression.filter { !$0.isWhitespace }
         if compact == "\(lhsName)+\(rhsName)" {
-            return .addForward
+            return .inline(.addForward)
         }
         if compact == "\(rhsName)+\(lhsName)" {
-            return .addReversed
+            return .inline(.addReversed)
         }
         throw MojoBindingError.unsupportedExpression(expression)
+    }
+
+    private static func inlineExpression(
+        function: FunctionDeclSyntax
+    ) throws -> String {
+        guard let body = function.body,
+              body.statements.count == 1 else {
+            throw MojoBindingError.missingInlineBody
+        }
+        if let returnStatement = body.statements.first?.item.as(
+            ReturnStmtSyntax.self
+        ), let expression = returnStatement.expression?.trimmedDescription {
+            return expression
+        }
+        throw MojoBindingError.missingInlineBody
+    }
+
+    private static func mojoArguments(
+        function: FunctionDeclSyntax
+    ) throws -> [String: String] {
+        guard let attribute = function.attributes.compactMap({ element in
+            element.as(AttributeSyntax.self)
+        }).first(where: {
+            $0.attributeName.trimmedDescription == "mojo"
+        }), let arguments = attribute.arguments else {
+            return [:]
+        }
+        guard case .argumentList(let list) = arguments else {
+            throw MojoBindingError.invalidExternalArguments
+        }
+
+        var values: [String: String] = [:]
+        for argument in list {
+            guard let label = argument.label?.text,
+                  let literal = argument.expression.as(
+                    StringLiteralExprSyntax.self
+                  ),
+                  literal.segments.count == 1,
+                  let segment = literal.segments.first?.as(
+                    StringSegmentSyntax.self
+                  ),
+                  values.updateValue(segment.content.text, forKey: label) == nil else {
+                throw MojoBindingError.invalidExternalArguments
+            }
+        }
+        return values
     }
 
     private static func isInt32Parameter(

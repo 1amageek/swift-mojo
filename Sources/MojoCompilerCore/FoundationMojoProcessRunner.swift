@@ -220,7 +220,7 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
                         )
                     }
                 }
-                posix_spawn(
+                return posix_spawn(
                     &processID,
                     executable,
                     &actions,

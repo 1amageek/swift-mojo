@@ -1,5 +1,6 @@
 import Foundation
 import SwiftParser
+import SwiftParserDiagnostics
 import SwiftSyntax
 
 package struct MojoSourceGraph: Equatable, Sendable {
@@ -29,14 +30,42 @@ package struct MojoSourceGraph: Equatable, Sendable {
         self.digestIdentifier = MojoCanonicalDigest.identifier(canonical)
     }
 
-    package init(sourceURLs: [URL]) throws {
+    package init(
+        sourceURLs: [URL],
+        sourceRootURL: URL? = nil
+    ) throws {
         var bindings: [MojoBinding] = []
         for sourceURL in sourceURLs.sorted(by: { $0.path < $1.path }) {
+            let values = try sourceURL.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+            )
+            guard values.isRegularFile == true,
+                  values.isSymbolicLink != true else {
+                throw MojoBindingError.invalidSourceFile(sourceURL.path)
+            }
             let source = try String(contentsOf: sourceURL, encoding: .utf8)
             let sourceFile = Parser.parse(source: source)
+            let sourceIdentity = Self.sourceIdentity(
+                for: sourceURL,
+                rootURL: sourceRootURL
+            )
+            let diagnostics = ParseDiagnosticsGenerator.diagnostics(
+                for: sourceFile
+            )
+            guard diagnostics.isEmpty else {
+                throw MojoBindingError.invalidSwiftSyntax(
+                    file: sourceIdentity,
+                    diagnosticCount: diagnostics.count
+                )
+            }
+            let converter = SourceLocationConverter(
+                fileName: sourceIdentity,
+                tree: sourceFile
+            )
             try Self.collectBindings(
                 in: Syntax(sourceFile),
                 isConditionallyCompiled: false,
+                converter: converter,
                 into: &bindings
             )
         }
@@ -46,14 +75,30 @@ package struct MojoSourceGraph: Equatable, Sendable {
     private static func collectBindings(
         in syntax: Syntax,
         isConditionallyCompiled: Bool,
+        converter: SourceLocationConverter,
         into bindings: inout [MojoBinding]
     ) throws {
         if let function = syntax.as(FunctionDeclSyntax.self),
-           MojoBinding.isInlineMojoFunction(function) {
+           MojoBinding.isMojoFunction(function) {
             guard !isConditionallyCompiled else {
                 throw MojoBindingError.conditionalCompilationUnsupported
             }
-            bindings.append(try MojoBinding(function: function))
+            guard Self.isFileScope(function) else {
+                throw MojoBindingError.nonFileScopeUnsupported
+            }
+            let location = converter.location(
+                for: function.positionAfterSkippingLeadingTrivia
+            )
+            bindings.append(
+                try MojoBinding(
+                    function: function,
+                    sourceReference: MojoSourceReference(
+                        file: location.file,
+                        line: location.line,
+                        column: location.column
+                    )
+                )
+            )
             return
         }
         let childIsConditionallyCompiled = isConditionallyCompiled
@@ -62,8 +107,40 @@ package struct MojoSourceGraph: Equatable, Sendable {
             try collectBindings(
                 in: child,
                 isConditionallyCompiled: childIsConditionallyCompiled,
+                converter: converter,
                 into: &bindings
             )
         }
+    }
+
+    private static func sourceIdentity(
+        for sourceURL: URL,
+        rootURL: URL?
+    ) -> String {
+        guard let rootURL else {
+            return sourceURL.lastPathComponent
+        }
+        let rootPath = rootURL.standardizedFileURL.path
+        let sourcePath = sourceURL.standardizedFileURL.path
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard sourcePath.hasPrefix(prefix) else {
+            return sourceURL.lastPathComponent
+        }
+        return String(sourcePath.dropFirst(prefix.count))
+    }
+
+    private static func isFileScope(_ function: FunctionDeclSyntax) -> Bool {
+        var ancestor = Syntax(function).parent
+        while let current = ancestor {
+            if current.is(MemberBlockSyntax.self)
+                || current.is(CodeBlockSyntax.self) {
+                return false
+            }
+            if current.is(SourceFileSyntax.self) {
+                return true
+            }
+            ancestor = current.parent
+        }
+        return false
     }
 }

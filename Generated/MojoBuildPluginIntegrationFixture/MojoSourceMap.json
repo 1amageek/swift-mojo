@@ -1,0 +1,16 @@
+{
+  "entries" : [
+    {
+      "bindingID" : 4309807554310999824,
+      "generatedLine" : 22,
+      "source" : {
+        "column" : 1,
+        "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
+        "line" : 3
+      }
+    }
+  ],
+  "generatedFile" : "Bindings.mojo",
+  "inputGraphDigest" : "2015a278be4e7ba02bc0e3ab7a4041d371ad833318087055a8eda07376579645",
+  "schemaVersion" : 1
+}

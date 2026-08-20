@@ -5,6 +5,16 @@ import Testing
 @Suite("SwiftPM package layout")
 struct MojoPackageLayoutTests {
     @Test(.timeLimit(.minutes(1)))
+    func normalizedTargetNamesHaveDistinctArtifactIdentities() throws {
+        let hyphenated = try MojoArtifactIdentity(targetName: "Model-Core")
+        let underscored = try MojoArtifactIdentity(targetName: "Model_Core")
+
+        #expect(hyphenated.moduleName != underscored.moduleName)
+        #expect(hyphenated.artifactName != underscored.artifactName)
+        #expect(hyphenated.symbolPrefix != underscored.symbolPrefix)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func discoversRecursiveSwiftSourcesInStableOrder() throws {
         try withPackageFixture { root in
             let nested = root.appendingPathComponent(
@@ -53,7 +63,7 @@ struct MojoPackageLayoutTests {
             )
             #expect(
                 layout.binaryTargetRelativePath
-                    == "Generated/Application/GeneratedMojoABI.xcframework"
+                    == "Generated/Application/SwiftMojo_Application_ABI.xcframework"
             )
         }
     }

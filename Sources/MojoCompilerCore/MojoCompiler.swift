@@ -32,7 +32,8 @@ package struct MojoCompiler {
     package func compileObject(
         inputPath: String,
         outputPath: String,
-        target: MojoTargetConfiguration
+        target: MojoTargetConfiguration,
+        importSearchPaths: [String] = []
     ) throws -> String {
         let fileManager = FileManager.default
         try fileManager.createDirectory(
@@ -42,13 +43,20 @@ package struct MojoCompiler {
         if fileManager.fileExists(atPath: outputPath) {
             try fileManager.removeItem(atPath: outputPath)
         }
-        let arguments = [
+        var arguments = [
             "build",
             "--emit", "object",
-        ] + target.compilerArguments + [
+        ] + target.compilerArguments
+        for path in importSearchPaths.sorted() {
+            guard NSString(string: path).isAbsolutePath else {
+                throw MojoCompilerToolError.importSearchPathMustBeAbsolute(path)
+            }
+            arguments.append(contentsOf: ["-I", path])
+        }
+        arguments.append(contentsOf: [
             "-o", outputPath,
             inputPath,
-        ]
+        ])
         let result = try execute(arguments: arguments)
         guard fileManager.fileExists(atPath: outputPath) else {
             throw MojoCompilerToolError.artifactNotProduced(outputPath)

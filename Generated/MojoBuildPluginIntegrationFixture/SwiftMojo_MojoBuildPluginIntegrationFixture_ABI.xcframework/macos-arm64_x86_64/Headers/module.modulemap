@@ -1,0 +1,4 @@
+module SwiftMojo_MojoBuildPluginIntegrationFixture_ABI {
+    header "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.h"
+    export *
+}

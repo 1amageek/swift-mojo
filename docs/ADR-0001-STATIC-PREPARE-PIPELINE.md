@@ -1,12 +1,12 @@
 # ADR-0001: Offline prepare and verified static artifacts
 
-- Status: Accepted
+- Status: Accepted for the static pipeline; artifact details superseded by ADR-0003
 - Date: 2026-08-20
 - Scope: P1 arm64 macOS pipeline
 
 ## Context
 
-`@mojo func ... { mojo { ... } }` を通常のSwift functionとして使うには、次を同時に満たす必要があります。
+`@mojo func ... { return ... }` を通常のSwift functionとして使うには、次を同時に満たす必要があります。
 
 - macroとMojo generatorが同じbody semanticsを使う。
 - Mojo compiler outputがSwift linkへ参加する。
@@ -59,8 +59,8 @@ Normal build
 
 - developerはimplementation変更後に明示 `prepare` が必要。
 - generated binary artifactをrepositoryへcommitする必要がある。
-- P1はfixed generated module名のため1 package/1 Mojo target。
-- P1 XCFrameworkはarm64 macOS sliceだけで、generic universal archiveは失敗する。
+- schema-3 baselineはfixed generated module名のため1 package/1 Mojo target。
+- schema-3 baselineのXCFrameworkはarm64 macOS sliceだけで、generic universal archiveは失敗する。
 - compiler CLIのinstallation/distributionは別途必要。
 - source-built executableはSwiftPM prebuild commandに使えないため、verifyは通常build commandである。
 

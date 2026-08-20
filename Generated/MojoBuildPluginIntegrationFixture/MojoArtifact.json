@@ -1,0 +1,49 @@
+{
+  "abiVersion" : 1,
+  "artifactDigest" : "117442f5358fe777665c5927ac0490c4bbb5a08245b9ff4fb6a38232dd97b761",
+  "artifactIdentity" : {
+    "artifactName" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework",
+    "libraryName" : "libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a",
+    "moduleName" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
+    "symbolPrefix" : "swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6",
+    "targetName" : "MojoBuildPluginIntegrationFixture"
+  },
+  "bindings" : [
+    {
+      "abiDigest" : "bbcf8322e5008f10a4b8ce248ec74b44fb8e6449da314d49c3f6b155b994a946",
+      "bindingID" : 4309807554310999824,
+      "functionName" : "integrationAdd",
+      "implementationDigest" : "5a7d70ba2c27ecb73b73bbf94e2fbbbbc3f7dd452dd48c26cc6bb7d825ae1c4c"
+    }
+  ],
+  "compilerVersion" : "Mojo 1.0.0 (ed45d567)",
+  "externalPackages" : [
+
+  ],
+  "generatedSourceDigest" : "248ef8f0a5cc5210893f87082bed26492d3659d1c30ee34b17f3e89dea5de21d",
+  "generationPipelineDigest" : "9663f12deb5cb466972f7179445f229676dfc7cea813a10ec303600481735dab",
+  "inputGraphDigest" : "2015a278be4e7ba02bc0e3ab7a4041d371ad833318087055a8eda07376579645",
+  "inputGraphIdentifier" : 2311932623197207456,
+  "schemaVersion" : 4,
+  "slices" : [
+    {
+      "archiveDigest" : "733eacc906025d154d1723f270aac05675ab7e072d582f193b29d19a044dc31b",
+      "libraryIdentifier" : "macos-arm64_x86_64",
+      "target" : {
+        "cpu" : "generic",
+        "triple" : "arm64-apple-macosx14.0"
+      }
+    },
+    {
+      "archiveDigest" : "733eacc906025d154d1723f270aac05675ab7e072d582f193b29d19a044dc31b",
+      "libraryIdentifier" : "macos-arm64_x86_64",
+      "target" : {
+        "cpu" : "x86-64",
+        "triple" : "x86_64-apple-macosx14.0"
+      }
+    }
+  ],
+  "sourceGraphDigest" : "22951134781d84cb29ba844e3a3c5af5be7f5a4e5ad14e451aeca2ff697dd3e6",
+  "sourceGraphIdentifier" : 2491916885870609611,
+  "sourceMapDigest" : "b682c04eb4da0f229236844ec59b831d0bef876a2448f4fee609ebfd1b6d3e45"
+}

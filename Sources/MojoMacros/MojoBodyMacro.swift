@@ -12,16 +12,21 @@ public struct MojoBodyMacro: BodyMacro {
         guard let function = declaration.as(FunctionDeclSyntax.self) else {
             throw MojoMacroError.onlyFunctions
         }
-        guard Self.isArgumentFree(attribute: node) else {
-            throw MojoMacroError.argumentsUnsupported
+        guard context.lexicalContext.isEmpty else {
+            throw MojoBindingError.nonFileScopeUnsupported
         }
         let binding = try MojoBinding(function: function)
-        return [
-            """
-            guard !\(raw: binding.lhsName).addingReportingOverflow(\(raw: binding.rhsName)).overflow else {
-                fatalError("Inline @mojo Int32 addition overflowed")
-            }
-            """,
+        var body: [CodeBlockItemSyntax] = []
+        if binding.requiresCheckedAddition {
+            body.append(
+                """
+                guard !\(raw: binding.lhsName).addingReportingOverflow(\(raw: binding.rhsName)).overflow else {
+                    fatalError("Inline @mojo Int32 addition overflowed")
+                }
+                """
+            )
+        }
+        body.append(
             """
             return __SwiftMojoGeneratedBindings.invokeInt32Binary(
                 bindingID: UInt64(\(raw: String(binding.bindingID))),
@@ -29,16 +34,7 @@ public struct MojoBodyMacro: BodyMacro {
                 rhs: \(raw: binding.rhsName)
             )
             """
-        ]
-    }
-
-    private static func isArgumentFree(attribute: AttributeSyntax) -> Bool {
-        guard let arguments = attribute.arguments else {
-            return true
-        }
-        if case .argumentList(let list) = arguments {
-            return list.isEmpty
-        }
-        return false
+        )
+        return body
     }
 }

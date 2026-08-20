@@ -7,11 +7,11 @@
 | Phase | Outcome | Status |
 |---|---|---|
 | 0 — Foundation | 要件、責務境界、package skeleton | Complete |
-| 1 — Exact-syntax scalar PoC | `@mojo { mojo {} }` から実Mojo静的実行 | Hardening implemented; revalidation pending |
-| 2 — DSL and diagnostics | scalar DSL拡張、source-located diagnostics、inspection | Planned |
+| 1 — Exact-syntax scalar PoC | direct `@mojo func ... { return ... }` から実Mojo静的実行 | Complete for the macOS scalar contract |
+| 2 — DSL and diagnostics | scalar DSL拡張、source-located diagnostics、inspection | Inspection verified; real diagnostic mapping and DSL expansion planned |
 | 3 — Types and ownership | buffers、strings、records、error envelope | Planned |
 | 4 — Async and callbacks | cancellation、completion、shutdown、reverse bridge | Research/Planned |
-| 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | Planned |
+| 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean scalar consumer verified; model/distribution work remains |
 | 6 — GPU compute | device/buffer/event/transfer contracts | Research |
 | 7 — Full inline Mojo syntax decision | custom input/preprocessor/compiler integration | Research |
 
@@ -49,16 +49,14 @@ Phase 0で作った旧dynamic PoCは、Phase 1の理想的な静的経路と競�
 
 **Estimate:** 1–2 weeks
 
-**Status:** G1–G8のbaseline evidenceあり。G9 hardening実装後のarm64 macOS revalidation pending
+**Status:** Complete for the current macOS `(Int32, Int32) -> Int32` contract
 
 Target usage:
 
 ```swift
 @mojo
 func add(_ a: Int32, _ b: Int32) -> Int32 {
-    mojo {
-        return a + b
-    }
+    return a + b
 }
 ```
 
@@ -66,7 +64,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Artifact:** `MojoBindingCore`
 
-**Status:** Implemented; current hardening revalidation pending
+**Status:** Verified
 
 - SwiftSyntaxからP1 signature/bodyを解析。
 - allowlisted operationだけをIRへ格納。
@@ -75,14 +73,14 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 ### G2 — Exact body macro
 
-**Artifact:** public argument-free `@mojo` + `MojoBodyMacro`
+**Artifact:** inline/external `@mojo` + `MojoBodyMacro`
 
 **Depends on:** G1
 
-**Status:** Implemented; current hardening revalidation pending
+**Status:** Verified
 
 - 元bodyをcanonical binding IDを使うSwift thunkへ置換。
-- macro argument、unsupported declaration/bodyを拒否。
+- unknown macro argument、unsupported declaration/bodyを拒否。
 - macro内でfile/process I/Oを行わない。
 
 ### G3 — Deterministic Mojo source generation
@@ -91,7 +89,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G1
 
-**Status:** Implemented; current hardening revalidation pending
+**Status:** Verified
 
 - fixed ABI version/source graph/membership/dispatcher exportsを生成。
 - IR operationからMojo expressionを生成し、foreign textをpassthroughしない。
@@ -105,11 +103,11 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G3
 
-**Status:** Implemented; current hardening revalidation pending
+**Status:** Verified
 
 - Mojo 1.0 `--emit object` を実行。
 - explicit target triple/CPU。
-- schema 3 manifest、generation pipeline identity、XCFramework tree digest。
+- schema 4 manifest、target identity、canonical generated Mojo/source map digests、generation pipeline identity、XCFramework tree digest。
 - output-scoped interprocess lock、typed lease、versioned marker、staging、backup/restore transaction。
 - complete cache matchでmtimeを変えず再利用。
 - subprocessはdedicated process group、deadline、TERM/KILL/reapを持つ。
@@ -120,7 +118,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G1、G4
 
-**Status:** Implemented; current hardening revalidation pending
+**Status:** Verified
 
 - schema、ABI、compiler metadata、target、source graph、bindingsを照合。
 - XCFramework全regular fileのcanonical digestを照合。
@@ -132,7 +130,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G2、G5
 
-**Status:** Implemented; current hardening revalidation pending
+**Status:** Verified
 
 - pluginはsource-built executableを使う通常build commandとしてverifyを実行。
 - Swift sources、manifest、XCFramework rootと全descendant file/directoryをrequired inputsへ登録。
@@ -148,7 +146,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G4、G6
 
-**Status:** Implemented; current hardening revalidation pending
+**Status:** Verified
 
 - `--package-root` / `--target` でrecursive Swift source discovery。
 - `Package.swift` とtarget source directoryを検証。
@@ -163,17 +161,18 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G1–G7
 
-**Status:** Previous baseline complete; current hardening tree requires rerun
+**Status:** Verified on the current schema-4 tree
 
 - real Mojo `1.0.0 (ed45d567)` compile。
 - Xcode build + plugin + macro + static link。
 - `add(20, 22) == 42`。
 - final Mach-Oに4つのfixed ABI symbols。
 - Mojo dylib dependencyなし。
-- arm64 Debug Xcode archive成功。
-- archiveから別directoryへcopyしたexecutableも `42`。
-- generic universal archiveはunsupported x86_64を明示的に拒否。
-- unit、macro、compiler、artifact、plugin integrationの23 testsをbounded `xcodebuild test` で実行した履歴。
+- real external Mojo package import、prepare、release、static execution。
+- arm64 `generic` とx86_64 `x86-64` objectを1つのuniversal archiveへ統合。
+- release packageから別directoryへ移設したclean consumerがMojo compilerなしでbuild/link/runし `42`。
+- final consumer Mach-Oにtarget-scoped ABI symbolsが4つ存在し、Mojo dylib dependencyなし。
+- 68 testsのfull package suiteとfocused unit/integration suiteをbounded `xcodebuild test` で各3回実行。
 
 ### G9 — Correctness and developer-experience hardening
 
@@ -181,19 +180,19 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G1–G8
 
-**Status:** Implemented; execution pending
+**Status:** Verified
 
 - checked `Int32` overflowとconditional compilation rejection。
 - generation component versionsを合成したpipeline digestでcacheとverifyをinvalidate。
 - XCFramework内部のfile overwriteとdirectory entry変更をbuild graphへ反映。
 - cache readからcommitまでをinterprocess lockで直列化。
 - compiler/build subprocessをprocess group単位でtimeout、terminate、kill、reap。
-- 通常30 testsと、`SWIFT_MOJO_REAL_ACCEPTANCE=1`で有効になるreal Mojo testを定義。
-- real Mojo testはprepare、plugin、macro、static link、`42`、overflow trapを同じartifactで検証。
+- normal suite内のcommitted schema-4 integration targetがplugin、macro、static link、`42`をcompiler-freeに毎回検証。
+- `scripts/release-acceptance.sh` がreal Mojo external package、2-slice packaging、release gate、relocation、static symbols、no-dylib、`42`を独立して検証。
 
-G9は実装のみではcompleteにしません。通常suiteとreal Mojo suiteを実行し、warm nested-artifact mutation、concurrent output access、timeout後のdescendant消滅を観測してからP1全体を再びCompleteへ戻します。
+通常suite、artifact mutation、concurrent output access、bounded process ownership、real Mojo release acceptanceを実行済みです。nested fresh consumer内でSwiftSyntaxを毎回cold compileしていた旧integration testは、製品経路ではなく依存再構築が100秒を超えたため廃止しました。現在は通常package graph内のintegration fixtureと独立release acceptanceへ責務を分離しています。
 
-Cold Release archiveはSwiftSyntaxのhost-side compileがボトルネックとなり、2回の120秒制限内には完了しませんでした。P1 acceptanceはDebug archiveで満たしていますが、Release cold-build時間はPhase 2で計測・改善するdeveloper-experience課題です。
+Historicalなcold Release archiveはSwiftSyntaxのhost-side compileがボトルネックとなり、2回の120秒制限内には完了しませんでした。このconfigurationは再計測しておらずpassとは扱いません。current P1 correctnessはschema-4 release gate、universal static artifact、normal Xcode graph、compiler-free relocated consumerで閉じていますが、Release cold-build時間はPhase 2で計測・改善するdeveloper-experience課題です。
 
 ## 4. Phase 2 — DSL expansion and diagnostics
 
@@ -207,8 +206,8 @@ Candidate semantics:
 - immutable local bindings。
 - comparison and explicit conditional expressions/statements。
 - bounded loops with statically understood ownership。
-- generated Mojo inspection command。
-- Mojo compiler diagnosticからSwiftSyntax rangeへのsource map。
+- generated Mojo inspection command（implemented and executed）。
+- Mojo compiler diagnosticからSwiftSyntax rangeへのsource map（line mapping implemented、real diagnostic acceptance pending）。
 
 Verification loop:
 
@@ -274,19 +273,22 @@ Verification:
 
 **Depends on:** source-graph work may start after Phase 2; complete distribution acceptance depends on Phase 3 and may run beside Phase 4 after ABI freeze
 
+**Status:** scalar bridge、real external package、arm64/x86_64 universal packaging、build/release verification、compiler-free clean consumerはverified。two-target link、remote distribution、model inferenceはpending
+
 Deliverables:
 
-- model implementationを独立したSwift Packageとして表すpackage/source manifest。
-- `Mojo/<Package>/__init__.mojo` と全moduleを同じbinding/source graphへ統合。
-- generated ABI entry moduleからMojo packageをimportし、declared bindingsをexport。
+- `SwiftMojo.json` にcompiler pin、Mojo packages、全required slicesを宣言（implemented）。
+- `Mojo/<Package>/__init__.mojo` と全moduleを同じinput graphへ統合（implemented）。
+- generated ABI entry moduleからMojo packageをimportし、declared bindingsをexport（implemented for scalar signature）。
 - model-specific Swift APIとMojo sourceとartifactを結ぶcompatibility manifest。
-- multiple Mojo-enabled targets without generated module collision。
-- arm64/x86_64 and future Linux slice-aware artifact manifest。
+- multiple Mojo-enabled targets向けtarget-derived module/archive/C symbol identity（implemented）。
+- arm64/x86_64 Apple slice-aware schema-4 manifest、universal archive、XCFramework metadata gate（verified）。
 - Apple XCFramework adapterと、SwiftPMの実在するlink capabilityに基づく非Apple artifact adapterの分離。
-- release/cache identity including target features。
+- release/cache identity including target accelerator（implemented; arbitrary target feature setはplanned）。
 - remote artifact bundle or package distribution workflow。
 - signed/reproducible generated artifact policy。
-- installed CLI distribution and version compatibility diagnostics。
+- SwiftPM Command Plugin、doctor/inspect、text/JSON output、compiler version diagnostics（implemented）。
+- read-only release gate for config/source/package/source-map/slice/interface/artifact/local-dependency consistency（implemented）。
 - model weightsをcode artifactから分離するresolver/revision/digest contract。
 
 Verification:
@@ -351,4 +353,4 @@ flowchart LR
     P7 --> P3
 ```
 
-主critical pathは `DSL semantics -> ownership ABI -> model package distribution -> GPU-capable model runtime` です。最大のbottleneckは構文生成ではなく、ownership/error/device semanticsと、compiler-free consumer artifactの実証です。async/callbackとdistributionはownership ABIが安定した後に並行化できます。GPU Phaseは両方の成果を統合します。arbitrary inline syntax integrationは需要の立証前にcritical pathへ入れません。
+主critical pathは `DSL semantics -> ownership ABI -> model package distribution -> GPU-capable model runtime` です。最大のbottleneckは構文生成ではなく、ownership/error/device semanticsと、model packageでの実推論・remote distributionです。scalar compiler-free consumer artifactは実証済みです。async/callbackとdistributionはownership ABIが安定した後に並行化できます。GPU Phaseは両方の成果を統合します。arbitrary inline syntax integrationは需要の立証前にcritical pathへ入れません。

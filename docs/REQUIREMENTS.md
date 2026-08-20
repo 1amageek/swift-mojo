@@ -11,52 +11,51 @@
 | Planned | 次段階の設計対象。呼び出し可能なAPIは公開しない |
 | Research | upstream capabilityまたは方式選定の実証が必要 |
 
-P1はarm64 macOS向けの狭いinline DSLを、実Mojo object、静的XCFramework、Swift実行まで通す段階です。任意のMojo grammar、複合型、throwing、async、GPUはまだ公開契約に含みません。
+schema-3 P1はarm64 macOS向けscalar経路のhistorical baselineです。current schema-4 scalar bridgeはdirect inline body、external Mojo package、target-scoped artifact set、source map、arm64/x86_64 universal packaging、release verification、compiler-free relocated consumerまで実行検証済みです。複合型、throwing、async、GPU、model inferenceはまだ公開契約に含みません。
 
 ## 2. Functional requirements
 
 | ID | Requirement | State | Acceptance condition |
 |---|---|---|---|
-| F-001 | Swift関数にMojo実装を記述する | Implemented | `@mojo func ... { mojo { ... } }` がmacro、Mojo、ABIを通って実値を返す |
-| F-002 | macroとgeneratorが同じ意味を解釈する | Implemented | 両者が1つのversioned binding IRとcanonical identityを使う |
-| F-003 | Mojoをbuild外で準備する | Implemented | `prepare` がreal Mojo `--emit object` からXCFrameworkを生成する |
-| F-004 | build時にartifactを検証する | Implemented | pluginがsource、target、schema、ABI、generation pipeline、binding、tree digestを照合する |
-| F-005 | artifactを静的にinvokeする | Implemented | final Mach-OにABI symbolsが定義され、Mojo dylibへ依存しない |
+| F-001 | Swift関数にMojo実装を記述する | Verified | `@mojo func ... { return ... }` がmacro、Mojo、ABIを通って実値を返す |
+| F-002 | macroとgeneratorが同じ意味を解釈する | Verified | 両者が1つのversioned binding IRとcanonical identityを使う |
+| F-003 | Mojoをbuild外で準備する | Verified | `prepare` がreal Mojo `--emit object` からXCFrameworkを生成する |
+| F-004 | build時にartifactを検証する | Verified | pluginがsource、target、schema、ABI、generation pipeline、binding、tree digestを照合する |
+| F-005 | artifactを静的にinvokeする | Verified | final Mach-OにABI symbolsが定義され、Mojo dylibへ依存しない |
 | F-006 | incremental prepareを提供する | Implemented | generation pipelineを含む完全一致時だけartifact/manifestを書き換えず `Reused` を返す |
-| F-007 | package setupを支援する | Implemented | `init` とpackage-layout modeがbootstrap、source discovery、非破壊再実行を提供する |
-| F-008 | 失敗を成功値へ丸めない | Implemented | stale、missing、corrupt、wrong target、unsupported syntax、overflowを明示的に拒否する |
+| F-007 | package setupを支援する | Verified | `init` とpackage-layout modeがbootstrap、source discovery、非破壊再実行を提供する |
+| F-008 | 失敗を成功値へ丸めない | Verified | stale、missing、corrupt、wrong target、unsupported syntax、overflowを明示的に拒否する |
 | F-009 | DSLを段階的に拡張する | Planned | 各syntax nodeに型・ownership・Mojo loweringを定義してから受理する |
-| F-010 | external Mojo source packageを提供する | Planned | package source、Swift bindings、prepared artifactが同じmanifest/ABI identityを使う |
+| F-010 | external Mojo source packageを提供する | Verified | package source、Swift bindings、prepared artifactが同じinput graph/ABI identityを使う |
 | F-011 | MojoからSwiftへcallbackする | Research | callback context、isolation、shutdown、compiler capabilityをtarget上で検証する |
 | F-012 | Mojo modelをSwift Packageとして配布する | Planned | Swift API、Mojo source package、prepared native artifact、manifestを1つのversioned productとしてconsumerが解決できる |
 | F-013 | arbitrary Mojo syntaxをSwift bodyへ埋め込む方式を決定する | Research | external packageで満たせない需要を立証し、custom source/preprocessor/compiler integrationを比較実証する |
+| F-014 | release package integrationを検証する | Verified | release gateがtarget-scoped binary target path、source-target dependency、build plugin、local dependency absenceをSwiftSyntaxから確認する |
 
-## 3. P1 public contract
+## 3. Current scalar contract
 
 ```swift
 @mojo
 func add(_ a: Int32, _ b: Int32) -> Int32 {
-    mojo {
-        return a + b
-    }
+    return a + b
 }
 ```
 
 | Concern | P1 requirement |
 |---|---|
-| Macro spelling | argument-free `@mojo` only |
-| Declaration | Swift function declaration |
+| Macro spelling | inline `@mojo` or external `@mojo(package:function:)` string literals |
+| Declaration | file-scope Swift function declaration; methods/local functions are rejected until enclosing identity is modeled |
 | Parameters | exactly two `Int32` values with local names |
 | Result | `Int32` |
 | Effects | non-`async`、non-throwing |
 | Generics | rejected |
-| Body | exactly one `mojo { ... }` call with one `return` |
+| Body | inlineはexactly one direct `return`; external bindingはbodyなし |
 | Expression | addition of the two parameters; either operand order |
 | Arithmetic semantics | Swift-compatible checked `Int32` addition; overflow traps before dispatch |
 | Name | portable C identifier; same ABI identity in one target must be unique |
 | Conditional compilation | an `@mojo` declaration inside `#if` is rejected in P1 |
-| Platform | arm64 macOS 14+ |
-| Package | one Mojo-enabled target because generated module name is fixed |
+| Platform | Apple XCFramework adapter for arm64/aarch64/x86_64 macOS/iOS triples |
+| Package | target-derived module/archive/C symbols prevent cross-target collision |
 
 未知のattribute argument、body shape、type、effect、expressionはcompile/prepare errorです。Swift implementationへのfallback、zero、空artifactを成功扱いしません。
 
@@ -77,6 +76,8 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 | N-011 | Observable failures | command、status、diagnostic、expected/actual digest/targetを保持する |
 | N-012 | Bounded verification | production/automated subprocessを専用process groupで実行し、deadline、TERM、KILL、reapを所有する |
 | N-013 | Compiler-free consumption | released model packageの通常consumer build/runtimeはMojo compilerのinstall、download、起動を要求しない |
+| N-014 | Destination selection | configured buildは全slice envelopeを検証しXcodeへ選択を委ねる。明示 `SWIFT_MOJO_TARGET_*` がある場合だけexact destination assertionを追加する |
+| N-015 | Snapshot consistency | prepareはcommit直前、build verifyはRegistry生成直前、releaseはoutput lock保持中の終了直前に入力identityを再読し、操作中の変更を拒否する |
 
 ## 5. Syntax and compiler constraints
 
@@ -89,19 +90,19 @@ Swift parser
       -> generated Swift thunk is type-checked
 ```
 
-したがって、Swiftとしてparseできる `mojo { ... }` subsetは通常macroで実現できますが、任意のMojo grammarは実現できません。未対応nodeをsource textとしてそのままMojoへ流すことは禁止します。
+したがって、Swiftとしてparseできるdirect body subsetは通常macroで実現できますが、任意のMojo grammarは実現できません。未対応nodeをsource textとしてそのままMojoへ流さず、full Mojoはexternal packageとして扱います。
 
 ## 6. Static ABI requirements
 
-### 6.1 P1 ABI
+### 6.1 Current ABI
 
-P1のABI versionは `1`、manifest schemaは `3` です。
+ABI versionは `1`、current manifest schemaは `4` です。schema 3は既存prepared artifactのbuild verificationだけを暫定的に許可し、release verificationでは拒否します。
 
 ```c
-uint32_t swift_mojo_static_abi_version(void);
-uint64_t swift_mojo_source_graph_identifier(void);
-uint32_t swift_mojo_has_binding(uint64_t binding_id);
-int32_t swift_mojo_call_i32_i32_i32(
+uint32_t <target_prefix>_static_abi_version(void);
+uint64_t <target_prefix>_input_graph_identifier(void);
+uint32_t <target_prefix>_has_binding(uint64_t binding_id);
+int32_t <target_prefix>_call_i32_i32_i32(
     uint64_t binding_id,
     int32_t lhs,
     int32_t rhs
@@ -113,7 +114,7 @@ int32_t swift_mojo_call_i32_i32_i32(
 ```text
 generated Swift thunk
   -> ABI version guard
-  -> source graph identifier guard
+  -> input graph identifier guard
   -> prepared ID set + artifact membership guard
   -> fixed dispatcher
   -> Mojo Int32 implementation
@@ -125,17 +126,19 @@ generated Swift thunk
 - P1 DSLはruntime初期化を必要としないscalar arithmeticだけを生成します。Mojo standard-library runtimeへ依存する機能を追加する前に初期化契約をABIへ追加します。
 - generated C moduleは実装detailであり、stable public APIではありません。
 
-### 6.2 Manifest schema 3
+### 6.2 Manifest schema 4
 
 manifestは次を保持します。
 
 - schema versionとABI version。
 - binding IR、Mojo/C renderer、artifact packaging、Registry rendererを合成したgeneration pipeline digest。
 - Mojo compiler version。
-- target tripleとCPU。
-- full source graph SHA-256とruntime identifier。
+- target-derived module/archive/symbol identity。
+- compiler pinと全target triple/CPU/accelerator slices。
+- full Swift binding graphとexternal Mojo package graphのSHA-256/runtime identifier。
+- canonical generated Mojo digestと、Swift declarationへ戻るsource map digest。verifyはcurrent rendererから両方を再生成して完全一致を要求する。
 - XCFramework canonical tree SHA-256。
-- binding ID、function name、ABI digest、implementation digest。
+- binding ID、function name、ABI digest、implementation digest、external package digests、slice archive digests。
 
 XCFramework tree digestはhidden fileを除くregular fileをrelative path順に並べ、path length、path bytes、content length、content bytesをhashします。absolute pathは含めません。
 
@@ -225,10 +228,10 @@ GPU bridgeはこのlibraryの将来scopeですが、SwiftUI shader modifierやvi
 | ID | Requirement | State | Acceptance condition |
 |---|---|---|---|
 | MP-001 | model実装を独立したSwift Packageとして表す | Planned | packageがSwift library product、Mojo source package、prepared artifact、manifestを所有する |
-| MP-002 | external Mojo sourceをgraphへ含める | Planned | package内の全source path/contentとdependency identityがcache/verify digestへ入る |
-| MP-003 | Mojo packageからABI entry moduleを生成する | Planned | generated entryがpackageをimportし、declared bindingsだけをexportする |
-| MP-004 | modelごとにartifact identityを分離する | Planned | 複数model/targetのgenerated module、manifest、artifactが衝突しない |
-| MP-005 | authorとconsumer toolchainを分離する | Planned | author prepareはpinned Mojo compilerを使い、consumer buildはprepared sliceだけを検証・linkする |
+| MP-002 | external Mojo sourceをgraphへ含める | Verified | package内の全regular file path/contentがcache/verify digestへ入り、symbolic linkと未宣言の兄弟package importを拒否する。package dependency lock identityはplanned |
+| MP-003 | Mojo packageからABI entry moduleを生成する | Verified | generated entryがpackageをimportし、declared bindingsだけをexportする |
+| MP-004 | modelごとにartifact identityを分離する | Implemented | target-derived module/archive/symbol identityで衝突を防ぐ |
+| MP-005 | authorとconsumer toolchainを分離する | Verified | author prepareはpinned Mojo compilerを使い、consumer buildはprepared sliceだけを検証・linkする |
 | MP-006 | weightsをcode distributionから分離する | Planned | public load APIがlocation/revision/digest/resolverを受け、production weightsをSwiftPM resourceへ暗黙に含めない |
 | MP-007 | model compatibilityを検証する | Planned | model API/ABI、weight format/revision、compiler、platform/accelerator sliceの不一致をtyped failureにする |
 | MP-008 | end-to-end consumer acceptanceを持つ | Planned | clean consumerがMojo compilerなしでresolve/build/link/load/inferし、stale/corrupt/wrong-slice failureを確認する |
@@ -251,7 +254,7 @@ Swift model package
 - model/session execution、tokenizer contract、KV cacheはmodel packageの責務であり、`swift-mojo` coreへmodel固有APIを追加しない。sampling、停止条件、prompt flowなどのgeneration policyはapplicationが所有する。
 - Apple platformではXCFrameworkを使う。非Apple platformはSwiftPMの実在するlink/package capabilityに対応する別adapterを要求し、XCFramework互換を仮定しない。
 
-このsectionはP1の実装済み契約ではありません。現行scanner/preparer/pluginはexternal `.mojo` を入力として追跡しないため、fileを置くだけではcompile、link、stale detectionのいずれも成立しません。
+MP-002、MP-003、MP-005はreal Mojo external packageとcompiler-free clean consumerのscalar acceptanceまで完了しています。MP-004のtarget-derived identityは実装済みですが、同一consumerへ2 targetを同時linkするcollision acceptanceは未完了です。MP-008が要求するmodel load/inferとfailure matrixは未完了であり、model/session API、weights、実推論、remote distributionを含むMP-001/006〜008は各model packageと後続Phaseの責務です。
 
 ## 13. Developer experience requirements
 
@@ -261,9 +264,12 @@ Swift model package
 - `prepare` は重い作業をcacheし、`Prepared` と `Reused` を区別する。
 - source変更時のbuild failureは、次の操作として `swift-mojo prepare` を示す。
 - generated Mojo、manifest、compiler version、target、digestをinspection可能にする。
+- `swift package mojo` command pluginでauthorがstandalone executableのPATHを管理しなくてよい。
+- textとmachine-readable JSONで同じsuccess/failure契約を公開する。
 - XcodeとCLIで同じsource graph/manifest contractを使う。
 - clean cloneでbinary target pathが存在するよう生成artifactをcommitする。
 - model authorは1つのtarget-scoped commandでSwift bindings、Mojo package、artifact setをprepareできる。
+- release verifierは `Package.swift` のbinary target path、target dependency、`MojoBuildPlugin` wiringをartifact identityと照合する。
 - model consumerは通常のSwift Package dependencyとして追加し、Mojo compilerなしでSwift APIだけをimportできる。
 - source/artifact/weight/slice mismatchのdiagnosticは、authorが `prepare` すべきか、consumerがcompatible release/weightを選ぶべきかを区別する。
 
@@ -277,12 +283,10 @@ Swift model package
 - artifact/manifest/sourceの不一致をsilent repairしない。repairは明示 `prepare` で行う。
 - Swift `@c` はP1の依存ではない。reverse callback採用時にlocal compiler、header生成、ABI、lifetimeを再検証する。
 
-## 15. Explicit non-goals for P1
+## 15. Explicit non-goals for the current release tooling
 
 - arbitrary Mojo grammar in a `.swift` file。
-- external `.mojo` public workflow。
-- multiple generated ABI modules in one package。
-- x86_64、Linux、iOS、WASM、Embedded slices。
+- non-Apple native artifact adapter、Linux、WASM、Embedded slices。
 - error-returning、async、callback、buffer、String、GPU APIs。
-- automatic CLI installation or remote artifact distribution。
+- remote artifact upload、signing、registry publication。
 - SwiftUI、Metal rendering、application lifecycle integration。

@@ -1,6 +1,7 @@
 .build/
 .swiftpm/
 DerivedData/
+.test-artifacts/
 .DS_Store
 *.dylib
 *.so
