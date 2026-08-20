@@ -155,15 +155,15 @@ let total = try sum([1, 2, 3, 4]) // 10.0
 
 ```mojo
 # Mojo/MathModel/__init__.mojo
-from memory import UnsafePointer
+from std.memory import Pointer
 
 def sum(
-    values: UnsafePointer[Float32, ImmutExternalOrigin],
+    values: Pointer[Float32, ImmUntrackedOrigin],
     count: UInt64,
 ) -> Float32:
     var result = Float32(0)
     for index in range(Int(count)):
-        result += values[index]
+        result += values[unsafe_offset=index]
     return result
 ```
 

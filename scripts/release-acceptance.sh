@@ -119,18 +119,18 @@ enum Application {
 SWIFT
 
 cat > "$release_root/Mojo/MathModel/__init__.mojo" <<'MOJO'
-from memory import UnsafePointer
+from std.memory import Pointer
 
 def add(a: Int32, b: Int32) -> Int32:
     return a + b
 
 def sum(
-    values: UnsafePointer[Float32, ImmutExternalOrigin],
+    values: Pointer[Float32, ImmUntrackedOrigin],
     count: UInt64,
 ) -> Float32:
     var result = Float32(0)
     for index in range(Int(count)):
-        result += values[index]
+        result += values[unsafe_offset=index]
     return result
 MOJO
 
@@ -158,8 +158,8 @@ JSON
 
 "$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \
-    --allow-writing-to-package-directory \
     --package-path "$release_root" \
+    --allow-writing-to-package-directory \
     mojo init --target Application
 
 cat > "$release_root/Package.swift" <<SWIFT
@@ -198,13 +198,13 @@ SWIFT
 SWIFT_MOJO_EXECUTABLE=$compiler \
     "$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \
-    --allow-writing-to-package-directory \
     --package-path "$release_root" \
+    --allow-writing-to-package-directory \
     mojo prepare --target Application
 "$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \
-    --allow-writing-to-package-directory \
     --package-path "$release_root" \
+    --allow-writing-to-package-directory \
     mojo release --target Application
 
 archive=$(find \

@@ -40,7 +40,7 @@ flowchart LR
 
 4. The generated Registry uses `Array.withUnsafeBufferPointer`. The Swift `Array` remains the owner, and the pointer is valid only inside that synchronous closure.
 5. Empty input is rejected. ABI v1 does not assign ambiguous semantics to a null pointer with zero count.
-6. Mojo receives `UnsafePointer[Float32, ImmutExternalOrigin]`. It may read exactly `count` elements and must not mutate, retain, return, or free the storage.
+6. Mojo receives `Pointer[Float32, ImmUntrackedOrigin]`. It may read exactly `count` elements and must not mutate, retain, return, or free the storage.
 7. The dispatcher returns `Float32` directly. There is no out-result storage or status branch in the repeated compute path.
 8. ABI version, input graph, and every prepared binding are validated once by a thread-safe immutable Registry cache. Buffer validity remains a per-call `MojoInvocationError`; a Mojo/C unwind never crosses the ABI.
 9. The buffer dispatcher is additive. Scalar binding identity and the scalar-only four-symbol interface remain unchanged.

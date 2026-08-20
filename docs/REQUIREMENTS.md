@@ -180,7 +180,7 @@ XCFramework tree digestはhidden fileを除くregular fileをrelative path順に
 | `Float` / `Double` | `float` / `double` | `Float32` / `Float64` | Planned |
 | `Bool` | normalized `uint8_t` | explicit conversion | Planned |
 | `String` | UTF-8 pointer + byte count | borrowed view | Planned |
-| non-empty `[Float]` input, `Float` result | `const float *` + `uint64_t` -> `float` | `UnsafePointer[Float32, ImmutExternalOrigin]` + count -> `Float32` | Implemented; real acceptance and copy-count proof pending |
+| non-empty `[Float]` input, `Float` result | `const float *` + `uint64_t` -> `float` | `Pointer[Float32, ImmUntrackedOrigin]` + count -> `Float32` | Implemented; real acceptance and copy-count proof pending |
 | other contiguous/owned buffer | pointer + count or owner record | borrowed/owned span | Planned |
 | optional scalar | tag + payload | explicit optional record | Planned |
 | Swift struct | generated versioned C record | generated ABI record | Research |

@@ -133,9 +133,9 @@ SWIFT
 
 version_json=$("$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \
-    --allow-writing-to-package-directory \
     --package-path "$gate_package" \
     --scratch-path "$gate_build" \
+    --allow-writing-to-package-directory \
     mojo version --format json \
     | /usr/bin/tail -n 1)
 expected_version_json="{\"command\":\"version\",\"message\":\"$release_version\",\"success\":true}"
@@ -146,9 +146,9 @@ fi
 
 "$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \
-    --allow-writing-to-package-directory \
     --package-path "$gate_package" \
     --scratch-path "$gate_build" \
+    --allow-writing-to-package-directory \
     mojo release --target MojoBuildPluginIntegrationFixture
 
 print "PASS: candidate command version $release_version is clean, pushed, release-verified, and ready for tag $tag_name"

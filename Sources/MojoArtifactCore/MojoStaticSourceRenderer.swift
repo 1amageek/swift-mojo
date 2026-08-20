@@ -2,7 +2,7 @@ import MojoBindingCore
 
 package struct MojoStaticSourceRenderer: Sendable {
     package static let generationVersion = 2
-    package static let borrowedFloat32BufferGenerationVersion = 1
+    package static let borrowedFloat32BufferGenerationVersion = 2
 
     package init() {}
 
@@ -47,7 +47,7 @@ package struct MojoStaticSourceRenderer: Sendable {
         var entries: [MojoSourceMap.Entry] = []
 
         if !bufferBindings.isEmpty {
-            lines.append("from memory import UnsafePointer")
+            lines.append("from std.memory import Pointer")
         }
         for binding in graph.bindings {
             guard case .external(let package, let function) = binding.implementation else {
@@ -124,7 +124,7 @@ package struct MojoStaticSourceRenderer: Sendable {
             lines.append("@export(\"\(identity.symbolPrefix)_call_f32_buffer_f32\")")
             lines.append("def \(identity.symbolPrefix)_call_f32_buffer_f32(")
             lines.append("    binding_id: UInt64,")
-            lines.append("    values: UnsafePointer[Float32, ImmutExternalOrigin],")
+            lines.append("    values: Pointer[Float32, ImmUntrackedOrigin],")
             lines.append("    count: UInt64,")
             lines.append(") abi(\"C\") -> Float32:")
             for binding in bufferBindings {

@@ -180,8 +180,8 @@ JSON
 for target in ModelA ModelB; do
     "$root/scripts/command-timeout.sh" 180 -- \
         /usr/bin/xcrun swift package \
-        --allow-writing-to-package-directory \
         --package-path "$acceptance_root" \
+        --allow-writing-to-package-directory \
         mojo init --target "$target"
 done
 
@@ -241,8 +241,8 @@ for target in ModelA ModelB; do
     SWIFT_MOJO_EXECUTABLE=$compiler \
         "$root/scripts/command-timeout.sh" 180 -- \
         /usr/bin/xcrun swift package \
-        --allow-writing-to-package-directory \
         --package-path "$acceptance_root" \
+        --allow-writing-to-package-directory \
         mojo prepare --target "$target"
 done
 

@@ -312,15 +312,15 @@ struct MojoArtifactPreparerTests {
             }
         }
         try """
-        from memory import UnsafePointer
+        from std.memory import Pointer
 
         def sum(
-            values: UnsafePointer[Float32, ImmutExternalOrigin],
+            values: Pointer[Float32, ImmUntrackedOrigin],
             count: UInt64,
         ) -> Float32:
             var result = Float32(0)
             for index in range(Int(count)):
-                result += values[index]
+                result += values[unsafe_offset=index]
             return result
         """.write(
             to: package.appendingPathComponent("__init__.mojo"),
@@ -384,12 +384,13 @@ struct MojoArtifactPreparerTests {
         #expect(
             result.manifest.bindings.count == 1
         )
-        #expect(generatedMojo.contains("from memory import UnsafePointer"))
+        #expect(generatedMojo.contains("from std.memory import Pointer"))
         #expect(generatedMojo.contains("_call_f32_buffer_f32"))
         #expect(!generatedMojo.contains("_call_i32_i32_i32"))
-        #expect(generatedMojo.contains("UnsafePointer[Float32, ImmutExternalOrigin]"))
+        #expect(generatedMojo.contains("Pointer[Float32, ImmUntrackedOrigin]"))
         #expect(generatedMojo.contains(") abi(\"C\") -> Float32:"))
-        #expect(!generatedMojo.contains("MutExternalOrigin"))
+        #expect(!generatedMojo.contains("UnsafePointer"))
+        #expect(!generatedMojo.contains("ExternalOrigin"))
         #expect(!generatedMojo.contains("result[]"))
         #expect(
             header.contains(

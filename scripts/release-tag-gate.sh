@@ -98,9 +98,9 @@ SWIFT
 
 version_json=$("$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \
-    --allow-writing-to-package-directory \
     --package-path "$gate_root/Package" \
     --scratch-path "$gate_root/Scratch" \
+    --allow-writing-to-package-directory \
     mojo version --format json \
     | /usr/bin/tail -n 1)
 expected_version_json="{\"command\":\"version\",\"message\":\"$release_version\",\"success\":true}"
