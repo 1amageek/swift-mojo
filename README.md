@@ -1,8 +1,8 @@
 # swift-mojo
 
-`swift-mojo` は、**MojoをSwiftのネイティブな実装言語として感じられるようにする**ための実験的Swift Packageです。SwiftがAPIとアプリケーション構造を所有し、Mojoがcompute/system実装を担います。生成されるC ABIはprivate plumbingであり、日常のSwift APIには現れません。
+`swift-mojo` is an experimental Swift package that aims to make **Mojo feel like a native implementation language for Swift**. Swift owns the API and application structure, while Mojo owns compute and systems implementation. The generated C ABI is private plumbing and does not appear in everyday Swift APIs.
 
-P1では、次の構文が実際にMojo 1.0でコンパイルされ、静的リンクされた実装を呼び出します。
+In P1, the following syntax calls an implementation that is compiled with Mojo 1.0 and linked statically:
 
 ```swift
 import Mojo
@@ -15,7 +15,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 }
 ```
 
-ただし、これは任意のMojo文法を埋め込めるという意味ではありません。現在のDSLは、2つの `Int32` 引数を加算して `Int32` を返す式だけを意図的に受理します。未対応syntaxはSwift fallbackへ切り替えず、macroまたはprepare時のdiagnosticになります。
+This does not mean that arbitrary Mojo syntax can be embedded in Swift. The current DSL deliberately accepts only an expression that adds two `Int32` arguments and returns an `Int32`. Unsupported syntax produces a diagnostic during macro expansion or preparation; it never falls back to a Swift implementation.
 
 ## What works now
 
@@ -33,28 +33,28 @@ flowchart LR
     R --> E["Swift executable"]
 ```
 
-- `@attached(body)` macroが元のDSL bodyを、binding IDを使うSwift thunkへ置換します。
-- 同じversioned IRがmacroとsource scannerの両方で使われます。
-- `swift-mojo prepare` がMojo source、object、static archive、XCFramework、manifestを生成します。
-- build pluginはMojo compilerを起動せず、source graph、target、ABI、XCFramework全体のSHA-256を検証します。
-- Mojo artifactは最終実行ファイルへ静的リンクされます。実行時のabsolute path、`dlopen`、Mojo dylib探索はありません。
-- prepareはsource、implementation、generation pipeline、compiler version、target、artifact digestが一致すると生成物を再利用します。
-- prepare/initはoutput単位のinterprocess lockを保持し、cache確認からdirectory commitまでを直列化します。
-- compiler subprocessは専用process groupで実行し、300秒のdeadline後はTERM、KILL、reapを順に行います。
+- The `@attached(body)` macro replaces the original DSL body with a Swift thunk that uses a binding ID.
+- The macro and source scanner use the same versioned IR.
+- `swift-mojo prepare` generates Mojo source, an object file, a static archive, an XCFramework, and a manifest.
+- The build plugin does not invoke the Mojo compiler. It verifies the source graph, target, ABI, and SHA-256 digest of the complete XCFramework.
+- The Mojo artifact is linked statically into the final executable. Runtime lookup does not depend on absolute paths, `dlopen`, or Mojo dynamic-library discovery.
+- Preparation reuses generated output only when the source, implementation, generation pipeline, compiler version, target, and artifact digest all match.
+- Preparation and initialization hold an interprocess lock for each output, serializing the complete operation from cache lookup through directory commit.
+- Compiler subprocesses run in a dedicated process group. After a 300-second deadline, the process owner performs TERM, KILL, and reap in sequence.
 
 ## P1 setup
 
-P1はmacOS 14以降のarm64 targetを1つ持つSwift Packageを前提にします。`swift-mojo` CLIは、このrepositoryのexecutable productをビルドしてPATHへ置くか、絶対pathで呼び出してください。CLIの配布方法はまだproduction仕様ではありません。
+P1 supports a Swift package with one Mojo-enabled arm64 target on macOS 14 or later. Build the `swift-mojo` executable product from this repository and place it on `PATH`, or invoke it using an absolute path. CLI distribution is not yet a production-ready contract.
 
 ### 1. Bootstrap the generated directory
 
-対象packageに `Package.swift` と `Sources/<Target>` を作った後、binary targetをmanifestへ追加する前に実行します。
+After creating `Package.swift` and `Sources/<Target>` in the consuming package, run `init` before adding the binary target to the manifest:
 
 ```bash
 swift-mojo init --package-root /path/to/MyPackage --target MyTarget
 ```
 
-`init` はSwiftPMがpackage graphを読める最小XCFrameworkを作ります。再実行は既存のprepare済みartifactを上書きしません。管理外または壊れた出力directoryも置換しません。
+`init` creates the minimal XCFramework required for SwiftPM to load the package graph. Running it again does not overwrite a prepared artifact. It also refuses to replace an unmanaged or incomplete output directory.
 
 ### 2. Wire Package.swift
 
@@ -90,7 +90,7 @@ let package = Package(
 )
 ```
 
-P1の生成C module名は固定なので、1 packageにつきMojo対応targetは1つです。複数targetと複数platform sliceは次段階のartifact-set設計で扱います。
+The generated C module name is fixed in P1, so each package can contain only one Mojo-enabled target. A later artifact-set design will support multiple targets and platform slices.
 
 ### 3. Write the Swift API and Mojo implementation DSL
 
@@ -112,41 +112,41 @@ SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
 swift-mojo prepare --package-root /path/to/MyPackage --target MyTarget
 ```
 
-`SWIFT_MOJO_EXECUTABLE` を省略した場合は `PATH` の `mojo` を探します。plugin sandbox内でcompilerをdownloadまたは実行することはありません。
+When `SWIFT_MOJO_EXECUTABLE` is not set, the command searches `PATH` for `mojo`. The plugin never downloads or runs the compiler inside the build sandbox.
 
-P1の `+` はSwiftと同じchecked additionです。`Int32` overflowはMojo dispatcherへ入る前にtrapします。また、prepare scannerとSwift compilerのactive branchを曖昧にしないため、`@mojo` declarationを `#if` の中へ置くことはP1では明示的なerrorです。
+P1 `+` follows Swift-compatible checked-addition semantics. `Int32` overflow traps before entering the Mojo dispatcher. P1 also rejects an `@mojo` declaration inside `#if`, because the preparation scanner does not own the Swift compiler's active build conditions.
 
 ### 5. Commit and build
 
-`Generated/MyTarget` はcommit対象です。SwiftPMのlocal binary targetはpackage graph読込時点でXCFrameworkの実体を必要とするため、ignoreするとfresh cloneが解決不能になります。source変更後は `prepare` を再実行して、manifestとartifactの差分を一緒にreviewします。
+`Generated/MyTarget` must be committed. SwiftPM requires a local binary target to exist while it loads the package graph, before any plugin can run. Ignoring this directory would make a fresh clone impossible to resolve. After changing the implementation, run `prepare` again and review the manifest and artifact changes together.
 
-通常のXcode/SwiftPM buildではpluginがSwift source、manifest、XCFramework rootとその全regular file/directoryを入力として監視し、次を拒否します。
+During a normal Xcode or SwiftPM build, the plugin tracks the Swift sources, manifest, XCFramework root, and every regular file and directory inside the XCFramework. It rejects:
 
-- manifestまたはXCFrameworkの欠落。
-- source変更後の古いartifact。
-- target triple/CPUの不一致。
-- archive、header、module map、Info.plistの改変。
-- ABI/schema/binding graphの不一致。
+- A missing manifest or XCFramework.
+- An artifact that is stale relative to its source.
+- A target-triple or CPU mismatch.
+- Modification of the archive, header, module map, or `Info.plist`.
+- An ABI, schema, or binding-graph mismatch.
 
-完全なconsumer例は [`Examples/ExternalMojo`](Examples/ExternalMojo) にあります。
+A complete consumer example is available in [`Examples/ExternalMojo`](Examples/ExternalMojo).
 
 ## Components
 
 | Component | Responsibility |
 |---|---|
-| `Mojo` | `@mojo` だけを公開するSwift-facing module |
-| `MojoMacros` | bodyを共有IRで検証し、静的Registry callへ置換 |
-| `MojoBindingCore` | SwiftSyntax scan、P1 DSL semantics、canonical binding/source graph |
-| `MojoCompilerCore` | Mojo executable探索、version取得、target-aware object生成 |
-| `MojoArtifactCore` | init、prepare、transaction、manifest、tree digest、verify、Registry生成 |
-| `swift-mojo` | `init` / `prepare` / `verify` command adapter |
-| `MojoBuildPlugin` | build時の検証commandだけを構成。Mojo compileは行わない |
+| `Mojo` | Swift-facing module that exposes only `@mojo` |
+| `MojoMacros` | Validates the body with the shared IR and replaces it with a static Registry call |
+| `MojoBindingCore` | SwiftSyntax scanning, P1 DSL semantics, and canonical binding/source graphs |
+| `MojoCompilerCore` | Mojo executable discovery, version inspection, and target-aware object generation |
+| `MojoArtifactCore` | Initialization, preparation, transactions, manifests, tree digests, verification, and Registry generation |
+| `swift-mojo` | Command adapter for `init`, `prepare`, and `verify` |
+| `MojoBuildPlugin` | Creates build-time verification commands; it does not compile Mojo |
 
-旧 `@mojo(symbol:library:)`、dynamic loader、shared-library registryはP1の静的設計と競合するため公開面・targetともに残していません。
+The earlier `@mojo(symbol:library:)` API, dynamic loader, and shared-library registry conflicted with the P1 static design and are not retained as public APIs or package targets.
 
 ## Mojo model packages
 
-LLMのような実用規模の実装は、すべてをinline DSLへ書くのではなく、Mojo source packageを含む独立したSwift Packageとして配布することを目標にします。`swift-mojo` 自体はmodel frameworkやmodel catalogにはならず、各model packageがSwift API、Mojo実装、prepared artifactの対応関係を所有します。
+Production-scale implementations such as LLMs should not be forced into the inline DSL. The long-term goal is to distribute them as independent Swift packages that contain a Mojo source package. `swift-mojo` does not become a model framework or model catalog; each model package owns the relationship between its Swift API, Mojo implementation, and prepared artifact.
 
 ```text
 LlamaMojo/
@@ -172,23 +172,23 @@ flowchart LR
     SW --> V --> App["Swift application"]
 ```
 
-役割は次のように分離します。
+Responsibilities are separated as follows:
 
 | Layer | Responsibility |
 |---|---|
-| `swift-mojo` | source graph、ABI lowering、compiler orchestration、artifact preparation、build verification、runtime bridge |
-| model Swift Package | Swift公開API、model/session lifecycle、Mojo source package、model固有tests、prepared artifacts |
-| application | model選択、weight location、generation policy、UI、product state |
+| `swift-mojo` | Source graphs, ABI lowering, compiler orchestration, artifact preparation, build verification, and the runtime bridge |
+| Model Swift package | Public Swift API, model/session lifecycle, Mojo source package, model-specific tests, and prepared artifacts |
+| Application | Model selection, weight location, generation policy, UI, and product state |
 
-`.mojo` sourceはauthoring inputであり、runtime resourceとしてapplication bundleへコピーする対象ではありません。Mojoのprecompiled `.mojoc` はcompiler versionへ厳密に依存し、それ自体はSwiftからlinkできるnative artifactではないため、公開配布境界には使いません。Apple platformのSwift consumerが取得する実行artifactはXCFrameworkとcompatibility manifestです。将来の非Apple platformは、そのplatformでSwiftPMが実際にlink可能なartifact adapterを別に設計します。
+`.mojo` source is an authoring input, not a runtime resource copied into the application bundle. A precompiled Mojo `.mojoc` file is tied to the exact compiler version and is not a native artifact that Swift can link directly, so it is not the public distribution boundary. On Apple platforms, Swift consumers receive an XCFramework and compatibility manifest. Future non-Apple platforms require separate artifact adapters based on the linking capabilities SwiftPM actually provides for those platforms.
 
-model weightsはcode artifactから分離します。通常のweightsをSwiftPM resourceやGit repositoryへ含めず、immutable revision/digestで識別した外部storageとcacheからmodel packageのSwift APIが解決します。小さなtest fixtureだけは例外です。
+Model weights remain separate from code artifacts. Production weights are not stored as SwiftPM resources or committed to the Git repository. The model package's Swift API resolves them from external storage and cache using an immutable revision or digest. Small test fixtures are the only exception.
 
-この構成はplanned contractです。現在のP1はSwift sourceから `Bindings.mojo` を生成するだけで、external `.mojo` directory、`.mojoc`、model weightsをprepare/verify入力として扱いません。また、固定module名により1 packageにつきMojo対応targetは1つです。実装順序とacceptance条件は [Roadmap](docs/ROADMAP.md) と [ADR-0002](docs/ADR-0002-MODEL-SWIFT-PACKAGE.md) に記載します。
+This is a planned contract. P1 currently generates `Bindings.mojo` from Swift source and does not include external `.mojo` directories, `.mojoc` files, or model weights in preparation or verification inputs. The fixed module name also limits P1 to one Mojo-enabled target per package. See the [Roadmap](docs/ROADMAP.md) and [ADR-0002](docs/ADR-0002-MODEL-SWIFT-PACKAGE.md) for the implementation sequence and acceptance gates.
 
 ## Syntax boundary
 
-Swift function body macroは元bodyを置換できますが、元bodyはSwift parserが受理できる必要があります。`mojo { return a + b }` はSwift call-expressionとしてparse可能なので、狭いDSLとして扱えます。任意のMojo grammarはSwift grammarの部分集合ではないため、通常のmacroだけでは成立しません。
+A Swift function-body macro can replace the original body, but the Swift parser must first accept that body. `mojo { return a + b }` parses as a Swift call expression with a trailing closure, so P1 can treat it as a narrow DSL. Arbitrary Mojo grammar is not a subset of Swift grammar and therefore cannot be implemented by a conventional macro alone.
 
 ```mermaid
 flowchart TD
@@ -198,46 +198,46 @@ flowchart TD
     E --> C
 ```
 
-今後はDSLの意味論を段階的に増やす一方、実用規模のfull Mojo実装にはexternal Mojo source packageを第一のsurfaceとして追加します。それでもarbitrary Mojo syntaxをSwift function bodyへ直接埋め込む必要が立証された場合だけ、独自source preprocessingまたはcompiler integrationを評価します。
+The DSL will grow incrementally, while production-scale full Mojo implementations will use external Mojo source packages as the primary surface. A custom source preprocessor or compiler integration will be considered only if there is demonstrated demand to embed arbitrary Mojo syntax directly in a Swift function body.
 
 ## Current P1 contract
 
 | Concern | Supported now |
 |---|---|
 | Platform | arm64 macOS 14+ |
-| Package layout | one Mojo-enabled target per package |
-| Declaration | non-generic、non-`async`、non-throwing function |
-| Signature | exactly `(Int32, Int32) -> Int32` |
-| DSL | exactly one `mojo { return lhs + rhs }` block; operand order may be reversed |
-| Artifact | static `GeneratedMojoABI.xcframework` + schema 3 manifest |
-| Build | committed artifact、plugin verification、no build-time Mojo compiler |
-| Runtime | nonthrowing direct call; overflowとinvariant mismatchはfake valueを返さずtrap |
-| Conditional compilation | `@mojo` declarationを `#if` 内へ置くことは未対応として拒否 |
+| Package layout | One Mojo-enabled target per package |
+| Declaration | Non-generic, non-`async`, nonthrowing function |
+| Signature | Exactly `(Int32, Int32) -> Int32` |
+| DSL | Exactly one `mojo { return lhs + rhs }` block; operand order may be reversed |
+| Artifact | Static `GeneratedMojoABI.xcframework` with a schema 3 manifest |
+| Build | Committed artifact, plugin verification, and no build-time Mojo compiler |
+| Runtime | Nonthrowing direct call; overflow and invariant mismatches trap rather than return a fabricated value |
+| Conditional compilation | An `@mojo` declaration inside `#if` is rejected |
 
-`x86_64` を含むgeneric universal archiveは意図的に失敗します。P1 archiveは `ARCHS=arm64` を明示してください。
+A generic universal archive that includes `x86_64` fails intentionally. P1 archives must explicitly set `ARCHS=arm64`.
 
 ## Development status
 
-2026-08-20にこのmachineで確認した状態です。
+The following state was observed on this machine on 2026-08-20:
 
 | Item | Observed status |
 |---|---|
 | Xcode | Xcode 27.0, build `27A5237l` |
 | Xcode default Swift | Apple Swift 6.4 (`swiftlang-6.4.0.30.4`, swift-driver `1.168.6`) |
-| Snapshot used by shell | `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a`, compiler commit `424cae54c1a10da` |
-| swift-syntax | matching revision `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a` |
+| Snapshot used by the shell | `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a`, compiler commit `424cae54c1a10da` |
+| swift-syntax | Matching revision `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a` |
 | Mojo | Mojo `1.0.0 (ed45d567)` through an isolated executable wrapper |
-| Global Mojo | not present on shell `PATH` |
-| Real result | inline `add(20, 22)` returned `42` |
-| Packaging | arm64 Debug Xcode archive succeeded; copied executable still returned `42` |
-| Link inspection | four fixed ABI symbols defined in Mach-O; no Mojo dylib dependency |
-| Failure evidence | stale source、wrong target、missing manifest/artifact、corrupt archive/headerを拒否 |
-| Automated tests | binding、macro、compiler、artifact、plugin integrationの23件を `xcodebuild test` で検証 |
-| Current hardening | generation identity、leaf input tracking、checked overflow、conditional rejection、interprocess lock、process-group timeoutを実装。追加8 testsを含む現行treeは未実行 |
+| Global Mojo | Not present on the shell `PATH` |
+| Real result | Inline `add(20, 22)` returned `42` |
+| Packaging | An arm64 Debug Xcode archive succeeded; the copied executable still returned `42` |
+| Link inspection | Four fixed ABI symbols were defined in Mach-O; there was no Mojo dynamic-library dependency |
+| Failure evidence | Stale source, wrong target, missing manifest/artifact, and corrupt archive/header were rejected |
+| Automated tests | A historical baseline of 23 binding, macro, compiler, artifact, and plugin-integration tests passed with `xcodebuild test` |
+| Current hardening | Generation identity, leaf-input tracking, checked overflow, conditional rejection, interprocess locking, and process-group timeout are implemented; the current tree, including eight additional tests, has not been executed |
 
-このrepositoryのshellでは `TOOLCHAINS` がsnapshotを指すため、Xcode build/testは `env -u TOOLCHAINS xcodebuild ...` でXcode default toolchainを選びました。Swift 6.3の `@c` には依存していません。将来のreverse callbackで検討するときは、その時点のlocal compilerとaccepted public specificationを別途gateします。
+The repository shell sets `TOOLCHAINS` to the snapshot, so earlier Xcode builds and tests used `env -u TOOLCHAINS xcodebuild ...` to select the default Xcode toolchain. P1 does not depend on Swift 6.3 `@c`. A future reverse-callback design must separately gate the local compiler, generated headers, ABI, and the accepted public specification at that time.
 
-real Mojo acceptanceは通常testから独立して明示的に有効化します。無効時はSwift Testing上でdisabled testとして可視化されます。
+The real-Mojo acceptance test is opt-in and independent from the normal test run. When it is not enabled, Swift Testing exposes it as a disabled test.
 
 ```bash
 SWIFT_MOJO_REAL_ACCEPTANCE=1 \
@@ -247,19 +247,19 @@ env -u TOOLCHAINS xcodebuild test \
   -destination 'platform=macOS,arch=arm64'
 ```
 
-このhardening後のtest/buildはまだ実行していないため、上表の23 testsと実Mojo `42` は直前baselineの履歴であり、現行treeの再検証結果ではありません。
+No build or test has been run after the current hardening changes. The 23-test result and the real-Mojo result of `42` are historical evidence from the immediately preceding baseline, not revalidation of the current tree.
 
-Cold Release archiveはSwiftSyntaxのhost-side compileがボトルネックになり、このmachineで行った2回の120秒制限付き再検証では完了しませんでした。機能エラーは観測していませんが、完了した検証としては扱いません。P1のarchive/relocation acceptanceは、同じgenerated registryと実Mojo artifactを使うarm64 Debug archiveで確認しています。
+A cold Release archive did not complete within either of two 120-second bounded attempts because host-side SwiftSyntax compilation was the bottleneck. No functional error was observed, but those attempts are not counted as completed verification. P1 archive and relocation acceptance was established with an arm64 Debug archive using the same generated Registry and real Mojo artifact.
 
 ## Non-goals
 
-- SwiftUI、Metal view integration、rendering lifecycleを提供すること。
-- Swift全体をMojoへ変換すること。
-- 任意のMojo textを検証せず生成sourceへ通すこと。
-- C ABI、raw pointer、artifact pathを通常のSwift APIにすること。
-- build中にMojo toolchainをinstallまたはnetwork取得すること。
-- 未対応の型、error、async、ownership、GPUをcopy、zero、Swift fallbackで成功扱いすること。
-- P1の単一arm64 sliceをproduction distributionの完成形とみなすこと。
+- Providing SwiftUI or Metal view integration or owning the rendering lifecycle.
+- Translating all Swift code into Mojo.
+- Passing arbitrary, unvalidated Mojo text into generated source.
+- Exposing the C ABI, raw pointers, or artifact paths as ordinary Swift APIs.
+- Installing or downloading the Mojo toolchain during a build.
+- Treating unsupported types, errors, async behavior, ownership, or GPU behavior as successful by copying data, returning zero, or falling back to Swift.
+- Treating the single arm64 P1 slice as a complete production-distribution design.
 
 ## Documentation
 
