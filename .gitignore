@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+DerivedData/
+.DS_Store
+*.dylib
+*.so
+*.dll
+*.o
+*.profraw

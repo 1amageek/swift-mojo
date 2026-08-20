@@ -1,0 +1,13 @@
+import MojoCompilerCore
+
+package protocol MojoObjectCompiling: Sendable {
+    func compilerVersion() throws -> String
+
+    func compileObject(
+        inputPath: String,
+        outputPath: String,
+        target: MojoTargetConfiguration
+    ) throws -> String
+}
+
+extension MojoCompiler: MojoObjectCompiling {}

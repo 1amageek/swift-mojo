@@ -1,0 +1,21 @@
+{
+  "abiVersion" : 1,
+  "artifactDigest" : "55b87ca7b3f9a4d992ee633181c8a1334000597c6390c99fec431e1b0f71eb2d",
+  "bindings" : [
+    {
+      "abiDigest" : "0af2a1be5b499f1ecaf846ba637fe7010ad5cda5b5e8dfda8f47fdd78987ba6e",
+      "bindingID" : 788870723690667806,
+      "functionName" : "add",
+      "implementationDigest" : "7823328a3d7b3aeaeae037c25ea5c11f176f0e583e5b216923790de71e65f1e1"
+    }
+  ],
+  "compilerVersion" : "Mojo 1.0.0 (ed45d567)",
+  "generationPipelineDigest" : "b5e6ba1dac748f41dbe4fe44bc3074f6201dfadafdda80a3e1bd402f864f6d49",
+  "schemaVersion" : 3,
+  "sourceGraphDigest" : "a7a3234644e8aa3861a70a89d190bb068d6d0cb407e3e9e1b44fbff163959b11",
+  "sourceGraphIdentifier" : 2856165373393807928,
+  "target" : {
+    "cpu" : "generic",
+    "triple" : "arm64-apple-macosx14.0"
+  }
+}
