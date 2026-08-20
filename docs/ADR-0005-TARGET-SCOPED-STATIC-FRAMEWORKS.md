@@ -1,6 +1,6 @@
 # ADR-0005: Target-scoped static frameworks
 
-- Status: Accepted; remote multi-target acceptance pending
+- Status: Accepted and verified
 - Date: 2026-08-20
 - Scope: Apple XCFramework packaging for multiple Mojo-enabled Swift targets
 
@@ -54,7 +54,7 @@ The binary remains a static archive. This decision adds no runtime lookup、dyna
 
 - A real static-framework prototype imported the generated C module and executed its static ABI function.
 - The committed integration fixture is regenerated as a universal arm64/x86_64 static framework and passes the normal Xcode package suite.
-- Completion requires the remote two-target workflow to prepare、link、and execute two independent Mojo-enabled targets in one consumer.
+- Immutable remote revision `fc0589d` prepared、linked、and executed two independent Mojo-enabled targets in one consumer; both returned `42` without module-map or C-symbol collisions.
 
 ## References
 

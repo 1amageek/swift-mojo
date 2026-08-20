@@ -2,7 +2,7 @@
 
 `swift-mojo` is an experimental bridge for implementing a Swift function in Mojo and shipping the compiled implementation as part of a Swift package. Swift owns the public API and application structure; Mojo owns the compute implementation. Generated C symbols, headers, binding IDs, and artifact paths stay private.
 
-> **Current status:** the complete macOS scalar path is verified for `(Int32, Int32) -> Int32`. An additive external-package bridge for `([Float]) throws -> Float` is implemented with a synchronous borrowed pointer and typed Swift errors, but its updated real-Mojo acceptance run is still pending. This is not yet an LLM inference runtime.
+> **Current status:** the macOS scalar path and the first external-package borrowed-buffer path are verified through real Mojo compile, static link, and runtime execution. The `([Float]) throws -> Float` bridge still needs allocation/copy measurement and sanitizer evidence before it can be called verified zero-copy. This is not yet an LLM inference runtime.
 
 ## Start with a Swift function
 
@@ -327,7 +327,7 @@ Add `SwiftMojo.json` at the package root. It is the release contract for the Moj
 }
 ```
 
-Schema 1 is closed: unknown root, target, or slice keys are rejected instead of being ignored. Slices for different architectures of the same Apple platform and variant are compiled independently and merged into one universal archive before XCFramework packaging. The manifest still records and verifies every compiler target separately.
+Schema 1 is closed: unknown root, target, or slice keys are rejected instead of being ignored. Slices for different architectures of the same Apple platform and variant are compiled independently, merged into one universal archive, and wrapped in a target-scoped static framework before XCFramework packaging. The manifest still records and verifies every compiler target separately.
 
 ### 4. Write an inline implementation
 
@@ -472,13 +472,13 @@ The DSL will grow incrementally, while production-scale full Mojo implementation
 | Concern | Supported now |
 |---|---|
 | Platform adapter | Apple XCFramework; arm64/aarch64/x86_64 macOS and iOS target triples are accepted by the implementation |
-| Package layout | Target-scoped modules, archives, symbols, and output directories |
+| Package layout | Target-scoped static frameworks, modules, archives, symbols, and output directories |
 | Declaration | File-scope, non-generic, non-`async`; scalar is nonthrowing and borrowed buffer is throwing |
 | Signature | `(Int32, Int32) -> Int32`, or external-only `([Float]) throws -> Float` |
 | Inline DSL | Exactly one direct `return lhs + rhs`; operand order may be reversed |
 | External implementation | `@mojo(package:function:)` plus `Mojo/<Package>/__init__.mojo` |
 | Borrowed buffer | Non-empty contiguous `[Float]`; pointer is immutable and scoped to one synchronous call |
-| Artifact | Target-scoped static XCFramework, canonical generated Mojo, schema-4 manifest/source map, and one or more declared compiler slices; same-platform architectures share a universal library |
+| Artifact | Target-scoped static framework inside an XCFramework, canonical generated Mojo, schema-4 manifest/source map, and one or more declared compiler slices; same-platform architectures share a universal static binary |
 | Build | Committed artifact, plugin verification, and no build-time Mojo compiler |
 | Release | Pinned compiler, configuration, all slices, inputs, source map, XCFramework metadata/interface, and local-dependency gate |
 | Runtime | Scalar overflow/invariant mismatch traps; buffer invocation caches ABI/graph/membership validation once and reports those failures plus an empty borrow as `MojoInvocationError` |
@@ -498,21 +498,22 @@ The following state was observed on this machine on 2026-08-20:
 | swift-syntax | Matching revision `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a` |
 | Mojo | Mojo `1.0.0 (ed45d567)` through an isolated executable wrapper |
 | Global Mojo | Not present on the shell `PATH` |
-| Real result | Inline and external-package `add(20, 22)` paths returned `42` |
-| Packaging | Real Mojo produced arm64 and x86_64 objects that were merged into one universal static archive in a schema-4 XCFramework |
+| Real result | Inline and external-package scalar paths returned `42`; the borrowed-buffer path returned `10.0` and empty input produced its typed error |
+| Packaging | Real Mojo produced arm64 and x86_64 objects that were merged into one universal target-scoped static framework in a schema-4 XCFramework |
 | Clean consumer | A relocated consumer resolved, built, linked, and ran with Mojo absent from `PATH` |
-| Link inspection | Exactly four target-scoped ABI symbols were defined in the consumer Mach-O; there was no Mojo dynamic-library dependency |
+| Link inspection | The scalar-plus-buffer consumer defined exactly five target-scoped ABI symbols; there was no Mojo dynamic-library dependency |
 | Failure evidence | Stale source, generated source/source-map drift, wrong target, missing state, malformed package wiring, symlinks, and corrupt archive/header/interface were rejected |
-| Previous scalar test baseline | All 68 tests passed in three bounded full-package `xcodebuild test` runs; the focused unit and integration groups also passed three guarded runs each |
-| Previous scalar release baseline | The prior scalar revision of `scripts/release-acceptance.sh` passed real external-package compilation, two-slice packaging, read-only release verification, compiler-free relocation, static link inspection, and runtime `42` |
+| Test evidence | The complete package suite passed after static-framework regeneration; the artifact and integration groups also passed three guarded runs without timeout or stale helpers |
+| Remote release acceptance | Immutable revision `fc0589d` passed real external-package compilation, two-slice static-framework packaging, read-only release verification, compiler-free relocation, static link inspection, scalar `42`, buffer `10.0`, and typed empty-buffer failure |
 | Legacy compatibility | The committed schema-3 example passed current plugin verification, Xcode build/link, and runtime `42` |
-| Borrowed buffer change | Source, generated ABI, macro lowering, typed errors, and acceptance coverage are implemented; build/link/runtime have not yet been rerun for this change |
-| Multi-target change | A two-target collision acceptance workflow is implemented in `scripts/multi-target-acceptance.sh`; it has not yet been executed |
-| Cold build measurement | `scripts/measure-cold-consumer-build.sh` now records a bounded fresh-scratch Release build; no new measurement has been taken |
+| Borrowed buffer change | Source, generated ABI, macro lowering, typed errors, real compile/link/runtime, and failure behavior are verified; allocation/copy counts and sanitizers remain pending |
+| Multi-target change | Immutable revision `fc0589d` prepared, linked, and executed two independent Mojo-enabled targets in one consumer; both returned `42` without module or symbol collision |
+| Wrapper latency | A Release benchmark against the same direct dispatcher measured `9.148 µs` versus `9.067 µs` p50, or `0.893%` median overhead; this does not prove allocation/copy counts |
+| Cold build measurement | A compiler-free fresh-scratch Release consumer build completed in `165` seconds; host-side SwiftSyntax optimization dominated the build |
 
 The repository shell sets `TOOLCHAINS` to the snapshot, so earlier Xcode builds and tests used `env -u TOOLCHAINS xcodebuild ...` to select the default Xcode toolchain. P1 does not depend on Swift 6.3 `@c`. A future reverse-callback design must separately gate the local compiler, generated headers, ABI, and the accepted public specification at that time.
 
-The committed integration fixture makes normal tests deterministic and compiler-free. Real compiler and relocation acceptance is a separate contributor workflow because authoring requires an installed Mojo compiler. The command below now covers both the scalar and borrowed-buffer paths, but the updated workflow has not yet been run:
+The committed integration fixture makes normal tests deterministic and compiler-free. Real compiler and relocation acceptance is a separate contributor workflow because authoring requires an installed Mojo compiler. The command below covers both the scalar and borrowed-buffer paths and is part of the executed release evidence:
 
 ```bash
 SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
@@ -538,7 +539,7 @@ SWIFT_MOJO_CANDIDATE_URL=https://github.com/owner/swift-mojo.git \
 scripts/release-tag-gate.sh <version> <tag>
 ```
 
-Historical cold Release archive attempts did not complete within a 120-second bound because host-side SwiftSyntax compilation dominated the build. That configuration has not been re-measured and is not reported as passing. Release integrity and relocation are instead covered by the schema-4 release command, universal static artifact, normal Xcode test graph, and compiler-free consumer acceptance above.
+Historical cold Release attempts did not complete within a 120-second bound because host-side SwiftSyntax compilation dominated the build. The current bounded workflow separates test and release timeouts and completed the same fresh-scratch compiler-free Release build in 165 seconds. This is passing correctness evidence and a measured developer-experience cost, not a claim that cold builds are already fast.
 
 ## Non-goals
 

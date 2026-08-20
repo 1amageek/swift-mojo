@@ -208,16 +208,18 @@ SWIFT_MOJO_EXECUTABLE=$compiler \
     --allow-writing-to-package-directory \
     mojo release --target Application
 
-archive=$(find \
+framework_binary=$(find \
     "$release_root/Generated/Application/SwiftMojo_Application_ABI.xcframework" \
-    -type f -name 'libSwiftMojo_Application_ABI.a' -print)
-if [[ $(print -r -- "$archive" | sed '/^$/d' | wc -l | tr -d ' ') != 1 ]]; then
-    print -u2 "error: release artifact must contain one universal archive"
+    -type f \
+    -path '*/SwiftMojo_Application_ABI.framework/SwiftMojo_Application_ABI' \
+    -print)
+if [[ $(print -r -- "$framework_binary" | sed '/^$/d' | wc -l | tr -d ' ') != 1 ]]; then
+    print -u2 "error: release artifact must contain one universal static framework binary"
     exit 1
 fi
-architecture_output=$(xcrun lipo -info "$archive")
+architecture_output=$(xcrun lipo -info "$framework_binary")
 if [[ $architecture_output != *arm64* || $architecture_output != *x86_64* ]]; then
-    print -u2 "error: universal archive does not contain arm64 and x86_64"
+    print -u2 "error: universal static framework does not contain arm64 and x86_64"
     exit 1
 fi
 

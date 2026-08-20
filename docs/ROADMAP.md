@@ -9,9 +9,9 @@
 | 0 — Foundation | 要件、責務境界、package skeleton | Complete |
 | 1 — Exact-syntax scalar PoC | direct `@mojo func ... { return ... }` から実Mojo静的実行 | Complete for the macOS scalar contract |
 | 2 — DSL and diagnostics | scalar DSL拡張、source-located diagnostics、inspection | Inspection verified; real diagnostic mapping and DSL expansion planned |
-| 3 — Types and ownership | buffers、strings、records、error envelope | First borrowed `Float` slice implemented; real acceptance pending |
+| 3 — Types and ownership | buffers、strings、records、error envelope | First borrowed `Float` slice verified through real runtime; allocation/copy and sanitizer gates remain |
 | 4 — Async and callbacks | cancellation、completion、shutdown、reverse bridge | Research/Planned |
-| 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean scalar consumer verified; two-target workflow implemented; model/distribution work remains |
+| 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean consumer、and two-target linking verified; model/distribution work remains |
 | 6 — GPU compute | device/buffer/event/transfer contracts | Research |
 | 7 — Full inline Mojo syntax decision | custom input/preprocessor/compiler integration | Research |
 
@@ -168,7 +168,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 - final Mach-Oに4つのfixed ABI symbols。
 - Mojo dylib dependencyなし。
 - real external Mojo package import、prepare、release、static execution。
-- arm64 `generic` とx86_64 `x86-64` objectを1つのuniversal archiveへ統合。
+- arm64 `generic` とx86_64 `x86-64` objectを1つのtarget-scoped universal static frameworkへ統合。
 - release packageから別directoryへ移設したclean consumerがMojo compilerなしでbuild/link/runし `42`。
 - final consumer Mach-Oにtarget-scoped ABI symbolsが4つ存在し、Mojo dylib dependencyなし。
 - 68 testsのfull package suiteとfocused unit/integration suiteをbounded `xcodebuild test` で各3回実行。
@@ -191,7 +191,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 通常suite、artifact mutation、concurrent output access、bounded process ownership、real Mojo release acceptanceを実行済みです。nested fresh consumer内でSwiftSyntaxを毎回cold compileしていた旧integration testは、製品経路ではなく依存再構築が100秒を超えたため廃止しました。現在は通常package graph内のintegration fixtureと独立release acceptanceへ責務を分離しています。
 
-Historicalなcold Release archiveはSwiftSyntaxのhost-side compileがボトルネックとなり、2回の120秒制限内には完了しませんでした。このconfigurationは再計測しておらずpassとは扱いません。current P1 correctnessはschema-4 release gate、universal static artifact、normal Xcode graph、compiler-free relocated consumerで閉じていますが、Release cold-build時間はPhase 2で計測・改善するdeveloper-experience課題です。
+Historicalなcold Release buildはSwiftSyntaxのhost-side compileがボトルネックとなり、2回の120秒制限内には完了しませんでした。current bounded workflowではtest timeoutとrelease timeoutを分離し、fresh-scratch compiler-free Release buildが165秒で完了しました。correctness gateはpassですが、SwiftSyntax cold compileは引き続きdeveloper-experience上の計測・改善対象です。
 
 ## 4. Phase 2 — DSL expansion and diagnostics
 
@@ -228,12 +228,12 @@ flowchart LR
 
 **Depends on:** Phase 1 ABI/artifact pipeline. It can progress in parallel with Phase 2 because external Mojo packages do not require inline DSL expansion.
 
-**Status:** `([Float]) throws -> Float` borrowed-input vertical slice is implemented across IR、macro、generated Mojo/C ABI、Registry、typed error、unit/artifact tests、and acceptance workflow. Real compiler/link/runtime execution、allocation/copy measurement、and sanitizer evidence are pending.
+**Status:** `([Float]) throws -> Float` borrowed-input vertical slice is verified across IR、macro、generated Mojo/C ABI、Registry、typed error、unit/artifact tests、real Mojo compile、compiler-free link/runtime、empty-input failure、and Mach-O inspection. Allocation/copy measurement and sanitizer evidence are pending, so the broader Phase remains in progress.
 
 Deliverables:
 
 - fixed-width scalar matrix。
-- borrowed contiguous `Float` input（first slice implemented; acceptance pending）。
+- borrowed contiguous `Float` input（first slice real-runtime verified; allocation/copy and sanitizer gates pending）。
 - generic borrowed/owned contiguous buffers。
 - UTF-8 string views。
 - versioned records。
@@ -260,7 +260,7 @@ flowchart LR
     E -->|Yes| V["Mark slice Verified"]
 ```
 
-The slice is not Verified until the updated real-Mojo release acceptance runs, the compiler-free relocated consumer executes both scalar and buffer calls, empty input returns the typed error, and copy/allocation claims are measured rather than inferred.
+The functional slice is runtime-verified: real-Mojo release acceptance ran, the compiler-free relocated consumer executed scalar and buffer calls, and empty input returned the typed error. A zero-copy claim remains blocked until copy/allocation counts are measured rather than inferred, and the unsafe boundary still requires sanitizer evidence.
 
 ## 6. Phase 4 — Async and callbacks
 
@@ -290,7 +290,7 @@ Verification:
 
 **Depends on:** source-graph work may start after Phase 2; complete distribution acceptance depends on Phase 3 and may run beside Phase 4 after ABI freeze
 
-**Status:** scalar bridge、real external package、arm64/x86_64 universal packaging、build/release verification、compiler-free clean consumerはverified。two-target link workflowはimplemented but unexecuted。remote distribution、model inferenceはpending
+**Status:** scalar bridge、real external package、arm64/x86_64 universal packaging、build/release verification、compiler-free clean consumer、immutable remote revisionからのtwo-target link/runtimeはverified。remote binary distribution、model inferenceはpending
 
 Deliverables:
 
@@ -298,7 +298,7 @@ Deliverables:
 - `Mojo/<Package>/__init__.mojo` と全moduleを同じinput graphへ統合（implemented）。
 - generated ABI entry moduleからMojo packageをimportし、declared bindingsをexport（implemented for scalar and borrowed `Float` signatures）。
 - model-specific Swift APIとMojo sourceとartifactを結ぶcompatibility manifest。
-- multiple Mojo-enabled targets向けtarget-derived module/archive/C symbol identityとtwo-target acceptance workflow（implemented; workflow execution pending）。
+- multiple Mojo-enabled targets向けtarget-derived static framework/module/archive/C symbol identityとtwo-target acceptance workflow（verified）。
 - arm64/x86_64 Apple slice-aware schema-4 manifest、universal archive、XCFramework metadata gate（verified）。
 - Apple XCFramework adapterと、SwiftPMの実在するlink capabilityに基づく非Apple artifact adapterの分離。
 - release/cache identity including target accelerator（implemented; arbitrary target feature setはplanned）。

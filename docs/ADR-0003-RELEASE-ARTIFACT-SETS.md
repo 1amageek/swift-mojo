@@ -78,10 +78,10 @@ Current evidence:
 - Gate 1はdirect inline integration target、real Mojo execution、overflow failure testsで完了。
 - Gate 2はreal external package importとsource invalidationまで完了。real compiler diagnostic source-remap acceptanceは未完了。
 - Gate 3はarm64/x86_64 universal XCFrameworkで完了。
-- Gate 4の同一consumer two-target collision acceptance workflowは実装済みだが未実行。
-- Gate 5の既存artifact mutation経路は完了。package-product/plugin provenance強化後のtest rerunは未完了。
+- Gate 4はimmutable remote revisionから2つのtarget-scoped static frameworkをprepareし、同一consumerでlink/runして両方の `42` を確認済み。
+- Gate 5のartifact mutation経路とpackage-product/plugin provenance testsは再実行済み。
 - Gate 6はrelocated compiler-free consumerで完了。
-- Gate 7のcommand unit testsと従来の直接CLI executionは完了。immutable remote revisionからpublic `swift package --allow-writing-to-package-directory mojo` を解決する新workflowとexact-tag gateは実装済みだが未実行。
+- Gate 7のcommand unit tests、immutable remote revisionからのpublic `swift package mojo` authoring/release workflow、and two-target workflowは実行済み。exact-tag gateはrelease tagがまだ存在しないため未実行。
 
 ## References
 

@@ -29,7 +29,7 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | No dynamic legacy path remains | package graph has no loader/shared-library target |
 | External Mojo package files are current author inputs | `MojoExternalPackage`、`MojoInputGraph`、generated package imports、compiler `-I`、plugin tree inputs |
 | Release configuration is explicit | `SwiftMojo.json` pins compiler、external packages、all required slices |
-| Borrowed Float lowering is additive and external-only | signature-aware `MojoBinding`、buffer dispatcher、generated Registry、`MojoInvocationError`、acceptance workflow。変更後のreal executionはpending |
+| Borrowed Float lowering is additive and external-only | signature-aware `MojoBinding`、buffer dispatcher、generated Registry、`MojoInvocationError`、real compile/link/runtime acceptance。allocation/copy and sanitizer evidenceはpending |
 
 ## 3. Architecture and responsibilities
 
@@ -104,7 +104,8 @@ Sources/<Target>/**/*.swift
   -> mojo build --emit object -I <isolated-root> for every configured slice
   -> archive each target object independently
   -> lipo architecture slices that share one Apple platform/variant into a universal archive
-  -> xcodebuild -create-xcframework with one library per platform/variant group
+  -> wrap each group archive in a target-scoped static framework
+  -> xcodebuild -create-xcframework with one framework per platform/variant group
   -> canonical XCFramework tree SHA-256
   -> schema 4 manifest with target identity、source map、slice membership
   -> re-read Swift/Mojo input graph and reject concurrent edits
@@ -124,12 +125,12 @@ SwiftPM loads committed binary target
        target-scoped ABI identity + pinned compiler
        complete required slice set + optional explicit destination assertion
        full input graph + binding/package records
-       re-rendered generated Mojo/source map + every expected static archive
+       re-rendered generated Mojo/source map + every expected static framework binary
        XCFramework Info.plist/interface membership
        full XCFramework tree digest
   -> generate SwiftMojoBindings.generated.swift in plugin work directory
   -> macro-expanded source compiles against generated Registry
-  -> static archive links into final executable
+  -> static framework archive links into final executable
 ```
 
 manifestが欠落するとSwiftPMのrequired input checkで停止します。存在するが不正な場合はverifierが停止します。古いgenerated Registryだけを再利用して成功する経路を作りません。
@@ -299,10 +300,10 @@ scalar runtimeで `throws` にしないのは、toolchain/artifact failureをpre
 | `@mojo` | `MojoBodyMacro` + `MojoBinding` | exact expansion、argument rejection、unsupported DSL tests |
 | `swift package --allow-writing-to-package-directory mojo init` | `MojoArtifactInitializer` + transaction | preserve prepared、reject unmanaged/incomplete tests |
 | `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare` | source graph + pipeline identity + renderer + compiler + packager | cache invalidation/lock tests、gated real Mojo acceptance |
-| borrowed `[Float]` | buffer signature IR + macro + generated Mojo/C/Registry | unit/artifact coverage implemented; updated real compiler/link/run pending |
+| borrowed `[Float]` | buffer signature IR + macro + generated Mojo/C/Registry | unit/artifact tests、real Mojo compile、compiler-free link/run、typed empty failure、Mach-O inspection verified; allocation/copy and sanitizers pending |
 | build plugin | leaf/directory inputs + `verify` | committed schema-4 fixture verifies, links, and returns `42`; verifier/release suites cover wrong target、stale、missing/corrupt nested inputs |
 | static artifact | XCFramework + generated Registry | corrupt archive/header tests、Mach-O symbol/dylib inspection |
-| relocation | static executable | archive copy outside build location returns `42` |
+| relocation | static executable | artifact copy outside build location returns scalar `42` and buffer `10.0` without Mojo installed |
 
 ## 12. Target and packaging behavior
 
@@ -402,12 +403,11 @@ LLM weightsはSwiftPM source packageやXCFrameworkへ同梱しません。model 
 
 ### 13.6 Current implementation boundary
 
-schema-4 sourceはtarget-scoped identity、Swift + external Mojo input graph、generated package import、compiler `-I` roots、multiple Apple slices、configuration-aware build verification、read-only release gateを実装しています。real external package、arm64/x86_64 universal artifact、compiler-free relocated consumerまでscalar contractで実証済みです。borrowed `Float` loweringとtwo-target acceptance workflowは実装済みですが未実行です。残るdistribution gapは次です。
+schema-4 sourceはtarget-scoped identity、Swift + external Mojo input graph、generated package import、compiler `-I` roots、multiple Apple slices、configuration-aware build verification、read-only release gateを実装しています。real external package、arm64/x86_64 universal artifact、compiler-free relocated scalar/borrowed-buffer consumer、two-target static-framework link/runtimeまで実証済みです。残るdistribution gapは次です。
 
 1. imported Mojo dependency lock identityとreproducible dependency acquisition。
-2. 同一consumerへ2つのMojo-enabled targetをlinkするimplemented workflowの実行証拠。
-3. remote artifact distribution、checksum、signing、release/tag policy。
-4. model/session API、weights compatibility、実推論、shutdown/error/cancellation acceptance。
+2. remote artifact distribution、checksum、signing、release/tag policy。
+3. model/session API、weights compatibility、実推論、shutdown/error/cancellation acceptance。
 
 Apple platformではXCFrameworkをnative artifact adapterとして継続できます。SwiftPMのbinary targetがApple platform向けである現行制約のもと、Linux等をXCFrameworkまたは同一manifest spellingで扱えるとは仮定しません。各platform adapterはlink方法、artifact layout、consumer verificationを実証してからsupported sliceへ追加します。
 

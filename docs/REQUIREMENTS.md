@@ -11,7 +11,7 @@
 | Planned | 次段階の設計対象。呼び出し可能なAPIは公開しない |
 | Research | upstream capabilityまたは方式選定の実証が必要 |
 
-schema-3 P1はarm64 macOS向けscalar経路のhistorical baselineです。current schema-4 scalar bridgeはdirect inline body、external Mojo package、target-scoped artifact set、source map、arm64/x86_64 universal packaging、release verification、compiler-free relocated consumerまで実行検証済みです。external-only `([Float]) throws -> Float` のborrowed buffer vertical sliceは実装済みですが、変更後のreal-Mojo acceptanceは未実行です。owned buffer、tensor、async、GPU、model inferenceはまだ公開契約に含みません。
+schema-3 P1はarm64 macOS向けscalar経路のhistorical baselineです。current schema-4 scalar bridgeはdirect inline body、external Mojo package、target-scoped static framework、source map、arm64/x86_64 universal packaging、release verification、compiler-free relocated consumerまで実行検証済みです。external-only `([Float]) throws -> Float` のborrowed buffer vertical sliceもreal Mojo compile、link、runtime、typed empty-input failureまで検証済みです。allocation/copy countとsanitizer evidence、owned buffer、tensor、async、GPU、model inferenceはまだ完了または公開契約に含みません。
 
 ## 2. Functional requirements
 
@@ -31,7 +31,7 @@ schema-3 P1はarm64 macOS向けscalar経路のhistorical baselineです。curren
 | F-012 | Mojo modelをSwift Packageとして配布する | Planned | Swift API、Mojo source package、prepared native artifact、manifestを1つのversioned productとしてconsumerが解決できる |
 | F-013 | arbitrary Mojo syntaxをSwift bodyへ埋め込む方式を決定する | Research | external packageで満たせない需要を立証し、custom source/preprocessor/compiler integrationを比較実証する |
 | F-014 | release package integrationを検証する | Verified | release gateがtarget-scoped binary target path、source-target dependency、build plugin、local dependency absenceをSwiftSyntaxから確認する |
-| F-015 | contiguous `Float` inputを同期borrowしてMojoへ渡す | Implemented | macro、IR、generated C/Mojo ABI、typed Swift error、artifact test、real-Mojo acceptance workflowが同じ `([Float]) throws -> Float` 契約を使う。updated workflowの実行はpending |
+| F-015 | contiguous `Float` inputを同期borrowしてMojoへ渡す | Verified | macro、IR、generated C/Mojo ABI、typed Swift error、real Mojo compile、compiler-free runtime、empty-input failureが同じ `([Float]) throws -> Float` 契約を使う。zero-copy claimには別途allocation/copy measurementを要求する |
 
 ## 3. Current scalar contract
 
@@ -56,7 +56,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 | Name | portable C identifier; same ABI identity in one target must be unique |
 | Conditional compilation | an `@mojo` declaration inside `#if` is rejected in P1 |
 | Platform | Apple XCFramework adapter for arm64/aarch64/x86_64 macOS/iOS triples |
-| Package | target-derived module/archive/C symbols prevent cross-target collision |
+| Package | target-derived static framework/module/archive/C symbols prevent cross-target collision |
 
 未知のattribute argument、body shape、type、effect、expressionはcompile/prepare errorです。Swift implementationへのfallback、zero、空artifactを成功扱いしません。
 
@@ -76,7 +76,7 @@ func sum(_ values: [Float]) throws -> Float
 | Swift owner | caller's `Array`; retained for the full call closure |
 | Mojo access | immutable pointer + exact element count; no escape/free/mutation |
 | Failure | public `MojoInvocationError`; no fabricated numeric result |
-| Verification state | implementation and test workflow exist; real compiler/link/runtime rerun pending |
+| Verification state | real compiler、static framework link、compiler-free runtime、typed empty-input failure verified; allocation/copy and sanitizer evidence pending |
 
 ## 4. Non-functional requirements
 
@@ -86,7 +86,7 @@ func sum(_ values: [Float]) throws -> Float
 | N-002 | One source of truth | macro、renderer、manifestが `MojoBindingCore` を共有する |
 | N-003 | No build-time toolchain mutation | pluginはverifyだけを実行し、Mojoをinstall/compileしない |
 | N-004 | Hermetic tool discovery | prepareはabsolute overrideまたは `PATH` だけを使う |
-| N-005 | Relocatability | runtime path lookupなし。archiveから移設した実行ファイルで検証 |
+| N-005 | Relocatability | runtime path lookupなし。artifactから移設した実行ファイルで検証 |
 | N-006 | Artifact integrity | XCFramework全regular fileのpath、length、contentをcanonical hashする |
 | N-007 | Explicit target | target triple/CPUをmanifest、compiler arguments、verifierで一致させる |
 | N-008 | Incremental correctness | manifest、XCFramework root、全descendant regular file/directoryをplugin inputとして宣言する |
@@ -180,7 +180,7 @@ XCFramework tree digestはhidden fileを除くregular fileをrelative path順に
 | `Float` / `Double` | `float` / `double` | `Float32` / `Float64` | Planned |
 | `Bool` | normalized `uint8_t` | explicit conversion | Planned |
 | `String` | UTF-8 pointer + byte count | borrowed view | Planned |
-| non-empty `[Float]` input, `Float` result | `const float *` + `uint64_t` -> `float` | `Pointer[Float32, ImmUntrackedOrigin]` + count -> `Float32` | Implemented; real acceptance and copy-count proof pending |
+| non-empty `[Float]` input, `Float` result | `const float *` + `uint64_t` -> `float` | `Pointer[Float32, ImmUntrackedOrigin]` + count -> `Float32` | Real compile/link/runtime verified; allocation/copy and sanitizer proof pending |
 | other contiguous/owned buffer | pointer + count or owner record | borrowed/owned span | Planned |
 | optional scalar | tag + payload | explicit optional record | Planned |
 | Swift struct | generated versioned C record | generated ABI record | Research |
@@ -290,7 +290,7 @@ GPU bridgeはこのlibraryの将来scopeですが、SwiftUI shader modifierやvi
 | MP-001 | model実装を独立したSwift Packageとして表す | Planned | packageがSwift library product、Mojo source package、prepared artifact、manifestを所有する |
 | MP-002 | external Mojo sourceをgraphへ含める | Verified | package内の全regular file path/contentがcache/verify digestへ入り、symbolic linkと未宣言の兄弟package importを拒否する。package dependency lock identityはplanned |
 | MP-003 | Mojo packageからABI entry moduleを生成する | Verified | generated entryがpackageをimportし、declared bindingsだけをexportする |
-| MP-004 | modelごとにartifact identityを分離する | Implemented | target-derived module/archive/symbol identityで衝突を防ぎ、two-target acceptance workflowを提供する。workflow実行はpending |
+| MP-004 | modelごとにartifact identityを分離する | Verified | target-derived framework/module/archive/symbol identityを持つ2 targetをimmutable remote revisionからprepareし、同一consumerでlink/runして両方の `42` を確認する |
 | MP-005 | authorとconsumer toolchainを分離する | Verified | author prepareはpinned Mojo compilerを使い、consumer buildはprepared sliceだけを検証・linkする |
 | MP-006 | weightsをcode distributionから分離する | Planned | public load APIがlocation/revision/digest/resolverを受け、production weightsをSwiftPM resourceへ暗黙に含めない |
 | MP-007 | model compatibilityを検証する | Planned | model API/ABI、weight format/revision、compiler、platform/accelerator sliceの不一致をtyped failureにする |
@@ -314,7 +314,7 @@ Swift model package
 - model/session execution、tokenizer contract、KV cacheはmodel packageの責務であり、`swift-mojo` coreへmodel固有APIを追加しない。sampling、停止条件、prompt flowなどのgeneration policyはapplicationが所有する。
 - Apple platformではXCFrameworkを使う。非Apple platformはSwiftPMの実在するlink/package capabilityに対応する別adapterを要求し、XCFramework互換を仮定しない。
 
-MP-002、MP-003、MP-005はreal Mojo external packageとcompiler-free clean consumerのscalar acceptanceまで完了しています。MP-004のtarget-derived identityと同一consumerへ2 targetをlinkするacceptance workflowは実装済みですが、workflowは未実行です。MP-008が要求するmodel load/inferとfailure matrixは未完了であり、model/session API、weights、実推論、remote distributionを含むMP-001/006〜008は各model packageと後続Phaseの責務です。
+MP-002、MP-003、MP-005はreal Mojo external packageとcompiler-free clean consumerのscalar/borrowed-buffer acceptanceまで完了しています。MP-004はimmutable remote revisionからtarget-derived identityを持つ2 targetを同一consumerへlink/runして完了しています。MP-008が要求するmodel load/inferとfailure matrixは未完了であり、model/session API、weights、実推論、remote distributionを含むMP-001/006〜008は各model packageと後続Phaseの責務です。
 
 ## 13. Developer experience requirements
 

@@ -6,7 +6,7 @@
 
 ## Implementation status
 
-ADR-0003 implements and verifies the scalar bridge substrate for real external packages、target-scoped identities、arm64/x86_64 universal Apple artifacts、compiler pins、build/release verification、and compiler-free relocated consumption. The two-target collision workflow and first borrowed `Float` slice are implemented but not yet executed. This ADR remains Proposed because their acceptance evidence、model/session ownership、weights compatibility、real inference、remote artifacts、and model-level failure behavior are not complete.
+ADR-0003 through ADR-0005 implement and verify the bridge substrate for real external packages、target-scoped static frameworks、arm64/x86_64 universal Apple artifacts、compiler pins、build/release verification、compiler-free relocated consumption、two-target linking、and the first borrowed `Float` runtime slice. This ADR remains Proposed because model/session ownership、weights compatibility、real inference、remote binary artifacts、and model-level failure behavior are not complete.
 
 ## Context
 

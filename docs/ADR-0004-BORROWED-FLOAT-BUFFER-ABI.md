@@ -1,6 +1,6 @@
 # ADR-0004: Synchronous borrowed Float buffer ABI
 
-- Status: Implemented; real-Mojo acceptance pending
+- Status: Runtime verified; allocation/copy and sanitizer evidence pending
 - Date: 2026-08-20
 - Scope: First non-scalar ABI vertical slice
 
@@ -95,6 +95,8 @@ The implementation is not Verified until all of the following are executed:
 6. final Mach-O inspection showing the additive buffer symbol and no Mojo dynamic dependency;
 7. allocation/copy measurement before describing the path as verified zero-copy;
 8. supported sanitizer runs for pointer bounds and lifetime failures.
+
+Gates 1 through 6 are complete on macOS with Mojo `1.0.0 (ed45d567)`. The immutable remote revision produced scalar `42`、buffer sum `10.0`、the typed empty-buffer failure、five expected bridge symbols、and no Mojo dynamic dependency. A same-executable Release latency benchmark measured `0.893%` median wrapper overhead against the direct dispatcher for work above 1 µs. Gate 7 remains incomplete because allocation/copy counts were not observed, and gate 8 remains incomplete.
 
 ## References
 
