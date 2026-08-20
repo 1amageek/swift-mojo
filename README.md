@@ -4,9 +4,20 @@
 
 > **Current status:** the complete macOS packaging path works, but the public function contract is intentionally narrow: `(Int32, Int32) -> Int32`. This is a working scalar bridge and release-system prototype, not yet an LLM inference runtime.
 
-## What can I do with it today?
+## Start with a Swift function
 
-You can publish a Swift function whose implementation is compiled by Mojo, then call it from Swift like any other function:
+The package author writes the API in Swift and marks the implementation with `@mojo`:
+
+```swift
+import Mojo
+
+@mojo
+public func add(_ a: Int32, _ b: Int32) -> Int32 {
+    return a + b
+}
+```
+
+After the package author prepares and commits the native artifact, an application calls the function as ordinary Swift:
 
 ```swift
 import ModelMath
@@ -15,29 +26,24 @@ let value = add(20, 22)
 print(value) // 42
 ```
 
-The application does not load a `.mojo` file at runtime and does not search for a Mojo dynamic library. It calls a statically linked implementation prepared by the package author.
-
-| Capability | Available today? | What it means |
-|---|---:|---|
-| Call compiled Mojo from ordinary Swift code | Yes | The Swift caller sees a normal nonthrowing function |
-| Keep the implementation in an external Mojo package | Yes | Production-oriented Mojo source does not need to fit inside Swift syntax |
-| Write the smallest supported implementation inline | Yes | `return a + b` can appear directly inside an `@mojo` function |
-| Ship a universal macOS artifact | Yes | arm64 and x86_64 are packaged in one static XCFramework |
-| Build and run a consumer without Mojo installed | Yes | Only the package author needs Mojo during explicit preparation |
-| Detect stale or modified generated artifacts | Yes | Normal builds fail instead of silently using mismatched code |
-| Pass arrays, tensors, strings, buffers, or model state | No | The current ABI accepts exactly two `Int32` values and returns one `Int32` |
-| Load an LLM, run token generation, or use GPU kernels | No | Model/session, ownership, async, tensor, and GPU contracts are future phases |
-| Embed arbitrary Mojo grammar inside a `.swift` body | No | Use an external `.mojo` package for full Mojo source |
-
-The useful result today is therefore not “run an LLM from Swift.” It is proof of the lower-level distribution path an LLM package will need:
-
 ```text
-Swift API
-  -> verified binding
-  -> precompiled Mojo native artifact
-  -> static SwiftPM/Xcode link
-  -> consumer runs without the Mojo compiler
+Package author                          Application developer
+
+@mojo Swift source
+        |
+        v
+swift package mojo prepare
+        |
+        v
+committed static XCFramework  -------> import ModelMath
+                                        add(20, 22)
+
+Mojo compiler required                 Mojo compiler not required
 ```
+
+The inline body above is intentionally small today: it accepts the validated scalar expression supported by the current `(Int32, Int32) -> Int32` bridge. The body is not executed as Swift. The macro replaces it with a call to the prepared Mojo artifact, and unsupported bodies fail instead of falling back to Swift.
+
+For full Mojo source, multiple files, or package-level organization, keep the implementation in an external Mojo package as shown below. Buffers, tensors, model state, async execution, GPU kernels, and LLM inference remain future work.
 
 ## A complete example
 
@@ -133,21 +139,6 @@ Output:
 ```
 
 The consumer uses a normal Swift package dependency. It does not run `prepare`, install Mojo, or know about the generated ABI.
-
-### Inline spelling for the current tiny DSL
-
-For the one inline operation supported today, the same API can be written without a separate `.mojo` file:
-
-```swift
-import Mojo
-
-@mojo
-public func add(_ a: Int32, _ b: Int32) -> Int32 {
-    return a + b
-}
-```
-
-This body is not executed as Swift. The macro replaces it with a call to the prepared Mojo artifact, while the preparation tool lowers the same validated expression to Mojo. Unsupported bodies produce an error; they never fall back to Swift.
 
 ## Author and consumer experience
 
