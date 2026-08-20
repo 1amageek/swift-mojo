@@ -1,0 +1,4 @@
+framework module SwiftMojo_MojoBuildPluginIntegrationFixture_ABI {
+    umbrella header "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.h"
+    export *
+}

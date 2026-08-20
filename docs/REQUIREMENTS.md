@@ -322,7 +322,7 @@ MP-002、MP-003、MP-005はreal Mojo external packageとcompiler-free clean cons
 - `init` は何を `Package.swift` に追加するかを表示する。
 - `init` 再実行でprepare済みartifactを破壊しない。
 - `prepare` は重い作業をcacheし、`Prepared` と `Reused` を区別する。
-- source変更時のbuild failureは、次の操作として `swift package --allow-writing-to-package-directory mojo prepare --target <Swift target>` を示す。
+- source変更時のbuild failureは、次の操作として `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare --target <Swift target>` を示す。
 - generated Mojo、manifest、compiler version、target、digestをinspection可能にする。
 - `swift package --allow-writing-to-package-directory mojo` command pluginでauthorがstandalone executableのPATHを管理しなくてよい。
 - textとmachine-readable JSONで同じsuccess/failure契約を公開する。

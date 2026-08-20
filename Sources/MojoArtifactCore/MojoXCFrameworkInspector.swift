@@ -14,6 +14,7 @@ package enum MojoXCFrameworkInspector {
     private struct Library: Decodable {
         let libraryIdentifier: String
         let libraryPath: String
+        let binaryPath: String?
         let headersPath: String?
         let supportedArchitectures: [String]
         let supportedPlatform: String
@@ -22,6 +23,7 @@ package enum MojoXCFrameworkInspector {
         private enum CodingKeys: String, CodingKey {
             case libraryIdentifier = "LibraryIdentifier"
             case libraryPath = "LibraryPath"
+            case binaryPath = "BinaryPath"
             case headersPath = "HeadersPath"
             case supportedArchitectures = "SupportedArchitectures"
             case supportedPlatform = "SupportedPlatform"
@@ -57,8 +59,13 @@ package enum MojoXCFrameworkInspector {
                     "Library '\(library.libraryIdentifier)' has no manifest targets"
                 )
             }
-            guard library.libraryPath == identity.libraryName,
-                  library.headersPath == "Headers",
+            let frameworkName = MojoStaticFrameworkLayout.frameworkName(
+                identity: identity
+            )
+            guard library.libraryPath == frameworkName,
+                  library.binaryPath
+                    == "\(frameworkName)/\(identity.moduleName)",
+                  library.headersPath == nil,
                   Set(library.supportedArchitectures)
                     == expectedArchitectures,
                   expected.allSatisfy({
@@ -88,9 +95,14 @@ package enum MojoXCFrameworkInspector {
         var slices: [MojoArtifactManifest.Slice] = []
         for target in targets {
             let expected = try MojoXCFrameworkSliceIdentity(target: target)
+            let frameworkName = MojoStaticFrameworkLayout.frameworkName(
+                identity: identity
+            )
             let matches = libraries.filter { library in
-                return library.libraryPath == identity.libraryName
-                    && library.headersPath == "Headers"
+                return library.libraryPath == frameworkName
+                    && library.binaryPath
+                        == "\(frameworkName)/\(identity.moduleName)"
+                    && library.headersPath == nil
                     && library.supportedArchitectures.contains(
                         expected.architecture
                     )
@@ -103,12 +115,15 @@ package enum MojoXCFrameworkInspector {
                 )
             }
             let library = match
-            let archiveURL = artifactURL
+            let sliceURL = artifactURL
                 .appendingPathComponent(
                     library.libraryIdentifier,
                     isDirectory: true
                 )
-                .appendingPathComponent(identity.libraryName)
+            let archiveURL = MojoStaticFrameworkLayout.binaryURL(
+                in: sliceURL,
+                identity: identity
+            )
             guard FileManager.default.fileExists(atPath: archiveURL.path) else {
                 throw MojoArtifactError.sliceArchiveMissing(target.identity)
             }

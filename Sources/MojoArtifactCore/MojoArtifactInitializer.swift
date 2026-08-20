@@ -59,16 +59,10 @@ package struct MojoArtifactInitializer: Sendable {
             guard !archives.isEmpty,
                   fileManager.fileExists(atPath: infoPlistURL.path),
                   archives.allSatisfy({ archiveURL in
-                    let headersURL = archiveURL.deletingLastPathComponent()
-                        .appendingPathComponent("Headers", isDirectory: true)
-                    return fileManager.fileExists(
-                        atPath: headersURL.appendingPathComponent(
-                            "module.modulemap"
-                        ).path
-                    ) && fileManager.fileExists(
-                        atPath: headersURL.appendingPathComponent(
-                            "\(identity.moduleName).h"
-                        ).path
+                    Self.hasCompleteInterface(
+                        for: archiveURL,
+                        identity: identity,
+                        fileManager: fileManager
                     )
                   }) else {
                 throw MojoArtifactError.invalidManagedOutputDirectory(
@@ -108,22 +102,26 @@ package struct MojoArtifactInitializer: Sendable {
         in staging: URL,
         identity: MojoArtifactIdentity
     ) throws {
-        let sourceURL = staging.appendingPathComponent("Bootstrap.c")
-        let objectURL = staging.appendingPathComponent("Bootstrap.o")
-        let archiveURL = staging.appendingPathComponent(
+        let buildURL = staging.appendingPathComponent(
+            ".bootstrap",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: buildURL,
+            withIntermediateDirectories: false
+        )
+        let sourceURL = buildURL.appendingPathComponent("Bootstrap.c")
+        let objectURL = buildURL.appendingPathComponent("Bootstrap.o")
+        let archiveURL = buildURL.appendingPathComponent(
             identity.libraryName
         )
-        let headersURL = staging.appendingPathComponent(
-            "include",
-            isDirectory: true
+        let frameworkURL = MojoStaticFrameworkLayout.frameworkURL(
+            in: buildURL,
+            identity: identity
         )
         let artifactURL = staging.appendingPathComponent(
             identity.artifactName,
             isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: headersURL,
-            withIntermediateDirectories: true
         )
         let prefix = identity.symbolPrefix
         let graphFunction = identity == .legacy
@@ -159,16 +157,6 @@ package struct MojoArtifactInitializer: Sendable {
         let header = identity == .legacy
             ? renderer.header
             : renderer.header(identity: identity)
-        try header.write(
-            to: headersURL.appendingPathComponent("\(identity.moduleName).h"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try renderer.moduleMap(identity: identity).write(
-            to: headersURL.appendingPathComponent("module.modulemap"),
-            atomically: true,
-            encoding: .utf8
-        )
         try run(
             executablePath: "/usr/bin/xcrun",
             arguments: [
@@ -183,17 +171,53 @@ package struct MojoArtifactInitializer: Sendable {
             executablePath: "/usr/bin/ar",
             arguments: ["rcs", archiveURL.path, objectURL.path]
         )
+        try MojoStaticFrameworkLayout.createFramework(
+            at: frameworkURL,
+            identity: identity,
+            archiveURL: archiveURL,
+            header: header,
+            moduleMap: renderer.frameworkModuleMap(identity: identity)
+        )
         try run(
             executablePath: "/usr/bin/xcrun",
             arguments: [
                 "xcodebuild",
                 "-create-xcframework",
-                "-library", archiveURL.path,
-                "-headers", headersURL.path,
+                "-framework", frameworkURL.path,
                 "-output", artifactURL.path,
             ]
         )
-        try FileManager.default.removeItem(at: objectURL)
+        try FileManager.default.removeItem(at: buildURL)
+    }
+
+    private static func hasCompleteInterface(
+        for archiveURL: URL,
+        identity: MojoArtifactIdentity,
+        fileManager: FileManager
+    ) -> Bool {
+        if archiveURL.lastPathComponent == identity.moduleName {
+            let frameworkURL = archiveURL.deletingLastPathComponent()
+            return fileManager.fileExists(
+                atPath: MojoStaticFrameworkLayout.modulesURL(
+                    in: frameworkURL
+                ).appendingPathComponent("module.modulemap").path
+            ) && fileManager.fileExists(
+                atPath: MojoStaticFrameworkLayout.headersURL(
+                    in: frameworkURL
+                ).appendingPathComponent("\(identity.moduleName).h").path
+            ) && fileManager.fileExists(
+                atPath: frameworkURL.appendingPathComponent("Info.plist").path
+            )
+        }
+        let headersURL = archiveURL.deletingLastPathComponent()
+            .appendingPathComponent("Headers", isDirectory: true)
+        return fileManager.fileExists(
+            atPath: headersURL.appendingPathComponent("module.modulemap").path
+        ) && fileManager.fileExists(
+            atPath: headersURL.appendingPathComponent(
+                "\(identity.moduleName).h"
+            ).path
+        )
     }
 
     private static var hostArchitecture: String {

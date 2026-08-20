@@ -114,16 +114,27 @@ struct MojoReleaseVerifierTests {
                 "macos-arm64",
                 isDirectory: true
             )
-            let headers = slice.appendingPathComponent(
-                "Headers",
-                isDirectory: true
+            let framework = MojoStaticFrameworkLayout.frameworkURL(
+                in: slice,
+                identity: layout.identity
+            )
+            let headers = MojoStaticFrameworkLayout.headersURL(
+                in: framework
+            )
+            let modules = MojoStaticFrameworkLayout.modulesURL(
+                in: framework
             )
             try fileManager.createDirectory(
                 at: headers,
                 withIntermediateDirectories: true
             )
-            let archive = slice.appendingPathComponent(
-                layout.identity.libraryName
+            try fileManager.createDirectory(
+                at: modules,
+                withIntermediateDirectories: true
+            )
+            let archive = MojoStaticFrameworkLayout.binaryURL(
+                in: slice,
+                identity: layout.identity
             )
             try Data("release archive".utf8).write(to: archive)
             try MojoStaticSourceRenderer().header(
@@ -135,19 +146,28 @@ struct MojoReleaseVerifierTests {
                 atomically: true,
                 encoding: .utf8
             )
-            try MojoStaticSourceRenderer().moduleMap(
+            try MojoStaticSourceRenderer().frameworkModuleMap(
                 identity: layout.identity
             ).write(
-                to: headers.appendingPathComponent("module.modulemap"),
+                to: modules.appendingPathComponent("module.modulemap"),
                 atomically: true,
                 encoding: .utf8
+            )
+            try MojoStaticFrameworkLayout.informationPropertyList(
+                identity: layout.identity
+            ).write(
+                to: framework.appendingPathComponent("Info.plist"),
+                options: .atomic
+            )
+            let frameworkName = MojoStaticFrameworkLayout.frameworkName(
+                identity: layout.identity
             )
             let plist = try PropertyListSerialization.data(
                 fromPropertyList: [
                     "AvailableLibraries": [[
                         "LibraryIdentifier": "macos-arm64",
-                        "LibraryPath": layout.identity.libraryName,
-                        "HeadersPath": "Headers",
+                        "LibraryPath": frameworkName,
+                        "BinaryPath": "\(frameworkName)/\(layout.identity.moduleName)",
                         "SupportedArchitectures": ["arm64"],
                         "SupportedPlatform": "macos",
                     ]],

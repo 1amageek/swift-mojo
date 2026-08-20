@@ -33,7 +33,7 @@ struct MojoCommandRunnerTests {
 
         #expect(
             diagnostic.contains(
-                "swift package --allow-writing-to-package-directory mojo prepare"
+                "swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare"
             )
         )
         #expect(!diagnostic.contains("Run 'swift-mojo prepare'"))

@@ -17,7 +17,7 @@ ADR-0003 implements and verifies the scalar bridge substrate for real external p
 | Artifact | Built/selected by | Consumed by | Lifetime |
 |---|---|---|---|
 | Swift model API | model author | application source | package version |
-| Mojo source package | model author | `swift package --allow-writing-to-package-directory mojo prepare` | source revision |
+| Mojo source package | model author | `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare` | source revision |
 | native ABI artifact | prepare/release workflow | Swift linker/process | release/platform slice |
 | model weights | application/model resolver | model session | model revision/cache policy |
 

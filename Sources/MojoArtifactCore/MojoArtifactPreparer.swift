@@ -3,7 +3,7 @@ import MojoBindingCore
 import MojoCompilerCore
 
 package struct MojoArtifactPreparer: Sendable {
-    package static let packagingVersion = 4
+    package static let packagingVersion = 5
 
     private let compiler: any MojoObjectCompiling
     private let generationPipelineDigestOverride: String?
@@ -91,30 +91,10 @@ package struct MojoArtifactPreparer: Sendable {
             )
             try sourceMapData.write(to: sourceMapURL, options: .atomic)
 
-            let headersURL = staging.appendingPathComponent(
-                ".headers",
-                isDirectory: true
-            )
-            try FileManager.default.createDirectory(
-                at: headersURL,
-                withIntermediateDirectories: true
-            )
-            try renderer.header(
+            let renderedHeader = renderer.header(
                 identity: options.identity,
                 inputGraph: inputGraph
-            ).write(
-                to: headersURL.appendingPathComponent(
-                    "\(options.identity.moduleName).h"
-                ),
-                atomically: true,
-                encoding: .utf8
             )
-            try renderer.moduleMap(identity: options.identity).write(
-                to: headersURL.appendingPathComponent("module.modulemap"),
-                atomically: true,
-                encoding: .utf8
-            )
-
             let buildURL = staging.appendingPathComponent(
                 ".slices",
                 isDirectory: true
@@ -187,12 +167,17 @@ package struct MojoArtifactPreparer: Sendable {
                 options.identity.artifactName,
                 isDirectory: true
             )
+            let frameworks = try createStaticFrameworks(
+                from: packagedArchives,
+                header: renderedHeader,
+                in: staging,
+                identity: options.identity
+            )
             var packagingArguments = ["xcodebuild", "-create-xcframework"]
-            for archiveURL in packagedArchives {
+            for frameworkURL in frameworks {
                 packagingArguments.append(
                     contentsOf: [
-                        "-library", archiveURL.path,
-                        "-headers", headersURL.path,
+                        "-framework", frameworkURL.path,
                     ]
                 )
             }
@@ -231,7 +216,6 @@ package struct MojoArtifactPreparer: Sendable {
                 to: staging.appendingPathComponent(MojoStaticABI.manifestName),
                 options: .atomic
             )
-            try FileManager.default.removeItem(at: headersURL)
             try FileManager.default.removeItem(at: buildURL)
             let libraryBuildURL = staging.appendingPathComponent(
                 ".libraries",
@@ -239,6 +223,13 @@ package struct MojoArtifactPreparer: Sendable {
             )
             if FileManager.default.fileExists(atPath: libraryBuildURL.path) {
                 try FileManager.default.removeItem(at: libraryBuildURL)
+            }
+            let frameworkBuildURL = staging.appendingPathComponent(
+                ".frameworks",
+                isDirectory: true
+            )
+            if FileManager.default.fileExists(atPath: frameworkBuildURL.path) {
+                try FileManager.default.removeItem(at: frameworkBuildURL)
             }
             if let importRootURL {
                 try FileManager.default.removeItem(at: importRootURL)
@@ -339,6 +330,42 @@ package struct MojoArtifactPreparer: Sendable {
                     + ["-output", combinedArchiveURL.path]
             )
             result.append(combinedArchiveURL)
+        }
+        return result
+    }
+
+    private func createStaticFrameworks(
+        from archives: [URL],
+        header: String,
+        in stagingURL: URL,
+        identity: MojoArtifactIdentity
+    ) throws -> [URL] {
+        let frameworkBuildURL = stagingURL.appendingPathComponent(
+            ".frameworks",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: frameworkBuildURL,
+            withIntermediateDirectories: false
+        )
+        var result: [URL] = []
+        for (index, archiveURL) in archives.enumerated() {
+            let sliceBuildURL = frameworkBuildURL.appendingPathComponent(
+                "framework-\(index)",
+                isDirectory: true
+            )
+            let frameworkURL = MojoStaticFrameworkLayout.frameworkURL(
+                in: sliceBuildURL,
+                identity: identity
+            )
+            try MojoStaticFrameworkLayout.createFramework(
+                at: frameworkURL,
+                identity: identity,
+                archiveURL: archiveURL,
+                header: header,
+                moduleMap: renderer.frameworkModuleMap(identity: identity)
+            )
+            result.append(frameworkURL)
         }
         return result
     }

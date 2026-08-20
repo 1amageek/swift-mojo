@@ -199,6 +199,7 @@ SWIFT_MOJO_EXECUTABLE=$compiler \
     "$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \
     --package-path "$release_root" \
+    --disable-sandbox \
     --allow-writing-to-package-directory \
     mojo prepare --target Application
 "$root/scripts/command-timeout.sh" 180 -- \
@@ -230,7 +231,6 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(
-            name: "swift-mojo",
             url: "$candidate_url",
             revision: "$candidate_revision"
         ),

@@ -98,7 +98,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 ### G4 — Real static artifact preparation
 
-**Artifact:** `swift package --allow-writing-to-package-directory mojo prepare`、object、archive、XCFramework
+**Artifact:** `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare`、object、archive、XCFramework
 
 **Depends on:** G3
 

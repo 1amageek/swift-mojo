@@ -307,8 +307,14 @@ package struct MojoArtifactVerifier: Sendable {
                         slice.libraryIdentifier,
                         isDirectory: true
                     )
-                let archiveURL = sliceURL
-                    .appendingPathComponent(identity.libraryName)
+                let frameworkURL = MojoStaticFrameworkLayout.frameworkURL(
+                    in: sliceURL,
+                    identity: identity
+                )
+                let archiveURL = MojoStaticFrameworkLayout.binaryURL(
+                    in: sliceURL,
+                    identity: identity
+                )
                 guard FileManager.default.fileExists(atPath: archiveURL.path) else {
                     throw MojoArtifactError.sliceArchiveMissing(
                         slice.target.identity
@@ -322,15 +328,18 @@ package struct MojoArtifactVerifier: Sendable {
                         actual: digest
                     )
                 }
-                let headersURL = sliceURL.appendingPathComponent(
-                    "Headers",
-                    isDirectory: true
+                let headersURL = MojoStaticFrameworkLayout.headersURL(
+                    in: frameworkURL
+                )
+                let modulesURL = MojoStaticFrameworkLayout.modulesURL(
+                    in: frameworkURL
                 )
                 for required in [
-                    headersURL.appendingPathComponent("module.modulemap"),
+                    modulesURL.appendingPathComponent("module.modulemap"),
                     headersURL.appendingPathComponent(
                         "\(identity.moduleName).h"
                     ),
+                    frameworkURL.appendingPathComponent("Info.plist"),
                 ] where !FileManager.default.fileExists(atPath: required.path) {
                     throw MojoArtifactError.artifactInterfaceMissing(
                         required.path
@@ -365,7 +374,8 @@ package struct MojoArtifactVerifier: Sendable {
         }
         var result: [URL] = []
         for case let url as URL in enumerator
-        where url.lastPathComponent == identity.libraryName {
+        where url.lastPathComponent == identity.libraryName
+            || url.lastPathComponent == identity.moduleName {
             result.append(url)
         }
         return result.sorted { $0.path < $1.path }

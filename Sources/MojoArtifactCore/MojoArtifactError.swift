@@ -4,7 +4,7 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
     private static let initializeCommand =
         "swift package --allow-writing-to-package-directory mojo init --target <SwiftTarget>"
     private static let prepareCommand =
-        "swift package --allow-writing-to-package-directory mojo prepare --target <SwiftTarget>"
+        "swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare --target <SwiftTarget>"
 
     case artifactArchiveCount(Int)
     case artifactDigestMismatch(expected: String, actual: String)

@@ -6,13 +6,11 @@
 	<array>
 		<dict>
 			<key>BinaryPath</key>
-			<string>libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a</string>
-			<key>HeadersPath</key>
-			<string>Headers</string>
+			<string>SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.framework/SwiftMojo_MojoBuildPluginIntegrationFixture_ABI</string>
 			<key>LibraryIdentifier</key>
 			<string>macos-arm64_x86_64</string>
 			<key>LibraryPath</key>
-			<string>libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a</string>
+			<string>SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.framework</string>
 			<key>SupportedArchitectures</key>
 			<array>
 				<string>arm64</string>

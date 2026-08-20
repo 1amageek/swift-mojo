@@ -138,50 +138,46 @@ private struct FixturePackagingRunner: MojoProcessRunning {
     }
 
     private func createXCFramework(arguments: [String]) throws {
-        let archives = try requiredValues(after: "-library", in: arguments)
-        let headers = try requiredValue(after: "-headers", in: arguments)
+        let frameworks = try requiredValues(after: "-framework", in: arguments)
         let output = try requiredValue(after: "-output", in: arguments)
         let artifactURL = URL(fileURLWithPath: output, isDirectory: true)
-        for (index, archive) in archives.enumerated() {
+        for (index, framework) in frameworks.enumerated() {
             let sliceURL = artifactURL.appendingPathComponent(
                 "fixture-slice-\(index)",
                 isDirectory: true
             )
-            let destinationHeaders = sliceURL.appendingPathComponent(
-                "Headers",
-                isDirectory: true
-            )
             try FileManager.default.createDirectory(
-                at: destinationHeaders,
+                at: sliceURL,
                 withIntermediateDirectories: true
             )
+            let frameworkURL = URL(
+                fileURLWithPath: framework,
+                isDirectory: true
+            )
             try FileManager.default.copyItem(
-                at: URL(fileURLWithPath: archive),
+                at: frameworkURL,
                 to: sliceURL.appendingPathComponent(
-                    URL(fileURLWithPath: archive).lastPathComponent
+                    frameworkURL.lastPathComponent,
+                    isDirectory: true
                 )
             )
-            let headerURLs = try FileManager.default.contentsOfDirectory(
-                at: URL(fileURLWithPath: headers),
-                includingPropertiesForKeys: nil
-            )
-            for headerURL in headerURLs {
-                try FileManager.default.copyItem(
-                    at: headerURL,
-                    to: destinationHeaders.appendingPathComponent(
-                        headerURL.lastPathComponent
-                    )
-                )
-            }
         }
-        let libraries: [[String: Any]] = try archives.enumerated().map {
+        let libraries: [[String: Any]] = try frameworks.enumerated().map {
             index,
-            archive in
-            [
+            framework in
+            let frameworkURL = URL(
+                fileURLWithPath: framework,
+                isDirectory: true
+            )
+            let moduleName = frameworkURL.deletingPathExtension()
+                .lastPathComponent
+            return [
                 "LibraryIdentifier": "fixture-slice-\(index)",
-                "LibraryPath": URL(fileURLWithPath: archive).lastPathComponent,
-                "HeadersPath": "Headers",
-                "SupportedArchitectures": try architectures(in: archive),
+                "LibraryPath": frameworkURL.lastPathComponent,
+                "BinaryPath": "\(frameworkURL.lastPathComponent)/\(moduleName)",
+                "SupportedArchitectures": try architectures(
+                    in: frameworkURL.appendingPathComponent(moduleName).path
+                ),
                 "SupportedPlatform": "macos",
             ]
         }
@@ -359,8 +355,18 @@ struct MojoArtifactPreparerTests {
         let header = try String(
             contentsOf: output
                 .appendingPathComponent(identity.artifactName)
-                .appendingPathComponent("fixture-slice-0/Headers")
+                .appendingPathComponent("fixture-slice-0")
+                .appendingPathComponent("\(identity.moduleName).framework")
+                .appendingPathComponent("Headers")
                 .appendingPathComponent("\(identity.moduleName).h"),
+            encoding: .utf8
+        )
+        let moduleMap = try String(
+            contentsOf: output
+                .appendingPathComponent(identity.artifactName)
+                .appendingPathComponent("fixture-slice-0")
+                .appendingPathComponent("\(identity.moduleName).framework")
+                .appendingPathComponent("Modules/module.modulemap"),
             encoding: .utf8
         )
         let registryURL = root.appendingPathComponent("Registry.swift")
@@ -400,6 +406,8 @@ struct MojoArtifactPreparerTests {
         #expect(header.contains("const float *values"))
         #expect(!header.contains("float *result"))
         #expect(!header.contains("_call_i32_i32_i32"))
+        #expect(moduleMap.contains("framework module \(identity.moduleName)"))
+        #expect(moduleMap.contains("umbrella header \"\(identity.moduleName).h\""))
         #expect(registry.contains("import Mojo"))
         #expect(registry.contains("values: borrowing [Float]"))
         #expect(registry.contains("values.withUnsafeBufferPointer"))
@@ -785,7 +793,7 @@ struct MojoArtifactPreparerTests {
             )
             #expect(
                 MojoGenerationPipeline.digest
-                    == "9663f12deb5cb466972f7179445f229676dfc7cea813a10ec303600481735dab"
+                    == "8bbc50839ee771eeafae781d83e16ee1b36e31af7e2f7e94275cf752fc4f2b78"
             )
         }
     }

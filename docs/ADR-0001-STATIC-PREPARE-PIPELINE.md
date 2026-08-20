@@ -31,7 +31,7 @@ Normal build
 
 詳細:
 
-1. Mojo compileはpublic author command `swift package --allow-writing-to-package-directory mojo prepare` だけが行う。
+1. Mojo compileはpublic author command `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare` だけが行う。
 2. `MojoBuildPlugin` は `swift-mojo verify` だけを行う。
 3. macro、prepare、verifyは同じ `MojoBindingCore` を使う。
 4. C interfaceはfunctionごとのsymbolではなくfixed dispatcherを使う。

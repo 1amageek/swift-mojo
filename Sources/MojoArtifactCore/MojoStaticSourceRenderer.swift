@@ -229,4 +229,13 @@ package struct MojoStaticSourceRenderer: Sendable {
         }
         """ + "\n"
     }
+
+    package func frameworkModuleMap(identity: MojoArtifactIdentity) -> String {
+        """
+        framework module \(identity.moduleName) {
+            umbrella header "\(identity.moduleName).h"
+            export *
+        }
+        """ + "\n"
+    }
 }

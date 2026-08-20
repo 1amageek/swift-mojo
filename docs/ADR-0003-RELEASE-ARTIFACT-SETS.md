@@ -18,7 +18,7 @@ schema-3 P1は1つのfixed C module、1つのarm64 macOS archive、Swift source�
 4. generated entry moduleはexternal functionをimportし、Mojo compilerへ宣言済みpackageだけをsymlinkしたstaging import rootを `-I` で渡す。packageの実parentや未宣言の兄弟packageはcompiler search pathへ公開しない。
 5. module、archive、artifact、C symbol prefixはSwift target identityから決定し、複数targetのlink collisionを防ぐ。hyphenを含むtargetはfull target digestをmodule/archive componentへ含め、underscore正規化との衝突を避ける。
 6. schema-4 manifestはinput graph、canonical generated Mojo、source map、compiler、全slice、各archive、hidden fileを含むXCFramework treeを1つのcompatibility envelopeへ入れる。artifact treeのsymbolic linkは外部可変byteを参照し得るため拒否する。verifyはgenerated Mojo/source mapをcurrent rendererから再構成し、manifestの自己申告digestだけを信頼しない。
-   同じApple platform/variantに属する異なるarchitecture sliceは個別compile/archive後にuniversal archiveへ統合し、XCFrameworkにはgroupごとに1 libraryだけを登録する。manifestはcompiler sliceを個別に保持し、verifierはgroup archiveのexact architecture集合と照合する。
+   同じApple platform/variantに属する異なるarchitecture sliceは個別compile/archive後にuniversal static framework binaryへ統合し、XCFrameworkにはgroupごとに1 target-scoped frameworkだけを登録する。manifestはcompiler sliceを個別に保持し、verifierはgroup framework binaryのexact architecture集合と照合する。詳細なmulti-target packaging decisionはADR-0005が所有する。
 7. `MojoBuildPlugin` はSwift/config/Mojo/source-map/manifest/artifactをinputとして `verify` だけを実行する。
 8. `swift package --allow-writing-to-package-directory mojo release` はpackage-owned outputを書き換えず、current schema、compiler pin、全required slices、target identity、source/package graph、source map、XCFramework metadata/interface/tree、local/moving-branch dependency absence、literal remote package requirement、binary target、Mojo product、binary dependency、同一package由来のbuild plugin wiringを検証する。
 9. schema 3は既存artifactの通常build verificationだけを許可し、release gateでは拒否する。
@@ -87,5 +87,6 @@ Current evidence:
 
 - [ADR-0001](ADR-0001-STATIC-PREPARE-PIPELINE.md)
 - [ADR-0002](ADR-0002-MODEL-SWIFT-PACKAGE.md)
+- [ADR-0005](ADR-0005-TARGET-SCOPED-STATIC-FRAMEWORKS.md)
 - [Mojo modules and packages](https://mojolang.org/docs/manual/packages/)
 - [Mojo compilation targets](https://mojolang.org/docs/tools/compilation/)

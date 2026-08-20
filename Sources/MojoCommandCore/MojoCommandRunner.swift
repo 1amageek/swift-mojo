@@ -658,9 +658,9 @@ package struct MojoCommandRunner: Sendable {
     package static let usage = """
     Usage:
       swift package --allow-writing-to-package-directory mojo init --target <target>
-      swift package --allow-writing-to-package-directory mojo prepare --target <target>
+      swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare --target <target>
       swift package --allow-writing-to-package-directory mojo inspect --target <target> [--format text|json]
-      swift package --allow-writing-to-package-directory mojo doctor [--target <target>] [--format text|json]
+      swift package --disable-sandbox --allow-writing-to-package-directory mojo doctor [--target <target>] [--format text|json]
       swift package --allow-writing-to-package-directory mojo release --target <target> [--format text|json]
       swift package --allow-writing-to-package-directory mojo version [--format text|json]
 

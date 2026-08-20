@@ -72,7 +72,6 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(
-            name: "swift-mojo",
             url: "$candidate_url",
             exact: "$release_version"
         ),

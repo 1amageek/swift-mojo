@@ -32,7 +32,7 @@ Package author                          Application developer
 @mojo Swift source
         |
         v
-swift package --allow-writing-to-package-directory mojo prepare
+swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare
         |
         v
 committed static XCFramework  -------> import ModelMath
@@ -112,7 +112,7 @@ This configuration pins the authoring compiler and the native slices that must b
 
 ```bash
 SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
-swift package --allow-writing-to-package-directory mojo prepare --target ModelMath
+swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare --target ModelMath
 
 swift package --allow-writing-to-package-directory mojo release --target ModelMath
 ```
@@ -176,7 +176,7 @@ flowchart LR
     subgraph Author["Package author: Mojo is installed"]
         S["Swift declaration"]
         M["Mojo package"]
-        P["swift package --allow-writing-to-package-directory mojo prepare"]
+        P["swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare"]
         A["Committed XCFramework + manifest"]
         S --> P
         M --> P --> A
@@ -193,7 +193,7 @@ flowchart LR
 
 | Role | Works with | Runs Mojo compiler? | Normal command |
 |---|---|---:|---|
-| Package author | Swift bindings, `.mojo` sources, target configuration, generated artifact | Yes, during explicit `prepare` | `swift package --allow-writing-to-package-directory mojo prepare --target <Target>` |
+| Package author | Swift bindings, `.mojo` sources, target configuration, generated artifact | Yes, during explicit `prepare` | `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare --target <Target>` |
 | CI/release verifier | Committed sources, manifest, XCFramework, package wiring | No | `swift package --allow-writing-to-package-directory mojo release --target <Target>` |
 | Application developer | Public Swift API and a normal Swift package dependency | No | Build in Xcode or with SwiftPM |
 
@@ -220,7 +220,7 @@ That architecture is documented, but it is not yet implemented end to end. The b
 flowchart LR
     S["Swift source<br/>@mojo body or external binding"] --> IR["MojoBindingCore<br/>canonical IR"]
     IR --> M["Body macro<br/>Swift thunk"]
-    IR --> P["swift package --allow-writing-to-package-directory mojo prepare"]
+    IR --> P["swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare"]
     P --> C["Mojo 1.0<br/>--emit object"]
     C --> X["Target-scoped XCFramework<br/>+ schema 4 manifest"]
     S --> V["MojoBuildPlugin<br/>verify only"]
@@ -233,7 +233,7 @@ flowchart LR
 - The `@attached(body)` macro replaces the original body with a Swift thunk that uses a binding ID.
 - The macro and source scanner use the same versioned IR.
 - The source scanner accepts only regular non-symbolic Swift files and rejects parser diagnostics before extracting bindings, so external mutable bytes or malformed Swift cannot produce a release-valid input graph.
-- `swift package --allow-writing-to-package-directory mojo prepare` generates canonical Mojo source, a source map, target slices, a static XCFramework, and a schema-4 manifest.
+- `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare` generates canonical Mojo source, a source map, target slices, a target-scoped static framework inside an XCFramework, and a schema-4 manifest.
 - The build plugin does not invoke the Mojo compiler. It verifies the complete input graph, configured slice set, ABI, and SHA-256 digest of every regular file in the complete XCFramework. Hidden files participate in the digest, and symbolic links are rejected.
 - The Mojo artifact is linked statically into the final executable. Runtime lookup does not depend on absolute paths, `dlopen`, or Mojo dynamic-library discovery.
 - External Mojo packages are real compiler inputs: generated entry code imports their declared functions, preparation exposes only declared packages through an isolated `-I` root, and every regular package file participates in the input graph. Package-internal symbolic links are rejected so compiler-visible bytes cannot escape that graph.
@@ -247,6 +247,8 @@ flowchart LR
 Authoring commands are exposed through a SwiftPM command plugin. SwiftPM builds the internal `swift-mojo` executable automatically; package authors do not need to install that executable on `PATH`.
 
 The plugin owns both package-mutating commands (`init` and `prepare`) and read-only commands under one `mojo` verb. SwiftPM permissions are declared for the whole plugin rather than per subcommand, so every invocation must include `--allow-writing-to-package-directory`, including `inspect`, `doctor`, `release`, and `version`. The command still performs only the operation selected by the subcommand; in particular, `release` remains read-only for package-owned files.
+
+`prepare` and `doctor` also launch the separately installed Mojo toolchain. That toolchain reads its standard library outside the Swift package, and SwiftPM does not offer a directory-read permission for command plugins. Those two commands therefore require `--disable-sandbox`; `init`, `inspect`, `release`, and `version` keep the plugin sandbox enabled. Run authoring commands only with a compiler installation you trust.
 
 ### 1. Bootstrap the generated directory
 
@@ -357,7 +359,7 @@ List `MathModel` in the target's `mojoPackages` array. The generated ABI entry m
 
 ```bash
 SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
-swift package --allow-writing-to-package-directory mojo prepare --target MyTarget
+swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare --target MyTarget
 ```
 
 When `SWIFT_MOJO_EXECUTABLE` is not set, the command searches `PATH` for `mojo`. The plugin never downloads or runs the compiler inside the build sandbox.
@@ -368,7 +370,7 @@ Inline `+` follows Swift-compatible checked-addition semantics. `Int32` overflow
 
 ```bash
 swift package --allow-writing-to-package-directory mojo inspect --target MyTarget
-swift package --allow-writing-to-package-directory mojo doctor --target MyTarget
+swift package --disable-sandbox --allow-writing-to-package-directory mojo doctor --target MyTarget
 swift package --allow-writing-to-package-directory mojo release --target MyTarget
 ```
 
@@ -558,6 +560,7 @@ Historical cold Release archive attempts did not complete within a 120-second bo
 - [ADR-0002: Mojo models as Swift packages](docs/ADR-0002-MODEL-SWIFT-PACKAGE.md)
 - [ADR-0003: Target-scoped artifact sets and release verification](docs/ADR-0003-RELEASE-ARTIFACT-SETS.md)
 - [ADR-0004: Borrowed Float buffer ABI](docs/ADR-0004-BORROWED-FLOAT-BUFFER-ABI.md)
+- [ADR-0005: Target-scoped static frameworks](docs/ADR-0005-TARGET-SCOPED-STATIC-FRAMEWORKS.md)
 - [Release process](docs/RELEASING.md)
 
 ## Public references

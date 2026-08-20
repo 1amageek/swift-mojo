@@ -91,7 +91,6 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(
-            name: "swift-mojo",
             url: "$candidate_url",
             revision: "$candidate_revision"
         ),
@@ -195,7 +194,6 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(
-            name: "swift-mojo",
             url: "$candidate_url",
             revision: "$candidate_revision"
         ),
@@ -242,6 +240,7 @@ for target in ModelA ModelB; do
         "$root/scripts/command-timeout.sh" 180 -- \
         /usr/bin/xcrun swift package \
         --package-path "$acceptance_root" \
+        --disable-sandbox \
         --allow-writing-to-package-directory \
         mojo prepare --target "$target"
 done

@@ -247,7 +247,7 @@ Swift source full digest
   + XCFramework canonical tree digest
 ```
 
-schema 4のmanifestはcompiler sliceを個別に保持しますが、XCFramework libraryはplatformとvariantでgroup化します。同じgroupのarchitecture objectは個別にarchiveした後 `lipo` で1つのuniversal archiveへ統合します。SwiftPM/Xcodeのdestination selectorと一致しない「同一platform/variantのlibraryをarchitectureごとに複数登録する」構造は生成しません。verifierはmanifest上の全compiler sliceと、group libraryのexact architecture集合を双方向に照合します。
+schema 4のmanifestはcompiler sliceを個別に保持しますが、XCFramework内のstatic frameworkはplatformとvariantでgroup化します。同じgroupのarchitecture objectは個別にarchiveした後 `lipo` で1つのuniversal static framework binaryへ統合します。SwiftPM/Xcodeのdestination selectorと一致しない「同一platform/variantのframeworkをarchitectureごとに複数登録する」構造は生成しません。targetごとにframework/module/header/binary名を分離し、複数binary targetの `module.modulemap` がbuild product上で衝突しないようにします。verifierはmanifest上の全compiler sliceと、group framework binaryのexact architecture集合を双方向に照合します。
 
 tree digestは全group archiveだけでなく、header、module map、Info.plistも対象にします。absolute path、mtime、filesystem enumeration orderは含めません。pluginはartifact rootだけでなく既存の全regular fileとdirectoryをbuild inputへ登録するため、内容の上書きとtree entryの増減の双方がverify commandをinvalidateします。
 
@@ -298,7 +298,7 @@ scalar runtimeで `throws` にしないのは、toolchain/artifact failureをpre
 |---|---|---|
 | `@mojo` | `MojoBodyMacro` + `MojoBinding` | exact expansion、argument rejection、unsupported DSL tests |
 | `swift package --allow-writing-to-package-directory mojo init` | `MojoArtifactInitializer` + transaction | preserve prepared、reject unmanaged/incomplete tests |
-| `swift package --allow-writing-to-package-directory mojo prepare` | source graph + pipeline identity + renderer + compiler + packager | cache invalidation/lock tests、gated real Mojo acceptance |
+| `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare` | source graph + pipeline identity + renderer + compiler + packager | cache invalidation/lock tests、gated real Mojo acceptance |
 | borrowed `[Float]` | buffer signature IR + macro + generated Mojo/C/Registry | unit/artifact coverage implemented; updated real compiler/link/run pending |
 | build plugin | leaf/directory inputs + `verify` | committed schema-4 fixture verifies, links, and returns `42`; verifier/release suites cover wrong target、stale、missing/corrupt nested inputs |
 | static artifact | XCFramework + generated Registry | corrupt archive/header tests、Mach-O symbol/dylib inspection |
@@ -356,7 +356,7 @@ Mojo sourceはSwift target resourceではなく、package-root相対のprepare i
 flowchart TB
     subgraph Author
         Edit["Edit Swift bindings or Mojo package"]
-        Prepare["swift package --allow-writing-to-package-directory mojo prepare"]
+        Prepare["swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare"]
         Review["Review source + manifest + artifact"]
         Edit --> Prepare --> Review
     end
