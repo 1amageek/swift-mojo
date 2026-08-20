@@ -26,15 +26,27 @@ public struct MojoBodyMacro: BodyMacro {
                 """
             )
         }
-        body.append(
-            """
-            return __SwiftMojoGeneratedBindings.invokeInt32Binary(
-                bindingID: UInt64(\(raw: String(binding.bindingID))),
-                lhs: \(raw: binding.lhsName),
-                rhs: \(raw: binding.rhsName)
+        switch binding.signature {
+        case .int32Binary:
+            body.append(
+                """
+                return __SwiftMojoGeneratedBindings.invokeInt32Binary(
+                    bindingID: UInt64(\(raw: String(binding.bindingID))),
+                    lhs: \(raw: binding.lhsName),
+                    rhs: \(raw: binding.rhsName)
+                )
+                """
             )
-            """
-        )
+        case .borrowedFloat32Buffer:
+            body.append(
+                """
+                return try __SwiftMojoGeneratedBindings.invokeFloatBuffer(
+                    bindingID: UInt64(\(raw: String(binding.bindingID))),
+                    values: \(raw: binding.bufferName)
+                )
+                """
+            )
+        }
         return body
     }
 }

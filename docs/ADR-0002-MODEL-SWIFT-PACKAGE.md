@@ -6,7 +6,7 @@
 
 ## Implementation status
 
-ADR-0003 implements and verifies the scalar bridge substrate for real external packages、target-scoped identities、arm64/x86_64 universal Apple artifacts、compiler pins、build/release verification、and compiler-free relocated consumption. This ADR remains Proposed because two-target collision acceptance、model/session ownership、weights compatibility、real inference、remote artifacts、and model-level failure behavior are not complete.
+ADR-0003 implements and verifies the scalar bridge substrate for real external packages、target-scoped identities、arm64/x86_64 universal Apple artifacts、compiler pins、build/release verification、and compiler-free relocated consumption. The two-target collision workflow and first borrowed `Float` slice are implemented but not yet executed. This ADR remains Proposed because their acceptance evidence、model/session ownership、weights compatibility、real inference、remote artifacts、and model-level failure behavior are not complete.
 
 ## Context
 
@@ -17,7 +17,7 @@ ADR-0003 implements and verifies the scalar bridge substrate for real external p
 | Artifact | Built/selected by | Consumed by | Lifetime |
 |---|---|---|---|
 | Swift model API | model author | application source | package version |
-| Mojo source package | model author | `swift-mojo prepare` | source revision |
+| Mojo source package | model author | `swift package --allow-writing-to-package-directory mojo prepare` | source revision |
 | native ABI artifact | prepare/release workflow | Swift linker/process | release/platform slice |
 | model weights | application/model resolver | model session | model revision/cache policy |
 

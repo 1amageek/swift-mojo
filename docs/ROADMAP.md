@@ -9,9 +9,9 @@
 | 0 — Foundation | 要件、責務境界、package skeleton | Complete |
 | 1 — Exact-syntax scalar PoC | direct `@mojo func ... { return ... }` から実Mojo静的実行 | Complete for the macOS scalar contract |
 | 2 — DSL and diagnostics | scalar DSL拡張、source-located diagnostics、inspection | Inspection verified; real diagnostic mapping and DSL expansion planned |
-| 3 — Types and ownership | buffers、strings、records、error envelope | Planned |
+| 3 — Types and ownership | buffers、strings、records、error envelope | First borrowed `Float` slice implemented; real acceptance pending |
 | 4 — Async and callbacks | cancellation、completion、shutdown、reverse bridge | Research/Planned |
-| 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean scalar consumer verified; model/distribution work remains |
+| 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean scalar consumer verified; two-target workflow implemented; model/distribution work remains |
 | 6 — GPU compute | device/buffer/event/transfer contracts | Research |
 | 7 — Full inline Mojo syntax decision | custom input/preprocessor/compiler integration | Research |
 
@@ -19,15 +19,14 @@
 flowchart LR
     P0["Phase 0<br/>Foundation"] --> P1["Phase 1<br/>Exact scalar PoC"]
     P1 --> P2["Phase 2<br/>DSL + diagnostics"]
-    P2 --> P3["Phase 3<br/>Types + ownership"]
+    P1 --> P3["Phase 3<br/>Types + ownership"]
     P3 --> P4["Phase 4<br/>Async + callbacks"]
     P3 --> P5["Phase 5<br/>Model packages + distribution"]
     P4 --> P6["Phase 6<br/>GPU compute"]
     P5 --> P6
     P2 --> D{"Need arbitrary<br/>Mojo grammar?"}
-    D -->|No| P3
+    D -->|No| K["Keep Swift-parseable<br/>DSL subset"]
     D -->|Yes| P7["Phase 7<br/>Full inline syntax decision"]
-    P7 --> P3
 ```
 
 ## 2. Phase 0 — Foundation
@@ -99,7 +98,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 ### G4 — Real static artifact preparation
 
-**Artifact:** `swift-mojo prepare`、object、archive、XCFramework
+**Artifact:** `swift package --allow-writing-to-package-directory mojo prepare`、object、archive、XCFramework
 
 **Depends on:** G3
 
@@ -227,15 +226,18 @@ flowchart LR
 
 **Estimate:** 4–8 weeks
 
-**Depends on:** Phase 2
+**Depends on:** Phase 1 ABI/artifact pipeline. It can progress in parallel with Phase 2 because external Mojo packages do not require inline DSL expansion.
+
+**Status:** `([Float]) throws -> Float` borrowed-input vertical slice is implemented across IR、macro、generated Mojo/C ABI、Registry、typed error、unit/artifact tests、and acceptance workflow. Real compiler/link/runtime execution、allocation/copy measurement、and sanitizer evidence are pending.
 
 Deliverables:
 
 - fixed-width scalar matrix。
-- borrowed/owned contiguous buffers。
+- borrowed contiguous `Float` input（first slice implemented; acceptance pending）。
+- generic borrowed/owned contiguous buffers。
 - UTF-8 string views。
 - versioned records。
-- status + out-value + owned diagnostic error envelope。
+- signature familyごとに、direct value returnまたは明示的なowned diagnostic error envelopeを設計。
 - owner/lease/borrow APIsとexactly-once deallocation。
 
 Verification:
@@ -244,6 +246,21 @@ Verification:
 - bounds、alignment、overflow、aliasing、deallocation failure tests。
 - allocation/copy countとperformance budget。
 - Address Sanitizer等、対象環境で利用できるsanitizer。
+
+First-slice convergence gate:
+
+```mermaid
+flowchart LR
+    S["[Float] Swift API"] --> M["macro + Registry"]
+    M --> C["const float* + count<br/>direct Float32 return"]
+    C --> J["Mojo external function"]
+    J --> R["runtime 10.0"]
+    R --> E{"empty/error and<br/>lifetime gates pass?"}
+    E -->|No| S
+    E -->|Yes| V["Mark slice Verified"]
+```
+
+The slice is not Verified until the updated real-Mojo release acceptance runs, the compiler-free relocated consumer executes both scalar and buffer calls, empty input returns the typed error, and copy/allocation claims are measured rather than inferred.
 
 ## 6. Phase 4 — Async and callbacks
 
@@ -273,15 +290,15 @@ Verification:
 
 **Depends on:** source-graph work may start after Phase 2; complete distribution acceptance depends on Phase 3 and may run beside Phase 4 after ABI freeze
 
-**Status:** scalar bridge、real external package、arm64/x86_64 universal packaging、build/release verification、compiler-free clean consumerはverified。two-target link、remote distribution、model inferenceはpending
+**Status:** scalar bridge、real external package、arm64/x86_64 universal packaging、build/release verification、compiler-free clean consumerはverified。two-target link workflowはimplemented but unexecuted。remote distribution、model inferenceはpending
 
 Deliverables:
 
 - `SwiftMojo.json` にcompiler pin、Mojo packages、全required slicesを宣言（implemented）。
 - `Mojo/<Package>/__init__.mojo` と全moduleを同じinput graphへ統合（implemented）。
-- generated ABI entry moduleからMojo packageをimportし、declared bindingsをexport（implemented for scalar signature）。
+- generated ABI entry moduleからMojo packageをimportし、declared bindingsをexport（implemented for scalar and borrowed `Float` signatures）。
 - model-specific Swift APIとMojo sourceとartifactを結ぶcompatibility manifest。
-- multiple Mojo-enabled targets向けtarget-derived module/archive/C symbol identity（implemented）。
+- multiple Mojo-enabled targets向けtarget-derived module/archive/C symbol identityとtwo-target acceptance workflow（implemented; workflow execution pending）。
 - arm64/x86_64 Apple slice-aware schema-4 manifest、universal archive、XCFramework metadata gate（verified）。
 - Apple XCFramework adapterと、SwiftPMの実在するlink capabilityに基づく非Apple artifact adapterの分離。
 - release/cache identity including target accelerator（implemented; arbitrary target feature setはplanned）。
@@ -346,11 +363,11 @@ Phase 5のexternal `.mojo` packageで十分なら、inlineはSwift-parseable DSL
 
 ```mermaid
 flowchart LR
-    P1["P1 proven"] --> P2["DSL semantics"] --> P3["Ownership ABI"]
+    P1["P1 proven"] --> P2["DSL semantics"]
+    P1 --> P3["Ownership ABI"]
     P3 --> P4["Async/callback"] --> P6["GPU"]
     P3 --> P5["Model packages + distribution"] --> P6
     P2 --> Decision["Full inline syntax demand proof"] --> P7["Integration decision"]
-    P7 --> P3
 ```
 
-主critical pathは `DSL semantics -> ownership ABI -> model package distribution -> GPU-capable model runtime` です。最大のbottleneckは構文生成ではなく、ownership/error/device semanticsと、model packageでの実推論・remote distributionです。scalar compiler-free consumer artifactは実証済みです。async/callbackとdistributionはownership ABIが安定した後に並行化できます。GPU Phaseは両方の成果を統合します。arbitrary inline syntax integrationは需要の立証前にcritical pathへ入れません。
+主critical pathは `ownership ABI -> model package distribution -> GPU-capable model runtime` です。external Mojo packageを主surfaceにする限り、DSL expansionはownership ABIの前提ではなく並行laneです。最大のbottleneckは構文生成ではなく、ownership/error/device semanticsと、model packageでの実推論・remote distributionです。scalar compiler-free consumer artifactは実証済みで、borrowed `Float` sliceは最初の実装済みproof targetです。async/callbackとdistributionはownership ABIが安定した後に並行化できます。GPU Phaseは両方の成果を統合します。arbitrary inline syntax integrationは需要の立証前にcritical pathへ入れません。

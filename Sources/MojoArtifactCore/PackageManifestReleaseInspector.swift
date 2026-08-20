@@ -28,9 +28,9 @@ package enum PackageManifestReleaseInspector {
             in: package,
             required: false
         )
-        guard !containsLocalPackageDependency(in: packageDependencies) else {
-            throw MojoArtifactError.localPackageDependencyInRelease
-        }
+        let packageReferences = try releasePackageReferences(
+            in: packageDependencies
+        )
         let targetExpressions = try literalArrayArgument(
             label: "targets",
             in: package,
@@ -84,58 +84,94 @@ package enum PackageManifestReleaseInspector {
                 "target '\(targetName)' must declare dependencies and plugins explicitly"
             )
         }
-        guard arrayArgument(
+        let sourceDependencies = arrayArgument(
             label: "dependencies",
             in: sourceTarget
-        ).contains(where: {
+        )
+        guard sourceDependencies.contains(where: {
             dependency($0, references: binaryTargetName)
         }) else {
             throw MojoArtifactError.packageManifestIntegrationMismatch(
                 "target '\(targetName)' must depend on '\(binaryTargetName)'"
             )
         }
-        guard arrayArgument(
+        let mojoPackageReferences = sourceDependencies.compactMap {
+            productPackageReference($0, productName: "Mojo")
+        }
+        guard mojoPackageReferences.count == 1,
+              let mojoPackageReference = mojoPackageReferences.first,
+              packageReferences.contains(mojoPackageReference) else {
+            throw MojoArtifactError.packageManifestIntegrationMismatch(
+                "target '\(targetName)' must depend on the Mojo product from one declared remote package"
+            )
+        }
+        let plugins = arrayArgument(
             label: "plugins",
             in: sourceTarget
-        ).contains(where: {
-            guard let call = $0.as(FunctionCallExprSyntax.self) else {
-                return false
-            }
-            return functionName(call) == "plugin"
-                && stringArgument(label: "name", in: call)
-                    == "MojoBuildPlugin"
-        }) else {
+        )
+        let matchingPlugins = plugins.filter {
+            pluginPackageReference($0, pluginName: "MojoBuildPlugin")
+                == mojoPackageReference
+        }
+        guard matchingPlugins.count == 1 else {
             throw MojoArtifactError.packageManifestIntegrationMismatch(
-                "target '\(targetName)' must apply MojoBuildPlugin"
+                "target '\(targetName)' must apply MojoBuildPlugin from the same package as the Mojo product"
             )
         }
         return manifest.digest
     }
 
-    private static func containsLocalPackageDependency(
+    private static func releasePackageReferences(
         in dependencies: [ExprSyntax]
-    ) -> Bool {
-        dependencies.contains { expression in
+    ) throws -> Set<String> {
+        var references: Set<String> = []
+        for expression in dependencies {
             guard let call = expression.as(FunctionCallExprSyntax.self),
                   functionName(call) == "package" else {
-                return true
+                throw MojoArtifactError.localPackageDependencyInRelease
             }
             if call.arguments.contains(where: { $0.label?.text == "path" }) {
-                return true
+                throw MojoArtifactError.localPackageDependencyInRelease
             }
+            let explicitName = stringArgument(label: "name", in: call)
+            let reference: String
             if argument(label: "url", in: call) != nil {
                 guard let url = stringArgument(label: "url", in: call) else {
-                    return true
+                    throw MojoArtifactError.localPackageDependencyInRelease
                 }
                 guard isLiteralRemotePackageURL(url) else {
-                    return true
+                    throw MojoArtifactError.localPackageDependencyInRelease
                 }
+                guard let derivedName = packageIdentity(fromRemoteURL: url) else {
+                    throw MojoArtifactError.localPackageDependencyInRelease
+                }
+                reference = explicitName ?? derivedName
+            } else if let identity = stringArgument(label: "id", in: call),
+                      identity.isEmpty == false {
+                reference = explicitName ?? identity
+            } else {
+                throw MojoArtifactError.localPackageDependencyInRelease
             }
-            let hasRegistryIdentity = stringArgument(label: "id", in: call)
-                .map { !$0.isEmpty } ?? false
-            let hasRemoteURL = stringArgument(label: "url", in: call) != nil
-            return !hasRegistryIdentity && !hasRemoteURL
+            if let branch = stringArgument(label: "branch", in: call) {
+                throw MojoArtifactError.mutablePackageDependencyInRelease(
+                    branch
+                )
+            }
+            let requirementLabels = ["from", "exact", "revision"]
+            let requirements = requirementLabels.compactMap { label in
+                stringArgument(label: label, in: call)
+            }
+            guard requirements.count == 1,
+                  requirements[0].isEmpty == false else {
+                throw MojoArtifactError.localPackageDependencyInRelease
+            }
+            guard references.insert(reference).inserted else {
+                throw MojoArtifactError.packageManifestIntegrationMismatch(
+                    "Package dependencies contain duplicate reference name '\(reference)'"
+                )
+            }
         }
+        return references
     }
 
     private static func isLiteralRemotePackageURL(_ value: String) -> Bool {
@@ -147,6 +183,18 @@ package enum PackageManifestReleaseInspector {
             return false
         }
         return true
+    }
+
+    private static func packageIdentity(fromRemoteURL value: String) -> String? {
+        guard let components = URLComponents(string: value),
+              let pathComponent = components.path.split(separator: "/").last else {
+            return nil
+        }
+        let name = String(pathComponent)
+        let identity = name.hasSuffix(".git")
+            ? String(name.dropLast(4))
+            : name
+        return identity.isEmpty ? nil : identity
     }
 
     private static func manifestSyntax(
@@ -310,5 +358,29 @@ package enum PackageManifestReleaseInspector {
             return false
         }
         return stringArgument(label: "name", in: call) == targetName
+    }
+
+    private static func productPackageReference(
+        _ expression: ExprSyntax,
+        productName: String
+    ) -> String? {
+        guard let call = expression.as(FunctionCallExprSyntax.self),
+              functionName(call) == "product",
+              stringArgument(label: "name", in: call) == productName else {
+            return nil
+        }
+        return stringArgument(label: "package", in: call)
+    }
+
+    private static func pluginPackageReference(
+        _ expression: ExprSyntax,
+        pluginName: String
+    ) -> String? {
+        guard let call = expression.as(FunctionCallExprSyntax.self),
+              functionName(call) == "plugin",
+              stringArgument(label: "name", in: call) == pluginName else {
+            return nil
+        }
+        return stringArgument(label: "package", in: call)
     }
 }

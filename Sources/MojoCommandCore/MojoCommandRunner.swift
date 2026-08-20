@@ -91,7 +91,7 @@ package struct MojoCommandRunner: Sendable {
         }
     }
 
-    package static let version = "0.2.0-dev"
+    package static let version = SwiftMojoVersion.current
 
     private let environment: [String: String]
     private let currentDirectoryURL: URL
@@ -657,15 +657,13 @@ package struct MojoCommandRunner: Sendable {
 
     package static let usage = """
     Usage:
-      swift-mojo init --package-root <path> --target <target>
-      swift-mojo prepare --package-root <path> --target <target>
-      swift-mojo inspect --package-root <path> --target <target> [--format text|json]
-      swift-mojo doctor [--package-root <path> --target <target>] [--format text|json]
-      swift-mojo release --package-root <path> --target <target> [--format text|json]
-      swift-mojo verify --source <file.swift> ... --output-dir <path> --generated-source <file.swift> [--mojo-package <directory> ...] [--source-root <path>] [--target-triple <triple>] [--target-cpu <cpu>] [--target-accelerator <accelerator>] [--format text|json]
-      swift-mojo version [--format text|json]
+      swift package --allow-writing-to-package-directory mojo init --target <target>
+      swift package --allow-writing-to-package-directory mojo prepare --target <target>
+      swift package --allow-writing-to-package-directory mojo inspect --target <target> [--format text|json]
+      swift package --allow-writing-to-package-directory mojo doctor [--target <target>] [--format text|json]
+      swift package --allow-writing-to-package-directory mojo release --target <target> [--format text|json]
+      swift package --allow-writing-to-package-directory mojo version [--format text|json]
 
-    Package authoring commands are also available as:
-      swift package mojo <command> --target <target>
+    The internal build plugin invokes the private swift-mojo verifier tool.
     """
 }

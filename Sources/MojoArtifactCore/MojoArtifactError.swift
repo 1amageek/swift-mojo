@@ -1,6 +1,11 @@
 import Foundation
 
 package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
+    private static let initializeCommand =
+        "swift package --allow-writing-to-package-directory mojo init --target <SwiftTarget>"
+    private static let prepareCommand =
+        "swift package --allow-writing-to-package-directory mojo prepare --target <SwiftTarget>"
+
     case artifactArchiveCount(Int)
     case artifactDigestMismatch(expected: String, actual: String)
     case artifactIdentityMismatch(expected: String, actual: String)
@@ -24,6 +29,7 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
     case inputsChangedDuringOperation(String)
     case manifestMissing(String)
     case localPackageDependencyInRelease
+    case mutablePackageDependencyInRelease(String)
     case packageManifestIntegrationMismatch(String)
     case outputLockFailed(path: String, diagnostic: String)
     case outputLockScopeMismatch(expected: String, actual: String)
@@ -57,15 +63,15 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
         case .artifactArchiveCount(let count):
             "The XCFramework archive count does not match its packaged libraries; found \(count) archive(s)"
         case .artifactDigestMismatch(let expected, let actual):
-            "Prepared Mojo artifact digest is stale or corrupt; expected \(expected), found \(actual). Run 'swift-mojo prepare'."
+            "Prepared Mojo artifact digest is stale or corrupt; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
         case .artifactIdentityMismatch(let expected, let actual):
-            "Prepared Mojo module identity is '\(actual)', expected '\(expected)'. Run 'swift-mojo prepare'."
+            "Prepared Mojo module identity is '\(actual)', expected '\(expected)'. Run '\(Self.prepareCommand)'."
         case .artifactInterfaceMissing(let path):
-            "Prepared Mojo XCFramework interface is missing '\(path)'. Run 'swift-mojo prepare'."
+            "Prepared Mojo XCFramework interface is missing '\(path)'. Run '\(Self.prepareCommand)'."
         case .artifactMissing(let path):
-            "Prepared Mojo artifact is missing at '\(path)'. Run 'swift-mojo init' and then 'swift-mojo prepare'."
+            "Prepared Mojo artifact is missing at '\(path)'. Run '\(Self.initializeCommand)' and then '\(Self.prepareCommand)'."
         case .bindingGraphMismatch:
-            "Prepared Mojo binding records do not match the current Swift sources. Run 'swift-mojo prepare'."
+            "Prepared Mojo binding records do not match the current Swift sources. Run '\(Self.prepareCommand)'."
         case .commandFailed(let command, let status, let diagnostic):
             "Command failed with status \(status): \(command)\(diagnostic.isEmpty ? "" : "\n\(diagnostic)")"
         case .compilerDiagnostic(let command, let status, let diagnostic):
@@ -77,11 +83,11 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
         case .externalPackageNotDeclared(let package):
             "External Mojo package '\(package)' is referenced by @mojo but is not declared for the target"
         case .generationPipelineMismatch(let expected, let actual):
-            "Prepared Mojo generation pipeline is stale; expected \(expected), found \(actual). Run 'swift-mojo prepare'."
+            "Prepared Mojo generation pipeline is stale; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
         case .generatedSourceMismatch(let expected, let actual):
-            "Generated Mojo source is stale or corrupt; expected \(expected), found \(actual). Run 'swift-mojo prepare'."
+            "Generated Mojo source is stale or corrupt; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
         case .generatedSourceMissing(let path):
-            "Generated Mojo source is missing at '\(path)'. Run 'swift-mojo prepare'."
+            "Generated Mojo source is missing at '\(path)'. Run '\(Self.prepareCommand)'."
         case .invalidArguments(let message):
             message
         case .invalidConfiguration(let message):
@@ -89,17 +95,19 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
         case .invalidExternalPackage(let message):
             "External Mojo package is invalid: \(message)"
         case .invalidManagedOutputDirectory(let path):
-            "The managed output directory '\(path)' is incomplete. Move it aside and run 'swift-mojo init' again."
+            "The managed output directory '\(path)' is incomplete. Move it aside and run '\(Self.initializeCommand)' again."
         case .invalidManifest(let message):
             "Mojo artifact manifest is invalid: \(message)"
         case .inputGraphMismatch(let expected, let actual):
-            "Prepared Mojo input graph is stale; expected \(expected), found \(actual). Run 'swift-mojo prepare'."
+            "Prepared Mojo input graph is stale; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
         case .inputsChangedDuringOperation(let operation):
             "Swift Mojo inputs changed during \(operation); retry after source and configuration edits finish"
         case .manifestMissing(let path):
-            "Prepared Mojo manifest is missing at '\(path)'. Run 'swift-mojo prepare'."
+            "Prepared Mojo manifest is missing at '\(path)'. Run '\(Self.prepareCommand)'."
         case .localPackageDependencyInRelease:
             "Package.swift contains a local or non-literal package dependency and is not release-ready"
+        case .mutablePackageDependencyInRelease(let dependency):
+            "Package.swift dependency '\(dependency)' uses a moving branch requirement and is not release-ready"
         case .packageManifestIntegrationMismatch(let detail):
             "Package.swift integration mismatch: \(detail)"
         case .outputLockFailed(let path, let diagnostic):
@@ -109,21 +117,21 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
         case .outputPathsMustShareDirectory:
             "The Mojo artifact and manifest must be managed in one generated output directory"
         case .sourceGraphMismatch(let expected, let actual):
-            "Prepared Mojo sources are stale; manifest digest is \(expected), current digest is \(actual). Run 'swift-mojo prepare'."
+            "Prepared Mojo sources are stale; manifest digest is \(expected), current digest is \(actual). Run '\(Self.prepareCommand)'."
         case .sourceMapMismatch(let expected, let actual):
-            "Prepared Mojo source map is stale or corrupt; expected \(expected), found \(actual). Run 'swift-mojo prepare'."
+            "Prepared Mojo source map is stale or corrupt; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
         case .sourceMapMissing(let path):
-            "Prepared Mojo source map is missing at '\(path)'. Run 'swift-mojo prepare'."
+            "Prepared Mojo source map is missing at '\(path)'. Run '\(Self.prepareCommand)'."
         case .symbolicLinkUnsupported(let path):
             "Release inputs and generated artifacts cannot be symbolic links: '\(path)'"
         case .releaseRequiresCurrentManifest(let version):
-            "Release verification requires schema \(MojoArtifactManifest.currentSchemaVersion); found legacy schema \(version). Run 'swift-mojo prepare'."
+            "Release verification requires schema \(MojoArtifactManifest.currentSchemaVersion); found legacy schema \(version). Run '\(Self.prepareCommand)'."
         case .releaseSliceMismatch(let expected, let actual):
             "Prepared release slices do not match SwiftMojo.json; expected [\(expected)], found [\(actual)]."
         case .sliceArchiveDigestMismatch(let target, let expected, let actual):
             "Prepared Mojo archive for \(target) is stale or corrupt; expected \(expected), found \(actual)."
         case .sliceArchiveMissing(let target):
-            "Prepared Mojo archive for slice '\(target)' is missing. Run 'swift-mojo prepare'."
+            "Prepared Mojo archive for slice '\(target)' is missing. Run '\(Self.prepareCommand)'."
         case .sliceResolutionFailed(let target):
             "The packaged XCFramework does not contain exactly one archive for slice '\(target)'"
         case .targetSliceMissing(let requested, let prepared):
@@ -134,9 +142,9 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
             let actualTriple,
             let actualCPU
         ):
-            "Prepared Mojo target \(expectedTriple)/\(expectedCPU) does not match the Swift destination \(actualTriple)/\(actualCPU). Run 'swift-mojo prepare' for the active destination."
+            "Prepared Mojo target \(expectedTriple)/\(expectedCPU) does not match the Swift destination \(actualTriple)/\(actualCPU). Run '\(Self.prepareCommand)' for the active destination."
         case .unmanagedOutputDirectory(let path):
-            "Refusing to replace unmanaged output directory '\(path)'; choose an empty path or run 'swift-mojo init' first"
+            "Refusing to replace unmanaged output directory '\(path)'; choose an empty path or run '\(Self.initializeCommand)' first"
         case .unsupportedTarget(let target):
             "The XCFramework adapter supports Apple arm64/aarch64/x86_64 targets; received '\(target)'"
         case .xcframeworkMetadataMismatch(let message):

@@ -105,11 +105,16 @@ let package = Package(
             name: "MojoMacroTests",
             dependencies: [
                 "MojoMacros",
+                "MojoBindingCore",
                 .product(
                     name: "SwiftSyntaxMacrosTestSupport",
                     package: "swift-syntax"
                 ),
             ]
+        ),
+        .testTarget(
+            name: "MojoTests",
+            dependencies: ["Mojo"]
         ),
         .testTarget(
             name: "MojoCompilerCoreTests",
@@ -129,7 +134,7 @@ let package = Package(
         ),
         .testTarget(
             name: "MojoCommandCoreTests",
-            dependencies: ["MojoCommandCore"]
+            dependencies: ["MojoArtifactCore", "MojoCommandCore"]
         ),
         .testTarget(
             name: "MojoBuildPluginIntegrationTests",

@@ -102,7 +102,7 @@ interopは型変換だけでは完成しません。誰が確保し、保持し�
 - async completionとGPU eventもlifetimeの一部として扱う。
 - zero-copyは測定で証明する。
 
-P1をscalar-onlyにしたのは、この所有権設計を省略したままbuffer APIを公開しないためでもあります。
+P1をscalar-onlyにしたのは、この所有権設計を省略したままbuffer APIを公開しないためでもあります。最初のborrowed `Float` sliceは、Swift `Array` owner、同期closure lifetime、immutable pointer、typed failureを同時に定義したため追加できます。owned tensorやasync borrowは同じ基準を満たすまで追加しません。
 
 ## 8. Developer experience is part of correctness
 

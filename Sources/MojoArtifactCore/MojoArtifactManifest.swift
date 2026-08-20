@@ -70,12 +70,13 @@ package struct MojoArtifactManifest: Codable, Equatable, Sendable {
         generatedSourceDigest: String,
         sourceMapDigest: String,
         artifactDigest: String,
-        generationPipelineDigest: String = MojoGenerationPipeline.digest
+        generationPipelineDigest: String? = nil
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         self.abiVersion = MojoStaticABI.version
         self.compilerVersion = compilerVersion
         self.generationPipelineDigest = generationPipelineDigest
+            ?? MojoGenerationPipeline.digest(for: inputGraph)
         self.target = nil
         self.artifactIdentity = artifactIdentity
         self.sourceGraphDigest = inputGraph.bindingGraph.digest

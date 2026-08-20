@@ -24,6 +24,7 @@ struct MojoBindingCoreTests {
         #expect(first.digest == reformatted.digest)
         #expect(first.digestIdentifier == reformatted.digestIdentifier)
         #expect(first.bindings.count == 1)
+        #expect(first.bindings[0].bindingID == 788870723690667806)
         #expect(first.bindings[0].functionName == "add")
         #expect(first.bindings[0].implementation == .inline(.addForward))
     }
@@ -87,6 +88,84 @@ struct MojoBindingCoreTests {
             external.bindings[0].implementation
                 == .external(package: "MathModel", function: "add")
         )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func externalBorrowedFloatBufferProducesTypedSignature() throws {
+        let external = try graph(
+            source: """
+            @mojo(package: "MathModel", function: "sum")
+            func sum(_ values: [Float]) throws -> Float
+            """
+        )
+
+        #expect(external.bindings[0].signature == .borrowedFloat32Buffer)
+        #expect(external.bindings[0].parameterNames == ["values"])
+        #expect(
+            external.bindings[0].implementation
+                == .external(package: "MathModel", function: "sum")
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func scalarAndBufferOverloadsHaveDistinctABIIdentities() throws {
+        let overloads = try graph(
+            source: """
+            @mojo(package: "MathModel", function: "add")
+            func reduce(_ lhs: Int32, _ rhs: Int32) -> Int32
+
+            @mojo(package: "MathModel", function: "sum")
+            func reduce(_ values: [Float]) throws -> Float
+            """
+        )
+
+        #expect(overloads.bindings.count == 2)
+        #expect(Set(overloads.bindings.map(\.bindingID)).count == 2)
+        #expect(
+            Set(overloads.bindings.map(\.signature))
+                == [.int32Binary, .borrowedFloat32Buffer]
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func borrowedFloatBufferRequiresExternalImplementation() throws {
+        do {
+            _ = try graph(
+                source: """
+                @mojo
+                func sum(_ values: [Float]) throws -> Float {
+                    return values.reduce(0, +)
+                }
+                """
+            )
+            Issue.record("Inline borrowed buffer unexpectedly succeeded")
+        } catch let error as MojoBindingError {
+            #expect(error == .bufferRequiresExternalImplementation)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func borrowedFloatBufferRequiresTypedFailureSurface() throws {
+        #expect(throws: MojoBindingError.unsupportedSignature) {
+            _ = try graph(
+                source: """
+                @mojo(package: "MathModel", function: "sum")
+                func sum(_ values: [Float]) -> Float
+                """
+            )
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func borrowedFloatBufferRejectsTypedThrows() throws {
+        #expect(throws: MojoBindingError.unsupportedSignature) {
+            _ = try graph(
+                source: """
+                @mojo(package: "MathModel", function: "sum")
+                func sum(_ values: [Float]) throws(BufferError) -> Float
+                """
+            )
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))

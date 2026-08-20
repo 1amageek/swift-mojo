@@ -1,4 +1,6 @@
 package enum MojoStaticABI {
+    // Version 1 permits additive signature-family dispatchers while the three
+    // identity and membership symbols keep their established meaning.
     package static let version: UInt32 = 1
     package static let legacyModuleName = "GeneratedMojoABI"
     package static let legacyArtifactName = "GeneratedMojoABI.xcframework"

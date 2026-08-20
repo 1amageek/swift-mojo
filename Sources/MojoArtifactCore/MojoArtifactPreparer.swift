@@ -6,7 +6,7 @@ package struct MojoArtifactPreparer: Sendable {
     package static let packagingVersion = 4
 
     private let compiler: any MojoObjectCompiling
-    private let generationPipelineDigest: String
+    private let generationPipelineDigestOverride: String?
     private let processRunner: any MojoProcessRunning
     private let renderer: MojoStaticSourceRenderer
     private let transaction: MojoOutputTransaction
@@ -16,20 +16,19 @@ package struct MojoArtifactPreparer: Sendable {
     ) throws {
         try self.init(
             compiler: MojoCompiler(environment: environment),
-            processRunner: FoundationMojoProcessRunner(environment: environment),
-            generationPipelineDigest: MojoGenerationPipeline.digest
+            processRunner: FoundationMojoProcessRunner(environment: environment)
         )
     }
 
     package init(
         compiler: any MojoObjectCompiling,
         processRunner: any MojoProcessRunning,
-        generationPipelineDigest: String = MojoGenerationPipeline.digest,
+        generationPipelineDigest: String? = nil,
         renderer: MojoStaticSourceRenderer = MojoStaticSourceRenderer(),
         transaction: MojoOutputTransaction = MojoOutputTransaction()
     ) {
         self.compiler = compiler
-        self.generationPipelineDigest = generationPipelineDigest
+        self.generationPipelineDigestOverride = generationPipelineDigest
         self.processRunner = processRunner
         self.renderer = renderer
         self.transaction = transaction
@@ -50,6 +49,8 @@ package struct MojoArtifactPreparer: Sendable {
             try Self.validate(target: target)
         }
         let inputGraph = try options.inputGraph()
+        let generationPipelineDigest = generationPipelineDigestOverride
+            ?? MojoGenerationPipeline.digest(for: inputGraph)
         let compilerVersion = try compiler.compilerVersion()
         if let expected = options.expectedCompilerVersion,
            compilerVersion != expected {
@@ -61,7 +62,8 @@ package struct MojoArtifactPreparer: Sendable {
         if let manifest = try cachedManifest(
             options: options,
             inputGraph: inputGraph,
-            compilerVersion: compilerVersion
+            compilerVersion: compilerVersion,
+            generationPipelineDigest: generationPipelineDigest
         ) {
             return MojoPrepareResult(manifest: manifest, disposition: .reused)
         }
@@ -97,7 +99,10 @@ package struct MojoArtifactPreparer: Sendable {
                 at: headersURL,
                 withIntermediateDirectories: true
             )
-            try renderer.header(identity: options.identity).write(
+            try renderer.header(
+                identity: options.identity,
+                inputGraph: inputGraph
+            ).write(
                 to: headersURL.appendingPathComponent(
                     "\(options.identity.moduleName).h"
                 ),
@@ -380,7 +385,8 @@ package struct MojoArtifactPreparer: Sendable {
     private func cachedManifest(
         options: MojoPrepareOptions,
         inputGraph: MojoInputGraph,
-        compilerVersion: String
+        compilerVersion: String,
+        generationPipelineDigest: String
     ) throws -> MojoArtifactManifest? {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: options.manifestURL.path),

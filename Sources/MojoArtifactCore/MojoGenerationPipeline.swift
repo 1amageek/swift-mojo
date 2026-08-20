@@ -22,4 +22,22 @@ package enum MojoGenerationPipeline {
             "registry-renderer=\(MojoStaticRegistryWriter.generationVersion)",
         ].joined(separator: "|")
     )
+
+    package static func digest(for inputGraph: MojoInputGraph) -> String {
+        let signatures = Set(
+            inputGraph.bindingGraph.bindings.map(\.signature)
+        )
+        guard signatures.contains(.borrowedFloat32Buffer) else {
+            return digest
+        }
+        return MojoCanonicalDigest.hex(
+            [
+                "swift-mojo-signature-family-pipeline-v1",
+                "base=\(digest)",
+                "borrowed-float32-buffer-source=\(MojoStaticSourceRenderer.borrowedFloat32BufferGenerationVersion)",
+                "borrowed-float32-buffer-registry=\(MojoStaticRegistryWriter.borrowedFloat32BufferGenerationVersion)",
+                "borrowed-float32-buffer-c-abi=1",
+            ].joined(separator: "|")
+        )
+    }
 }

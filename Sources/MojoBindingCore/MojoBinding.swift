@@ -2,6 +2,21 @@ import Foundation
 import SwiftSyntax
 
 package struct MojoBinding: Codable, Equatable, Sendable {
+    package enum Signature: String, Codable, Equatable, Hashable, Sendable {
+        case int32Binary
+        case borrowedFloat32Buffer
+
+        package var canonicalRecord: String {
+            switch self {
+            case .int32Binary:
+                // This spelling is part of the proven scalar binding identity.
+                "(Int32,Int32)->Int32"
+            case .borrowedFloat32Buffer:
+                "([Float])->throws Float"
+            }
+        }
+    }
+
     package enum Operation: String, Codable, Equatable, Sendable {
         case addForward
         case addReversed
@@ -34,8 +49,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
 
     package let bindingID: UInt64
     package let functionName: String
-    package let lhsName: String
-    package let rhsName: String
+    package let signature: Signature
+    package let parameterNames: [String]
     package let implementation: Implementation
     package let abiDigest: String
     package let implementationDigest: String
@@ -55,37 +70,31 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         guard function.signature.effectSpecifiers?.asyncSpecifier == nil else {
             throw MojoBindingError.asyncUnsupported
         }
-        guard function.signature.effectSpecifiers?.throwsClause == nil else {
-            throw MojoBindingError.throwingUnsupported
-        }
 
         let functionName = function.name.text
         guard Self.isCIdentifier(functionName) else {
             throw MojoBindingError.unsupportedFunctionName(functionName)
         }
 
-        let parameters = function.signature.parameterClause.parameters
-        guard parameters.count == 2 else {
-            throw MojoBindingError.invalidParameterCount
-        }
-        let lhs = parameters[parameters.startIndex]
-        let rhs = parameters[parameters.index(after: parameters.startIndex)]
-        guard let lhsName = Self.localName(of: lhs),
-              let rhsName = Self.localName(of: rhs) else {
-            throw MojoBindingError.missingLocalParameterName
-        }
-        guard Self.isInt32Parameter(lhs),
-              Self.isInt32Parameter(rhs),
-              function.signature.returnClause?.type.trimmedDescription == "Int32" else {
-            throw MojoBindingError.unsupportedSignature
-        }
+        let signature = try Self.signature(function: function)
+        let parameterNames = try function.signature.parameterClause.parameters
+            .map { parameter in
+                guard let name = Self.localName(of: parameter) else {
+                    throw MojoBindingError.missingLocalParameterName
+                }
+                return name
+            }
 
         let implementation = try Self.implementation(
             function: function,
-            lhsName: lhsName,
-            rhsName: rhsName
+            signature: signature,
+            parameterNames: parameterNames
         )
-        let abiKey = "swift-mojo-binding-v1|\(functionName)|(Int32,Int32)->Int32"
+        let abiKey = [
+            "swift-mojo-binding-v1",
+            functionName,
+            signature.canonicalRecord,
+        ].joined(separator: "|")
         let implementationKey: String
         switch implementation {
         case .inline(let operation):
@@ -96,8 +105,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
 
         self.bindingID = MojoCanonicalDigest.identifier(abiKey)
         self.functionName = functionName
-        self.lhsName = lhsName
-        self.rhsName = rhsName
+        self.signature = signature
+        self.parameterNames = parameterNames
         self.implementation = implementation
         self.abiDigest = MojoCanonicalDigest.hex(abiKey)
         self.implementationDigest = MojoCanonicalDigest.hex(implementationKey)
@@ -133,10 +142,25 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         return false
     }
 
+    package var lhsName: String {
+        precondition(signature == .int32Binary)
+        return parameterNames[0]
+    }
+
+    package var rhsName: String {
+        precondition(signature == .int32Binary)
+        return parameterNames[1]
+    }
+
+    package var bufferName: String {
+        precondition(signature == .borrowedFloat32Buffer)
+        return parameterNames[0]
+    }
+
     private static func implementation(
         function: FunctionDeclSyntax,
-        lhsName: String,
-        rhsName: String
+        signature: Signature,
+        parameterNames: [String]
     ) throws -> Implementation {
         let arguments = try mojoArguments(function: function)
         if !arguments.isEmpty {
@@ -162,7 +186,13 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             )
         }
 
+        guard signature == .int32Binary else {
+            throw MojoBindingError.bufferRequiresExternalImplementation
+        }
+
         let expression = try inlineExpression(function: function)
+        let lhsName = parameterNames[0]
+        let rhsName = parameterNames[1]
 
         let compact = expression.filter { !$0.isWhitespace }
         if compact == "\(lhsName)+\(rhsName)" {
@@ -226,6 +256,42 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         parameter.ellipsis == nil
             && parameter.defaultValue == nil
             && parameter.type.trimmedDescription == "Int32"
+    }
+
+    private static func signature(
+        function: FunctionDeclSyntax
+    ) throws -> Signature {
+        let parameters = function.signature.parameterClause.parameters
+        let returnType = function.signature.returnClause?.type
+            .trimmedDescription
+        let throwsClause = function.signature.effectSpecifiers?.throwsClause
+        let isUntypedThrowing = throwsClause?.trimmedDescription == "throws"
+
+        if parameters.count == 2 {
+            let lhs = parameters[parameters.startIndex]
+            let rhs = parameters[parameters.index(after: parameters.startIndex)]
+            guard Self.isInt32Parameter(lhs),
+                  Self.isInt32Parameter(rhs),
+                  returnType == "Int32" else {
+                throw MojoBindingError.unsupportedSignature
+            }
+            guard throwsClause == nil else {
+                throw MojoBindingError.throwingUnsupported
+            }
+            return .int32Binary
+        }
+
+        if parameters.count == 1,
+           let parameter = parameters.first,
+           parameter.ellipsis == nil,
+           parameter.defaultValue == nil,
+           parameter.type.trimmedDescription == "[Float]",
+           returnType == "Float",
+           isUntypedThrowing {
+            return .borrowedFloat32Buffer
+        }
+
+        throw MojoBindingError.unsupportedSignature
     }
 
     private static func localName(

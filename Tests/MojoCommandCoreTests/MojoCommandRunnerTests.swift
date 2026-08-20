@@ -1,4 +1,5 @@
 import Foundation
+import MojoArtifactCore
 import MojoCommandCore
 import Testing
 
@@ -14,9 +15,28 @@ struct MojoCommandRunnerTests {
         let result = runner.run(arguments: ["help"])
 
         #expect(result.exitCode == 0)
-        #expect(result.standardOutput.contains("swift package mojo"))
+        #expect(
+            result.standardOutput.contains(
+                "swift package --allow-writing-to-package-directory mojo"
+            )
+        )
         #expect(result.standardOutput.contains("release"))
+        #expect(!result.standardOutput.contains("swift-mojo prepare"))
         #expect(result.standardError.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func recoveryDiagnosticsUsePublicPackageCommand() {
+        let diagnostic = MojoArtifactError.manifestMissing(
+            "/tmp/MojoArtifact.json"
+        ).description
+
+        #expect(
+            diagnostic.contains(
+                "swift package --allow-writing-to-package-directory mojo prepare"
+            )
+        )
+        #expect(!diagnostic.contains("Run 'swift-mojo prepare'"))
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -31,6 +51,7 @@ struct MojoCommandRunnerTests {
         #expect(result.exitCode == 0)
         #expect(object?["success"] as? Bool == true)
         #expect(object?["command"] as? String == "version")
+        #expect(object?["message"] as? String == SwiftMojoVersion.current)
     }
 
     @Test(.timeLimit(.minutes(1)))

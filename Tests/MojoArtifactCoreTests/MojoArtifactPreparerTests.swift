@@ -288,6 +288,150 @@ private struct FixturePackagingRunner: MojoProcessRunning {
 @Suite("Mojo artifact preparation")
 struct MojoArtifactPreparerTests {
     @Test(.timeLimit(.minutes(1)))
+    func preparesBorrowedFloatBufferABIAndTypedSwiftRegistry() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let source = root.appendingPathComponent("Bindings.swift")
+        let package = root.appendingPathComponent(
+            "Mojo/MathModel",
+            isDirectory: true
+        )
+        let output = root.appendingPathComponent("Generated", isDirectory: true)
+        try fileManager.createDirectory(
+            at: package,
+            withIntermediateDirectories: true
+        )
+        defer {
+            do {
+                try fileManager.removeItem(at: root)
+            } catch {
+                Issue.record("Failed to remove buffer ABI fixture: \(error)")
+            }
+        }
+        try """
+        from memory import UnsafePointer
+
+        def sum(
+            values: UnsafePointer[Float32, ImmutExternalOrigin],
+            count: UInt64,
+        ) -> Float32:
+            var result = Float32(0)
+            for index in range(Int(count)):
+                result += values[index]
+            return result
+        """.write(
+            to: package.appendingPathComponent("__init__.mojo"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        @mojo(package: "MathModel", function: "sum")
+        func sum(_ values: [Float]) throws -> Float
+        """.write(to: source, atomically: true, encoding: .utf8)
+        let target = try MojoTargetConfiguration(
+            triple: "arm64-apple-macosx14.0",
+            cpu: "generic"
+        )
+        let identity = try MojoArtifactIdentity(targetName: "Math")
+        let externalPackage = try MojoExternalPackage(
+            name: "MathModel",
+            rootURL: package
+        )
+        let options = try MojoPrepareOptions(
+            sourceURLs: [source],
+            sourceRootURL: root,
+            externalPackages: [externalPackage],
+            outputDirectoryURL: output,
+            identity: identity,
+            targets: [target]
+        )
+        let result = try MojoArtifactPreparer(
+            compiler: FixtureMojoCompiler(),
+            processRunner: FixturePackagingRunner()
+        ).prepare(options: options)
+        let generatedMojo = try String(
+            contentsOf: output.appendingPathComponent("Bindings.mojo"),
+            encoding: .utf8
+        )
+        let header = try String(
+            contentsOf: output
+                .appendingPathComponent(identity.artifactName)
+                .appendingPathComponent("fixture-slice-0/Headers")
+                .appendingPathComponent("\(identity.moduleName).h"),
+            encoding: .utf8
+        )
+        let registryURL = root.appendingPathComponent("Registry.swift")
+        _ = try MojoArtifactVerifier().verify(
+            options: MojoVerifyOptions(
+                sourceURLs: [source],
+                sourceRootURL: root,
+                externalPackages: [externalPackage],
+                outputDirectoryURL: output,
+                generatedSourceURL: registryURL,
+                target: target,
+                expectedIdentity: identity
+            )
+        )
+        let registry = try String(
+            contentsOf: registryURL,
+            encoding: .utf8
+        )
+        let inputGraph = try options.inputGraph()
+
+        #expect(
+            result.manifest.bindings.count == 1
+        )
+        #expect(generatedMojo.contains("from memory import UnsafePointer"))
+        #expect(generatedMojo.contains("_call_f32_buffer_f32"))
+        #expect(!generatedMojo.contains("_call_i32_i32_i32"))
+        #expect(generatedMojo.contains("UnsafePointer[Float32, ImmutExternalOrigin]"))
+        #expect(generatedMojo.contains(") abi(\"C\") -> Float32:"))
+        #expect(!generatedMojo.contains("MutExternalOrigin"))
+        #expect(!generatedMojo.contains("result[]"))
+        #expect(
+            header.contains(
+                "float \(identity.symbolPrefix)_call_f32_buffer_f32("
+            )
+        )
+        #expect(header.contains("const float *values"))
+        #expect(!header.contains("float *result"))
+        #expect(!header.contains("_call_i32_i32_i32"))
+        #expect(registry.contains("import Mojo"))
+        #expect(registry.contains("values: borrowing [Float]"))
+        #expect(registry.contains("values.withUnsafeBufferPointer"))
+        #expect(registry.contains("private static let artifactValidationError"))
+        #expect(registry.contains("MojoInvocationError"))
+        #expect(registry.contains("incompatibleStaticABI"))
+        #expect(registry.contains("inputGraphMismatch"))
+        #expect(registry.contains("!buffer.isEmpty"))
+        #expect(registry.contains("_call_f32_buffer_f32"))
+        #expect(!registry.contains("var result"))
+        #expect(!registry.contains("let status"))
+        #expect(!registry.contains("preparedBindingIDs.contains"))
+        #expect(
+            registry.components(
+                separatedBy: "_static_abi_version()"
+            ).count == 2
+        )
+        #expect(
+            registry.components(
+                separatedBy: "_has_binding(bindingID)"
+            ).count == 2
+        )
+        #expect(
+            result.manifest.generationPipelineDigest
+                == MojoGenerationPipeline.digest(for: inputGraph)
+        )
+        #expect(
+            result.manifest.generationPipelineDigest
+                != MojoGenerationPipeline.digest
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func preparesExternalPackageAndInvalidatesItByContent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -626,6 +770,22 @@ struct MojoArtifactPreparerTests {
             #expect(reused.disposition == .reused)
             #expect(regenerated.disposition == .prepared)
             #expect(regenerated.manifest.generationPipelineDigest == "pipeline-b")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func scalarPipelinePreservesTheReleasedGenerationIdentity() throws {
+        try withPreparerFixture { fixture in
+            let inputGraph = try fixture.options.inputGraph()
+
+            #expect(
+                MojoGenerationPipeline.digest(for: inputGraph)
+                    == MojoGenerationPipeline.digest
+            )
+            #expect(
+                MojoGenerationPipeline.digest
+                    == "9663f12deb5cb466972f7179445f229676dfc7cea813a10ec303600481735dab"
+            )
         }
     }
 

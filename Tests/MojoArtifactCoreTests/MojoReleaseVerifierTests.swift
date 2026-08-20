@@ -28,8 +28,23 @@ struct MojoReleaseVerifierTests {
                 withIntermediateDirectories: true
             )
             let dependencies = localDependency
-                ? "dependencies: [.package(path: \"../Local\")],"
-                : ""
+                ? """
+                dependencies: [
+                    .package(path: "../Local"),
+                    .package(
+                        url: "https://github.com/1amageek/swift-mojo.git",
+                        revision: "candidate-revision"
+                    ),
+                ],
+                """
+                : """
+                dependencies: [
+                    .package(
+                        url: "https://github.com/1amageek/swift-mojo.git",
+                        revision: "candidate-revision"
+                    ),
+                ],
+                """
             try """
             // swift-tools-version: 6.2
             import PackageDescription
@@ -43,9 +58,15 @@ struct MojoReleaseVerifierTests {
                     ),
                     .target(
                         name: "Model",
-                        dependencies: ["SwiftMojo_Model_ABI"],
+                        dependencies: [
+                            .product(name: "Mojo", package: "swift-mojo"),
+                            "SwiftMojo_Model_ABI",
+                        ],
                         plugins: [
-                            .plugin(name: "MojoBuildPlugin")
+                            .plugin(
+                                name: "MojoBuildPlugin",
+                                package: "swift-mojo"
+                            )
                         ]
                     ),
                 ]
@@ -57,6 +78,8 @@ struct MojoReleaseVerifierTests {
             )
             let sourceURL = sourceRoot.appendingPathComponent("Bindings.swift")
             try """
+            import Mojo
+
             @mojo
             func add(_ a: Int32, _ b: Int32) -> Int32 {
                 return a + b
@@ -369,11 +392,47 @@ struct MojoReleaseVerifierTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func literalRemotePackageURLIsAccepted() throws {
+    func movingBranchPackageDependencyIsRejected() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try packageManifest(
             packageDependencies: "[.package(url: \"https://example.com/Dependency.git\", branch: \"main\")]"
+        ).write(
+            to: fixture.root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(throws: MojoArtifactError.mutablePackageDependencyInRelease(
+            "main"
+        )) {
+            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func immutableRemoteRevisionIsAccepted() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try packageManifest(
+            packageDependencies: "[.package(name: \"swift-mojo\", url: \"https://example.com/Dependency.git\", revision: \"candidate-revision\")]"
+        ).write(
+            to: fixture.root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let report = try MojoReleaseVerifier().verify(layout: fixture.layout)
+
+        #expect(report.targetName == "Model")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func exactSemanticVersionIsAccepted() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try packageManifest(
+            packageDependencies: "[.package(url: \"https://example.com/swift-mojo.git\", exact: \"1.2.3\")]"
         ).write(
             to: fixture.root.appendingPathComponent("Package.swift"),
             atomically: true,
@@ -498,11 +557,52 @@ struct MojoReleaseVerifierTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func missingBuildPluginIntegrationIsRejected() throws {
+    func missingMojoProductDependencyIsRejected() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try packageManifest(
             dependencies: "[\"SwiftMojo_Model_ABI\"]",
+            plugins: "[.plugin(name: \"MojoBuildPlugin\", package: \"swift-mojo\")]"
+        ).write(
+            to: fixture.root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(throws: MojoArtifactError.self) {
+            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func pluginFromDifferentPackageIsRejected() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try packageManifest(
+            dependencies: "[.product(name: \"Mojo\", package: \"swift-mojo\"), \"SwiftMojo_Model_ABI\"]",
+            plugins: "[.plugin(name: \"MojoBuildPlugin\", package: \"another-package\")]"
+        ).write(
+            to: fixture.root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(throws: MojoArtifactError.self) {
+            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func missingBuildPluginIntegrationIsRejected() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try packageManifest(
+            dependencies: """
+            [
+                .product(name: "Mojo", package: "swift-mojo"),
+                "SwiftMojo_Model_ABI",
+            ]
+            """,
             plugins: "[]"
         ).write(
             to: fixture.root.appendingPathComponent("Package.swift"),
@@ -533,7 +633,7 @@ struct MojoReleaseVerifierTests {
     }
 
     private func packageManifest(
-        packageDependencies: String = "[]",
+        packageDependencies: String = "[.package(url: \"https://github.com/1amageek/swift-mojo.git\", revision: \"candidate-revision\")]",
         dependencies: String,
         plugins: String
     ) -> String {
@@ -563,8 +663,8 @@ struct MojoReleaseVerifierTests {
     ) -> String {
         packageManifest(
             packageDependencies: packageDependencies,
-            dependencies: "[\"SwiftMojo_Model_ABI\"]",
-            plugins: "[.plugin(name: \"MojoBuildPlugin\")]"
+            dependencies: "[.product(name: \"Mojo\", package: \"swift-mojo\"), \"SwiftMojo_Model_ABI\"]",
+            plugins: "[.plugin(name: \"MojoBuildPlugin\", package: \"swift-mojo\")]"
         )
     }
 }

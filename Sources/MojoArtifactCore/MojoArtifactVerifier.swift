@@ -3,18 +3,18 @@ import MojoBindingCore
 import MojoCompilerCore
 
 package struct MojoArtifactVerifier: Sendable {
-    private let generationPipelineDigest: String
+    private let generationPipelineDigestOverride: String?
     private let registryWriter: MojoStaticRegistryWriter
     private let renderer: MojoStaticSourceRenderer
     private let transaction: MojoOutputTransaction
 
     package init(
-        generationPipelineDigest: String = MojoGenerationPipeline.digest,
+        generationPipelineDigest: String? = nil,
         registryWriter: MojoStaticRegistryWriter = MojoStaticRegistryWriter(),
         renderer: MojoStaticSourceRenderer = MojoStaticSourceRenderer(),
         transaction: MojoOutputTransaction = MojoOutputTransaction()
     ) {
-        self.generationPipelineDigest = generationPipelineDigest
+        self.generationPipelineDigestOverride = generationPipelineDigest
         self.registryWriter = registryWriter
         self.renderer = renderer
         self.transaction = transaction
@@ -65,7 +65,7 @@ package struct MojoArtifactVerifier: Sendable {
         } catch {
             throw MojoArtifactError.invalidManifest(String(describing: error))
         }
-        try validateSchemaAndPipeline(manifest: manifest)
+        try validateSchemaAndABI(manifest: manifest)
 
         let identity = manifest.effectiveIdentity
         if let expectedIdentity = options.expectedIdentity,
@@ -104,6 +104,7 @@ package struct MojoArtifactVerifier: Sendable {
         try validateTarget(manifest: manifest, requested: options.target)
 
         let inputGraph = try options.inputGraph()
+        try validatePipeline(manifest: manifest, inputGraph: inputGraph)
         try validateGraph(manifest: manifest, inputGraph: inputGraph)
         try validateGeneratedSources(
             manifest: manifest,
@@ -122,7 +123,7 @@ package struct MojoArtifactVerifier: Sendable {
         )
     }
 
-    private func validateSchemaAndPipeline(
+    private func validateSchemaAndABI(
         manifest: MojoArtifactManifest
     ) throws {
         let supportedSchema = manifest.schemaVersion
@@ -139,10 +140,17 @@ package struct MojoArtifactVerifier: Sendable {
                 "unsupported ABI version \(manifest.abiVersion)"
             )
         }
+    }
+
+    private func validatePipeline(
+        manifest: MojoArtifactManifest,
+        inputGraph: MojoInputGraph
+    ) throws {
         let expectedPipeline = manifest.schemaVersion
             == MojoArtifactManifest.legacySchemaVersion
             ? MojoGenerationPipeline.legacyDigest
-            : generationPipelineDigest
+            : generationPipelineDigestOverride
+                ?? MojoGenerationPipeline.digest(for: inputGraph)
         guard manifest.generationPipelineDigest == expectedPipeline else {
             throw MojoArtifactError.generationPipelineMismatch(
                 expected: expectedPipeline,

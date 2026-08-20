@@ -31,13 +31,13 @@ Normal build
 
 詳細:
 
-1. Mojo compileは `swift-mojo prepare` だけが行う。
+1. Mojo compileはpublic author command `swift package --allow-writing-to-package-directory mojo prepare` だけが行う。
 2. `MojoBuildPlugin` は `swift-mojo verify` だけを行う。
 3. macro、prepare、verifyは同じ `MojoBindingCore` を使う。
 4. C interfaceはfunctionごとのsymbolではなくfixed dispatcherを使う。
 5. schema 3 manifestはsource/binding/compiler/target/ABI、generation pipeline identity、XCFramework tree digestを保持する。
 6. `Generated/<Target>` はSwiftPM graph inputとしてcommitする。
-7. `swift-mojo init` はbinary targetをmanifestへ追加する前のbootstrapを作る。
+7. `swift package --allow-writing-to-package-directory mojo init` はbinary targetをmanifestへ追加する前のbootstrapを作る。
 8. runtime path lookupとdynamic loaderはP1から除去する。
 9. prepare/initはoutput path単位のinterprocess lockをcache checkからcommitまで保持する。
 10. compiler subprocessは専用process group、deadline、TERM/KILL escalation、reapを1つのownerが担う。

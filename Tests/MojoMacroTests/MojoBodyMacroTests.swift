@@ -1,3 +1,4 @@
+import MojoBindingCore
 import SwiftSyntaxMacrosTestSupport
 import XCTest
 @testable import MojoMacros
@@ -40,6 +41,28 @@ final class MojoBodyMacroTests: XCTestCase {
                     bindingID: UInt64(788870723690667806),
                     lhs: a,
                     rhs: b
+                )
+            }
+            """,
+            macros: ["mojo": MojoBodyMacro.self],
+            indentationWidth: .spaces(4)
+        )
+    }
+
+    func testBorrowedFloatBufferExpansionUsesThrowingScopedRegistry() {
+        let bindingID = MojoCanonicalDigest.identifier(
+            "swift-mojo-binding-v1|sum|([Float])->throws Float"
+        )
+        assertMacroExpansion(
+            """
+            @mojo(package: "MathModel", function: "sum")
+            func sum(_ values: [Float]) throws -> Float
+            """,
+            expandedSource: """
+            func sum(_ values: [Float]) throws -> Float {
+                return try __SwiftMojoGeneratedBindings.invokeFloatBuffer(
+                    bindingID: UInt64(\(bindingID)),
+                    values: values
                 )
             }
             """,

@@ -20,7 +20,7 @@ schema-3 P1は1つのfixed C module、1つのarm64 macOS archive、Swift source�
 6. schema-4 manifestはinput graph、canonical generated Mojo、source map、compiler、全slice、各archive、hidden fileを含むXCFramework treeを1つのcompatibility envelopeへ入れる。artifact treeのsymbolic linkは外部可変byteを参照し得るため拒否する。verifyはgenerated Mojo/source mapをcurrent rendererから再構成し、manifestの自己申告digestだけを信頼しない。
    同じApple platform/variantに属する異なるarchitecture sliceは個別compile/archive後にuniversal archiveへ統合し、XCFrameworkにはgroupごとに1 libraryだけを登録する。manifestはcompiler sliceを個別に保持し、verifierはgroup archiveのexact architecture集合と照合する。
 7. `MojoBuildPlugin` はSwift/config/Mojo/source-map/manifest/artifactをinputとして `verify` だけを実行する。
-8. `swift package mojo release` はpackage-owned outputを書き換えず、current schema、compiler pin、全required slices、target identity、source/package graph、source map、XCFramework metadata/interface/tree、local package dependency absence、literal remote package URL、binary target/dependency/plugin wiringを検証する。
+8. `swift package --allow-writing-to-package-directory mojo release` はpackage-owned outputを書き換えず、current schema、compiler pin、全required slices、target identity、source/package graph、source map、XCFramework metadata/interface/tree、local/moving-branch dependency absence、literal remote package requirement、binary target、Mojo product、binary dependency、同一package由来のbuild plugin wiringを検証する。
 9. schema 3は既存artifactの通常build verificationだけを許可し、release gateでは拒否する。
 10. remote upload、signing、tag creationはこのcommandの責務に含めない。
 
@@ -78,10 +78,10 @@ Current evidence:
 - Gate 1はdirect inline integration target、real Mojo execution、overflow failure testsで完了。
 - Gate 2はreal external package importとsource invalidationまで完了。real compiler diagnostic source-remap acceptanceは未完了。
 - Gate 3はarm64/x86_64 universal XCFrameworkで完了。
-- Gate 4の同一consumer two-target collision acceptanceは未完了。
-- Gate 5はverifier/release mutation testsで完了。
+- Gate 4の同一consumer two-target collision acceptance workflowは実装済みだが未実行。
+- Gate 5の既存artifact mutation経路は完了。package-product/plugin provenance強化後のtest rerunは未完了。
 - Gate 6はrelocated compiler-free consumerで完了。
-- Gate 7はcommand testsと実 `init` / `prepare` / `inspect` / `doctor` / `release` executionで完了。
+- Gate 7のcommand unit testsと従来の直接CLI executionは完了。immutable remote revisionからpublic `swift package --allow-writing-to-package-directory mojo` を解決する新workflowとexact-tag gateは実装済みだが未実行。
 
 ## References
 
