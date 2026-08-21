@@ -11,4 +11,9 @@ package protocol MojoRuntimeBinaryInspecting: Sendable {
         libraryURL: URL,
         target: MojoTargetConfiguration
     ) throws -> MojoRuntimeBinaryInspection
+
+    func inspectExecutable(
+        executableURL: URL,
+        target: MojoTargetConfiguration
+    ) throws -> MojoRuntimeExecutableInspection
 }

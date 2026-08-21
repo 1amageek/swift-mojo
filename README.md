@@ -278,6 +278,16 @@ or modified dependencies. This receipt does not weaken the link-closed static
 artifact policy and does not by itself claim that a worker linked or executed.
 See `docs/ADR-0010-ACCELERATOR-RUNTIME-RECEIPTS.md`.
 
+`runtime-bundle-prepare` consumes a verified receipt, links one executable, and
+atomically commits an exact `bin/` + `lib/` deployment tree. Apple executables
+use only `@executable_path/../lib`; Linux executables use only
+`$ORIGIN/../lib` and the target's fixed ELF interpreter. A fresh
+`runtime-bundle-verify` rejects extra files, non-executable workers, changed
+digests, ambient install names, incomplete runtime imports, or loader metadata
+that differs from the manifest. Bundle creation is local deployment tooling; it
+does not grant redistribution rights for third-party runtime libraries. See
+`docs/ADR-0011-ISOLATED-RUNTIME-BUNDLES.md`.
+
 ## Author and consumer experience
 
 ```mermaid

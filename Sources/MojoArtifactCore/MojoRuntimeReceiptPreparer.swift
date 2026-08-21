@@ -192,7 +192,7 @@ package struct MojoRuntimeReceiptPreparer: Sendable {
         URL(fileURLWithPath: dependency).lastPathComponent
     }
 
-    private static func isSystemDependency(
+    package static func isSystemDependency(
         _ dependency: String,
         target: MojoTargetConfiguration,
         explicitlyAllowed: Set<String>
@@ -216,18 +216,31 @@ package struct MojoRuntimeReceiptPreparer: Sendable {
             if explicitlyAllowed.contains(key) {
                 return true
             }
-            return [
-                "ld-linux-aarch64.so.1",
-                "ld-linux-x86-64.so.2",
-                "libc.so.6",
-                "libdl.so.2",
-                "libgcc_s.so.1",
-                "libm.so.6",
-                "libpthread.so.0",
-                "librt.so.1",
-                "libstdc++.so.6",
-            ].contains(key)
+            return defaultLinuxSystemDependencies.contains(key)
         }
         return false
     }
+
+    package static func isDefaultSystemDependency(
+        _ dependency: String,
+        target: MojoTargetConfiguration
+    ) -> Bool {
+        isSystemDependency(
+            dependency,
+            target: target,
+            explicitlyAllowed: []
+        )
+    }
+
+    private static let defaultLinuxSystemDependencies: Set<String> = [
+        "ld-linux-aarch64.so.1",
+        "ld-linux-x86-64.so.2",
+        "libc.so.6",
+        "libdl.so.2",
+        "libgcc_s.so.1",
+        "libm.so.6",
+        "libpthread.so.0",
+        "librt.so.1",
+        "libstdc++.so.6",
+    ]
 }

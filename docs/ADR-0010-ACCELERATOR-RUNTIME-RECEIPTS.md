@@ -99,11 +99,12 @@ native Jetson behavior.
 
 ## Next gates
 
-1. Define the isolated worker bundle layout and relative loader contract.
-2. Link a macOS worker against the verified receipt and inspect its final Mach-O
-   dependencies.
-3. Execute a Metal Float32 canonical kernel after the optional Xcode Metal
+The bundle layout, relative loader contract, macOS link, final Mach-O
+inspection, and clean-environment device-context execution are implemented by
+ADR-0011. Remaining gates are:
+
+1. Execute a Metal Float32 canonical kernel after the optional Xcode Metal
    Toolchain is available.
-4. Prepare and verify the Linux receipt natively on Jetson AGX Orin, link the
+2. Prepare and verify the Linux receipt natively on Jetson AGX Orin, link the
    worker, inspect ELF dependencies/RPATH, and execute CUDA success and failure
    paths.

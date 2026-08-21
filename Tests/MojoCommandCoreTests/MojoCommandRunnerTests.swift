@@ -23,6 +23,8 @@ struct MojoCommandRunnerTests {
         #expect(result.standardOutput.contains("release"))
         #expect(result.standardOutput.contains("runtime-prepare"))
         #expect(result.standardOutput.contains("runtime-verify"))
+        #expect(result.standardOutput.contains("runtime-bundle-prepare"))
+        #expect(result.standardOutput.contains("runtime-bundle-verify"))
         #expect(!result.standardOutput.contains("mojo version"))
         #expect(!result.standardOutput.contains("swift-mojo prepare"))
         #expect(result.standardError.isEmpty)
@@ -61,6 +63,28 @@ struct MojoCommandRunnerTests {
         #expect(
             result.standardError.contains(
                 "--receipt must not overwrite the object or a runtime library"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runtimeBundleCommandRequiresAnExecutableName() {
+        let result = runner.run(
+            arguments: [
+                "runtime-bundle-prepare",
+                "--object", "/tmp/RuntimeObject.o",
+                "--receipt", "/tmp/RuntimeReceipt.json",
+                "--runtime-library", "/tmp/libRuntime.dylib",
+                "--output", "/tmp/Runtime.bundle",
+                "--target-triple", "arm64-apple-macosx14.0",
+                "--target-cpu", "generic",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.standardError.contains(
+                "Missing required option --executable-name"
             )
         )
     }

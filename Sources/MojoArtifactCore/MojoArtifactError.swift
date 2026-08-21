@@ -28,6 +28,7 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
     case inputGraphMismatch(expected: String, actual: String)
     case invalidPackageDependencyRequirement(String)
     case invalidRuntimeLibrary(library: String, detail: String)
+    case invalidRuntimeBundle(String)
     case invalidRuntimeReceipt(String)
     case inputsChangedDuringOperation(String)
     case manifestMissing(String)
@@ -122,6 +123,8 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
             "Package.swift dependency requirement '\(requirement)' is not a full Git object ID or valid semantic version"
         case .invalidRuntimeLibrary(let library, let detail):
             "Runtime library '\(library)' is invalid: \(detail)"
+        case .invalidRuntimeBundle(let detail):
+            "Mojo runtime bundle is invalid: \(detail)"
         case .invalidRuntimeReceipt(let detail):
             "Mojo runtime dependency receipt is invalid: \(detail)"
         case .inputsChangedDuringOperation(let operation):

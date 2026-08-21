@@ -51,6 +51,18 @@ private struct FixtureRuntimeBinaryInspector: MojoRuntimeBinaryInspecting {
         }
         return inspection
     }
+
+    func inspectExecutable(
+        executableURL: URL,
+        target: MojoTargetConfiguration
+    ) throws -> MojoRuntimeExecutableInspection {
+        MojoRuntimeExecutableInspection(
+            architecture: objectArchitecture,
+            dynamicDependencies: [],
+            runtimeSearchPaths: [],
+            programInterpreter: nil
+        )
+    }
 }
 
 private struct FixtureRuntimeMetadataRunner: MojoProcessRunning {
@@ -75,6 +87,27 @@ private struct FixtureRuntimeMetadataRunner: MojoProcessRunning {
             )
         }
         if executablePath == "/usr/bin/otool" {
+            if arguments.contains("-l") {
+                return MojoProcessResult(
+                    status: 0,
+                    output: """
+                    Load command 18
+                              cmd LC_RPATH
+                          cmdsize 40
+                             path @executable_path/../lib (offset 12)
+                    """
+                )
+            }
+            if arguments.last == "/tmp/mojo-worker" {
+                return MojoProcessResult(
+                    status: 0,
+                    output: """
+                    /tmp/mojo-worker:
+                        @rpath/libRuntime.dylib (compatibility version 0.0.0, current version 0.0.0)
+                        /usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)
+                    """
+                )
+            }
             return MojoProcessResult(
                 status: 0,
                 output: """
@@ -94,6 +127,18 @@ private struct FixtureRuntimeMetadataRunner: MojoProcessRunning {
             )
         }
         if executablePath == "/tools/llvm-readelf" {
+            if arguments.last == "/tmp/mojo-worker" {
+                return MojoProcessResult(
+                    status: 0,
+                    output: """
+                      Machine:                           AArch64
+                      [Requesting program interpreter: /lib/ld-linux-aarch64.so.1]
+                     0x0000000000000001 (NEEDED)             Shared library: [libRuntime.so]
+                     0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+                     0x000000000000001d (RUNPATH)            Library runpath: [$ORIGIN/../lib]
+                    """
+                )
+            }
             return MojoProcessResult(
                 status: 0,
                 output: """
@@ -426,6 +471,65 @@ struct MojoRuntimeReceiptTests {
                 "AsyncRT_DeviceContext_create",
                 "KGEN_CompilerRT_AlignedAlloc",
             ]
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func parsesAppleRuntimeExecutableMetadata() throws {
+        let target = try MojoTargetConfiguration(
+            triple: "arm64-apple-macosx14.0",
+            cpu: "apple-m4",
+            accelerator: "apple-gpu"
+        )
+        let inspection = try MojoRuntimeBinaryInspector(
+            processRunner: FixtureRuntimeMetadataRunner(),
+            environment: [:]
+        ).inspectExecutable(
+            executableURL: URL(fileURLWithPath: "/tmp/mojo-worker"),
+            target: target
+        )
+
+        #expect(inspection.architecture == "arm64")
+        #expect(
+            inspection.dynamicDependencies == [
+                "/usr/lib/libSystem.B.dylib",
+                "@rpath/libRuntime.dylib",
+            ]
+        )
+        #expect(
+            inspection.runtimeSearchPaths == ["@executable_path/../lib"]
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func parsesLinuxRuntimeExecutableMetadata() throws {
+        let target = try MojoTargetConfiguration(
+            triple: "aarch64-unknown-linux-gnu",
+            cpu: "cortex-a78ae",
+            accelerator: "sm_87"
+        )
+        let inspection = try MojoRuntimeBinaryInspector(
+            processRunner: FixtureRuntimeMetadataRunner(),
+            environment: [
+                "SWIFT_MOJO_LLVM_NM": "/tools/llvm-nm",
+                "SWIFT_MOJO_LLVM_READELF": "/tools/llvm-readelf",
+            ]
+        ).inspectExecutable(
+            executableURL: URL(fileURLWithPath: "/tmp/mojo-worker"),
+            target: target
+        )
+
+        #expect(inspection.architecture == "arm64")
+        #expect(
+            inspection.dynamicDependencies == [
+                "libRuntime.so",
+                "libc.so.6",
+            ]
+        )
+        #expect(inspection.runtimeSearchPaths == ["$ORIGIN/../lib"])
+        #expect(
+            inspection.programInterpreter
+                == "/lib/ld-linux-aarch64.so.1"
         )
     }
 }

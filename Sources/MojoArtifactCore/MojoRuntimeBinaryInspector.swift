@@ -55,6 +55,61 @@ package struct MojoRuntimeBinaryInspector: MojoRuntimeBinaryInspecting, Sendable
         }
     }
 
+    package func inspectExecutable(
+        executableURL: URL,
+        target: MojoTargetConfiguration
+    ) throws -> MojoRuntimeExecutableInspection {
+        try validateObject(objectURL: executableURL, target: target)
+        let architecture = try Self.expectedArchitecture(target: target)
+        if target.triple.lowercased().contains("-apple-") {
+            let linkage = try execute(
+                executablePath: "/usr/bin/otool",
+                arguments: [
+                    "-arch", architecture, "-L", executableURL.path,
+                ]
+            )
+            let dependencies = linkage
+                .split(whereSeparator: \Character.isNewline)
+                .dropFirst()
+                .compactMap(Self.appleInstallName(from:))
+            let loadCommands = try execute(
+                executablePath: "/usr/bin/otool",
+                arguments: [
+                    "-arch", architecture, "-l", executableURL.path,
+                ]
+            )
+            return MojoRuntimeExecutableInspection(
+                architecture: architecture,
+                dynamicDependencies: dependencies,
+                runtimeSearchPaths: Self.appleRuntimeSearchPaths(
+                    from: loadCommands
+                ),
+                programInterpreter: nil
+            )
+        }
+        if target.triple.lowercased().contains("-linux-") {
+            let metadata = try linuxMetadata(binaryURL: executableURL)
+            return MojoRuntimeExecutableInspection(
+                architecture: architecture,
+                dynamicDependencies: Self.elfDynamicValues(
+                    tag: "NEEDED",
+                    output: metadata
+                ),
+                runtimeSearchPaths: Self.elfDynamicValues(
+                    tag: "RUNPATH",
+                    output: metadata
+                ) + Self.elfDynamicValues(
+                    tag: "RPATH",
+                    output: metadata
+                ),
+                programInterpreter: Self.elfProgramInterpreter(
+                    from: metadata
+                )
+            )
+        }
+        throw MojoArtifactError.unsupportedTarget(target.triple)
+    }
+
     private func inspectApple(
         libraryURL: URL,
         target: MojoTargetConfiguration
@@ -162,7 +217,8 @@ package struct MojoRuntimeBinaryInspector: MojoRuntimeBinaryInspecting, Sendable
         return try execute(
             executablePath: readelf.executablePath,
             arguments: readelf.prefixArguments + [
-                "--file-header", "--dynamic", binaryURL.path,
+                "--file-header", "--program-headers", "--dynamic",
+                binaryURL.path,
             ]
         )
     }
@@ -243,6 +299,28 @@ package struct MojoRuntimeBinaryInspector: MojoRuntimeBinaryInspecting, Sendable
         return trimmed
     }
 
+    private static func appleRuntimeSearchPaths(from output: String) -> [String] {
+        let lines = output.split(whereSeparator: \Character.isNewline).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var result: [String] = []
+        for index in lines.indices where lines[index] == "cmd LC_RPATH" {
+            let upperBound = min(index + 4, lines.endIndex)
+            guard let pathLine = lines[(index + 1)..<upperBound].first(
+                where: { $0.hasPrefix("path ") }
+            ) else {
+                continue
+            }
+            let value = pathLine.dropFirst("path ".count)
+            if let range = value.range(of: " (offset ") {
+                result.append(String(value[..<range.lowerBound]))
+            } else if !value.isEmpty {
+                result.append(String(value))
+            }
+        }
+        return result
+    }
+
     private static func linuxExportedSymbol(from line: Substring) -> String? {
         let fields = line.split(whereSeparator: \Character.isWhitespace)
         guard fields.count >= 2,
@@ -284,6 +362,23 @@ package struct MojoRuntimeBinaryInspector: MojoRuntimeBinaryInspecting, Sendable
         output: String
     ) -> String? {
         elfDynamicValues(tag: tag, output: output).first
+    }
+
+    private static func elfProgramInterpreter(from output: String) -> String? {
+        output.split(whereSeparator: \Character.isNewline).compactMap { line in
+            guard line.contains("Requesting program interpreter:"),
+                  let start = line.firstIndex(of: "["),
+                  let end = line[start...].firstIndex(of: "]"),
+                  start < end else {
+                return nil
+            }
+            let content = line[line.index(after: start)..<end]
+            let prefix = "Requesting program interpreter: "
+            guard content.hasPrefix(prefix) else {
+                return nil
+            }
+            return String(content.dropFirst(prefix.count))
+        }.first
     }
 
     private static func elfDynamicValues(

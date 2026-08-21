@@ -162,6 +162,16 @@ package struct MojoCommandRunner: Sendable {
                 options: options,
                 format: format
             )
+        case "runtime-bundle-prepare":
+            return try prepareRuntimeBundle(
+                options: options,
+                format: format
+            )
+        case "runtime-bundle-verify":
+            return try verifyRuntimeBundle(
+                options: options,
+                format: format
+            )
         case "help", "--help", "-h":
             return MojoCommandResult(
                 exitCode: 0,
@@ -656,6 +666,96 @@ package struct MojoCommandRunner: Sendable {
         )
     }
 
+    private func prepareRuntimeBundle(
+        options: ParsedOptions,
+        format: OutputFormat
+    ) throws -> MojoCommandResult {
+        try options.rejectUnknown(
+            allowed: [
+                "--executable-name", "--format", "--object", "--output",
+                "--receipt", "--runtime-library", "--system-library",
+                "--target-accelerator", "--target-cpu", "--target-triple",
+            ]
+        )
+        guard let executableName = options.value("--executable-name") else {
+            throw MojoArtifactError.invalidArguments(
+                "Missing required option --executable-name"
+            )
+        }
+        let receiptURL = try options.requiredURL("--receipt")
+        let outputURL = try options.requiredURL("--output")
+        try MojoRegularFile.validate(at: receiptURL)
+        try validateRuntimeBundleReceiptSource(
+            receiptURL,
+            outputURL: outputURL
+        )
+        let receipt = try MojoRuntimeDependencyReceipt.decode(
+            Data(contentsOf: receiptURL)
+        )
+        let runtimeOptions = try runtimeReceiptOptions(options: options)
+        let bundleOptions = try MojoRuntimeBundleOptions(
+            outputDirectoryURL: outputURL,
+            executableName: executableName,
+            objectURL: runtimeOptions.objectURL,
+            libraryURLs: runtimeOptions.libraryURLs,
+            target: runtimeOptions.target,
+            allowedSystemDependencies: runtimeOptions.allowedSystemDependencies
+        )
+        let manifest = try MojoRuntimeBundleBuilder(
+            environment: environment
+        ).prepare(
+            receipt: receipt,
+            options: bundleOptions
+        )
+        let message = "Prepared runtime bundle \(manifest.digest) at \(outputURL.path)."
+        return try success(
+            command: "runtime-bundle-prepare",
+            message: message,
+            json: MojoCommandJSONOutput(
+                success: true,
+                command: "runtime-bundle-prepare",
+                message: message,
+                target: manifest.target.identity,
+                artifactDigest: manifest.digest,
+                runtimeLibraries: manifest.libraries.map {
+                    URL(fileURLWithPath: $0.relativePath).lastPathComponent
+                },
+                bundlePath: outputURL.path,
+                executable: manifest.executable.relativePath
+            ),
+            format: format
+        )
+    }
+
+    private func verifyRuntimeBundle(
+        options: ParsedOptions,
+        format: OutputFormat
+    ) throws -> MojoCommandResult {
+        try options.rejectUnknown(allowed: ["--bundle", "--format"])
+        let bundleURL = try options.requiredURL("--bundle")
+        let manifest = try MojoRuntimeBundleVerifier(
+            environment: environment
+        ).verify(bundleURL: bundleURL)
+        let message = "Verified runtime bundle \(manifest.digest) at \(bundleURL.path)."
+        return try success(
+            command: "runtime-bundle-verify",
+            message: message,
+            json: MojoCommandJSONOutput(
+                success: true,
+                command: "runtime-bundle-verify",
+                message: message,
+                target: manifest.target.identity,
+                artifactDigest: manifest.digest,
+                runtimeLibraries: manifest.libraries.map {
+                    URL(fileURLWithPath: $0.relativePath).lastPathComponent
+                },
+                bundlePath: bundleURL.path,
+                executable: manifest.executable.relativePath
+            ),
+            format: format
+        )
+    }
+
     private func validateRuntimeReceiptDestination(
         _ receiptURL: URL,
         options: MojoRuntimeReceiptOptions
@@ -667,6 +767,23 @@ package struct MojoCommandRunner: Sendable {
         }) else {
             throw MojoArtifactError.invalidArguments(
                 "--receipt must not overwrite the object or a runtime library"
+            )
+        }
+    }
+
+    private func validateRuntimeBundleReceiptSource(
+        _ receiptURL: URL,
+        outputURL: URL
+    ) throws {
+        let output = outputURL.resolvingSymlinksInPath()
+        let outputPrefix = output.path.hasSuffix("/")
+            ? output.path
+            : output.path + "/"
+        let receipt = receiptURL.resolvingSymlinksInPath()
+        guard receipt.path != output.path,
+              !receipt.path.hasPrefix(outputPrefix) else {
+            throw MojoArtifactError.invalidArguments(
+                "The runtime bundle output must not contain its receipt input"
             )
         }
     }
@@ -873,6 +990,8 @@ package struct MojoCommandRunner: Sendable {
       swift package --allow-writing-to-package-directory mojo release --target <target> [--format text|json]
       swift package --disable-sandbox --allow-writing-to-package-directory mojo runtime-prepare --object <object> --runtime-library <library> --receipt <receipt> --target-triple <triple> --target-cpu <cpu> [--target-accelerator <accelerator>] [--system-library <name>] [--format text|json]
       swift package --disable-sandbox mojo runtime-verify --object <object> --runtime-library <library> --receipt <receipt> --target-triple <triple> --target-cpu <cpu> [--target-accelerator <accelerator>] [--system-library <name>] [--format text|json]
+      swift package --disable-sandbox --allow-writing-to-package-directory mojo runtime-bundle-prepare --object <object> --runtime-library <library> --receipt <receipt> --output <bundle> --executable-name <name> --target-triple <triple> --target-cpu <cpu> [--target-accelerator <accelerator>] [--system-library <name>] [--format text|json]
+      swift package --disable-sandbox mojo runtime-bundle-verify --bundle <bundle> [--format text|json]
     The internal build plugin invokes the private swift-mojo verifier tool.
     """
 }
