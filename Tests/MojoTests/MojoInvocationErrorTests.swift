@@ -23,5 +23,15 @@ struct MojoInvocationErrorTests {
             MojoInvocationError.emptyBorrowedBuffer.description
                 .contains("non-empty")
         )
+        #expect(
+            MojoInvocationError.emptyMutableBuffer.description
+                .contains("mutable")
+        )
+        #expect(
+            MojoInvocationError.invocationFailed(
+                bindingID: 42,
+                status: 7
+            ).description.contains("status 7")
+        )
     }
 }

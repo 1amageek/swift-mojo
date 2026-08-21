@@ -24,6 +24,46 @@ package struct MojoSourceGraph: Equatable, Sendable {
                 throw MojoBindingError.duplicateBindingID(binding.bindingID)
             }
         }
+        let sessionFactories: [String: String] = Dictionary(
+            uniqueKeysWithValues: sorted.compactMap { binding -> (String, String)? in
+                guard case .session(let package, _, _) = binding.implementation else {
+                    return nil
+                }
+                return (binding.functionName, package)
+            }
+        )
+        for binding in sorted {
+            let package: String
+            let sessionFactory: String
+            switch binding.implementation {
+            case .sessionExternal(
+                let bindingPackage,
+                _,
+                let bindingSessionFactory
+            ), .sessionResource(
+                let bindingPackage,
+                _,
+                _,
+                _,
+                _,
+                _,
+                let bindingSessionFactory
+            ):
+                package = bindingPackage
+                sessionFactory = bindingSessionFactory
+            case .inline, .external, .session:
+                continue
+            }
+            guard let factoryPackage = sessionFactories[sessionFactory] else {
+                throw MojoBindingError.sessionFactoryNotFound(sessionFactory)
+            }
+            guard factoryPackage == package else {
+                throw MojoBindingError.sessionPackageMismatch(
+                    binding: package,
+                    factory: factoryPackage
+                )
+            }
+        }
         let canonical = sorted.map(\.canonicalRecord).joined(separator: "\n")
         self.bindings = sorted
         self.digest = MojoCanonicalDigest.hex(canonical)
@@ -35,6 +75,9 @@ package struct MojoSourceGraph: Equatable, Sendable {
         sourceRootURL: URL? = nil
     ) throws {
         var bindings: [MojoBinding] = []
+        let canonicalSourceRootURL = sourceRootURL?
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
         for sourceURL in sourceURLs.sorted(by: { $0.path < $1.path }) {
             let values = try sourceURL.resourceValues(
                 forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
@@ -43,11 +86,17 @@ package struct MojoSourceGraph: Equatable, Sendable {
                   values.isSymbolicLink != true else {
                 throw MojoBindingError.invalidSourceFile(sourceURL.path)
             }
-            let source = try String(contentsOf: sourceURL, encoding: .utf8)
+            let canonicalSourceURL = sourceURL
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+            let source = try String(
+                contentsOf: canonicalSourceURL,
+                encoding: .utf8
+            )
             let sourceFile = Parser.parse(source: source)
             let sourceIdentity = Self.sourceIdentity(
-                for: sourceURL,
-                rootURL: sourceRootURL
+                for: canonicalSourceURL,
+                rootURL: canonicalSourceRootURL
             )
             let diagnostics = ParseDiagnosticsGenerator.diagnostics(
                 for: sourceFile

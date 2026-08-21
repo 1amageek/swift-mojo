@@ -1,5 +1,6 @@
 import Foundation
 import MojoArtifactCore
+import MojoCompilerCore
 import Testing
 
 @Suite("SwiftPM package layout")
@@ -15,32 +16,18 @@ struct MojoPackageLayoutTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func discoversRecursiveSwiftSourcesInStableOrder() throws {
+    func acceptsCustomSwiftPMSourceLayoutWithoutAssumingSourcesTarget() throws {
         try withPackageFixture { root in
-            let nested = root.appendingPathComponent(
-                "Sources/Application/Nested",
+            let customSourceRoot = root.appendingPathComponent(
+                "Implementation/API",
                 isDirectory: true
             )
             try FileManager.default.createDirectory(
-                at: nested,
+                at: customSourceRoot,
                 withIntermediateDirectories: true
             )
-            let second = nested.appendingPathComponent("Second.swift")
-            let first = root.appendingPathComponent(
-                "Sources/Application/First.swift"
-            )
-            try "func second() {}".write(
-                to: second,
-                atomically: true,
-                encoding: .utf8
-            )
-            try "func first() {}".write(
-                to: first,
-                atomically: true,
-                encoding: .utf8
-            )
-            try "ignored".write(
-                to: nested.appendingPathComponent("Notes.txt"),
+            try "func customSource() {}".write(
+                to: customSourceRoot.appendingPathComponent("API.swift"),
                 atomically: true,
                 encoding: .utf8
             )
@@ -50,17 +37,7 @@ struct MojoPackageLayoutTests {
                 targetName: "Application"
             )
 
-            let sources = try layout.sourceURLs()
-            #expect(sources.map(\.lastPathComponent) == [
-                "First.swift",
-                "Second.swift",
-            ])
-            #expect(sources[0].path.hasSuffix("/Sources/Application/First.swift"))
-            #expect(
-                sources[1].path.hasSuffix(
-                    "/Sources/Application/Nested/Second.swift"
-                )
-            )
+            try layout.validatePackageTarget()
             #expect(
                 layout.binaryTargetRelativePath
                     == "Generated/Application/SwiftMojo_Application_ABI.xcframework"
@@ -73,7 +50,7 @@ struct MojoPackageLayoutTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("Sources/Application"),
+            at: root,
             withIntermediateDirectories: true
         )
         defer { removeFixture(root) }
@@ -97,13 +74,111 @@ struct MojoPackageLayoutTests {
         }
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func mixedNativeArtifactsRequireExactPlatformConditions() throws {
+        try withPackageFixture { root in
+            let layout = try MojoPackageLayout(
+                packageRootURL: root,
+                targetName: "Application"
+            )
+            let integrations = try layout.binaryIntegrations(
+                targets: [
+                    MojoTargetConfiguration(
+                        triple: "arm64-apple-macosx14.0",
+                        cpu: "generic"
+                    ),
+                    MojoTargetConfiguration(
+                        triple: "aarch64-unknown-linux-gnu",
+                        cpu: "generic"
+                    ),
+                ]
+            )
+            let packageSource = """
+            // swift-tools-version: 6.2
+            import PackageDescription
+
+            let package = Package(
+                name: "Fixture",
+                dependencies: [
+                    .package(
+                        url: "https://github.com/1amageek/swift-mojo.git",
+                        exact: "1.0.0"
+                    ),
+                ],
+                targets: [
+                    .binaryTarget(
+                        name: "SwiftMojo_Application_ABI",
+                        path: "Generated/Application/SwiftMojo_Application_ABI.xcframework"
+                    ),
+                    .binaryTarget(
+                        name: "SwiftMojo_Application_ABI_Linux",
+                        path: "Generated/Application/SwiftMojo_Application_ABI.artifactbundle"
+                    ),
+                    .target(
+                        name: "Application",
+                        dependencies: [
+                            .product(name: "Mojo", package: "swift-mojo"),
+                            .target(
+                                name: "SwiftMojo_Application_ABI",
+                                condition: .when(platforms: [.macOS])
+                            ),
+                            .target(
+                                name: "SwiftMojo_Application_ABI_Linux",
+                                condition: .when(platforms: [.linux])
+                            ),
+                        ],
+                        plugins: [
+                            .plugin(
+                                name: "MojoBuildPlugin",
+                                package: "swift-mojo"
+                            ),
+                        ]
+                    ),
+                ]
+            )
+            """
+            let manifestURL = root.appendingPathComponent("Package.swift")
+            try packageSource.write(
+                to: manifestURL,
+                atomically: true,
+                encoding: .utf8
+            )
+
+            _ = try PackageManifestReleaseInspector
+                .validateReleaseIntegration(
+                    packageRootURL: root,
+                    targetName: "Application",
+                    binaryIntegrations: integrations
+                )
+
+            let wrongLinuxCondition = packageSource.replacingOccurrences(
+                of: "condition: .when(platforms: [.linux])",
+                with: "condition: .when(platforms: [.macOS])"
+            )
+            #expect(wrongLinuxCondition != packageSource)
+            try wrongLinuxCondition.write(
+                to: manifestURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            #expect(throws: MojoArtifactError.self) {
+                _ = try PackageManifestReleaseInspector
+                    .validateReleaseIntegration(
+                        packageRootURL: root,
+                        targetName: "Application",
+                        binaryIntegrations: integrations
+                    )
+            }
+        }
+    }
+
     private func withPackageFixture(
         _ body: (URL) throws -> Void
     ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("Sources/Application"),
+            at: root,
             withIntermediateDirectories: true
         )
         try "// swift-tools-version: 6.2".write(

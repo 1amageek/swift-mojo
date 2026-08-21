@@ -11,6 +11,7 @@ struct MojoReleaseVerifierTests {
         let layout: MojoPackageLayout
         let configuration: SwiftMojoConfiguration
         let generatedSourceURL: URL
+        let sourceURL: URL
         let sourceMapURL: URL
 
         init(localDependency: Bool = false) throws {
@@ -33,7 +34,7 @@ struct MojoReleaseVerifierTests {
                     .package(path: "../Local"),
                     .package(
                         url: "https://github.com/1amageek/swift-mojo.git",
-                        revision: "candidate-revision"
+                        revision: "0123456789abcdef0123456789abcdef01234567"
                     ),
                 ],
                 """
@@ -41,7 +42,7 @@ struct MojoReleaseVerifierTests {
                 dependencies: [
                     .package(
                         url: "https://github.com/1amageek/swift-mojo.git",
-                        revision: "candidate-revision"
+                        revision: "0123456789abcdef0123456789abcdef01234567"
                     ),
                 ],
                 """
@@ -76,7 +77,7 @@ struct MojoReleaseVerifierTests {
                 atomically: true,
                 encoding: .utf8
             )
-            let sourceURL = sourceRoot.appendingPathComponent("Bindings.swift")
+            sourceURL = sourceRoot.appendingPathComponent("Bindings.swift")
             try """
             import Mojo
 
@@ -233,6 +234,13 @@ struct MojoReleaseVerifierTests {
                 Issue.record("Failed to remove release fixture: \(error)")
             }
         }
+
+        func verify() throws -> MojoReleaseReport {
+            try MojoReleaseVerifier().verify(
+                layout: layout,
+                sourceURLs: [sourceURL]
+            )
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -240,9 +248,7 @@ struct MojoReleaseVerifierTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        let report = try MojoReleaseVerifier().verify(
-            layout: fixture.layout
-        )
+        let report = try fixture.verify()
 
         #expect(report.targetName == "Model")
         #expect(report.bindingCount == 1)
@@ -256,9 +262,7 @@ struct MojoReleaseVerifierTests {
         try Data("corrupt".utf8).write(to: fixture.sourceMapURL)
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(
-                layout: fixture.layout
-            )
+            _ = try fixture.verify()
         }
     }
 
@@ -269,9 +273,7 @@ struct MojoReleaseVerifierTests {
         try Data("corrupt".utf8).write(to: fixture.generatedSourceURL)
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(
-                layout: fixture.layout
-            )
+            _ = try fixture.verify()
         }
     }
 
@@ -286,7 +288,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -304,7 +306,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoCanonicalDigestError.self) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -327,7 +329,7 @@ struct MojoReleaseVerifierTests {
         #expect(throws: MojoArtifactError.symbolicLinkUnsupported(
             manifestURL.path
         )) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -337,9 +339,7 @@ struct MojoReleaseVerifierTests {
         defer { fixture.remove() }
 
         #expect(throws: MojoArtifactError.localPackageDependencyInRelease) {
-            _ = try MojoReleaseVerifier().verify(
-                layout: fixture.layout
-            )
+            _ = try fixture.verify()
         }
     }
 
@@ -356,7 +356,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.localPackageDependencyInRelease) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -390,7 +390,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.localPackageDependencyInRelease) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -407,7 +407,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.localPackageDependencyInRelease) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -426,12 +426,46 @@ struct MojoReleaseVerifierTests {
         #expect(throws: MojoArtifactError.mutablePackageDependencyInRelease(
             "main"
         )) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func immutableRemoteRevisionIsAccepted() throws {
+    func fullRemoteCommitObjectIDIsAccepted() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try packageManifest(
+            packageDependencies: "[.package(name: \"swift-mojo\", url: \"https://example.com/Dependency.git\", revision: \"0123456789abcdef0123456789abcdef01234567\")]"
+        ).write(
+            to: fixture.root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let report = try fixture.verify()
+
+        #expect(report.targetName == "Model")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func fullSHA256RemoteCommitObjectIDIsAccepted() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try packageManifest(
+            packageDependencies: "[.package(name: \"swift-mojo\", url: \"https://example.com/Dependency.git\", revision: \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\")]"
+        ).write(
+            to: fixture.root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let report = try fixture.verify()
+
+        #expect(report.targetName == "Model")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func symbolicRevisionIsRejected() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try packageManifest(
@@ -442,9 +476,34 @@ struct MojoReleaseVerifierTests {
             encoding: .utf8
         )
 
-        let report = try MojoReleaseVerifier().verify(layout: fixture.layout)
+        #expect(
+            throws: MojoArtifactError.invalidPackageDependencyRequirement(
+                "revision: candidate-revision"
+            )
+        ) {
+            _ = try fixture.verify()
+        }
+    }
 
-        #expect(report.targetName == "Model")
+    @Test(.timeLimit(.minutes(1)))
+    func abbreviatedCommitObjectIDIsRejected() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try packageManifest(
+            packageDependencies: "[.package(name: \"swift-mojo\", url: \"https://example.com/Dependency.git\", revision: \"0123456\")]"
+        ).write(
+            to: fixture.root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(
+            throws: MojoArtifactError.invalidPackageDependencyRequirement(
+                "revision: 0123456"
+            )
+        ) {
+            _ = try fixture.verify()
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -459,9 +518,30 @@ struct MojoReleaseVerifierTests {
             encoding: .utf8
         )
 
-        let report = try MojoReleaseVerifier().verify(layout: fixture.layout)
+        let report = try fixture.verify()
 
         #expect(report.targetName == "Model")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func malformedSemanticVersionIsRejected() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try packageManifest(
+            packageDependencies: "[.package(url: \"https://example.com/swift-mojo.git\", exact: \"release-1\")]"
+        ).write(
+            to: fixture.root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(
+            throws: MojoArtifactError.invalidPackageDependencyRequirement(
+                "exact: release-1"
+            )
+        ) {
+            _ = try fixture.verify()
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -488,9 +568,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(
-                layout: fixture.layout
-            )
+            _ = try fixture.verify()
         }
     }
 
@@ -522,7 +600,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -552,7 +630,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -570,9 +648,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(
-                layout: fixture.layout
-            )
+            _ = try fixture.verify()
         }
     }
 
@@ -590,7 +666,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -608,7 +684,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
@@ -631,9 +707,7 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(
-                layout: fixture.layout
-            )
+            _ = try fixture.verify()
         }
     }
 
@@ -648,12 +722,12 @@ struct MojoReleaseVerifierTests {
         )
 
         #expect(throws: MojoArtifactError.self) {
-            _ = try MojoReleaseVerifier().verify(layout: fixture.layout)
+            _ = try fixture.verify()
         }
     }
 
     private func packageManifest(
-        packageDependencies: String = "[.package(url: \"https://github.com/1amageek/swift-mojo.git\", revision: \"candidate-revision\")]",
+        packageDependencies: String = "[.package(url: \"https://github.com/1amageek/swift-mojo.git\", revision: \"0123456789abcdef0123456789abcdef01234567\")]",
         dependencies: String,
         plugins: String
     ) -> String {

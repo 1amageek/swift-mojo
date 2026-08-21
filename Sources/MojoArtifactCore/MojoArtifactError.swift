@@ -26,6 +26,7 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
     case invalidManagedOutputDirectory(String)
     case invalidManifest(String)
     case inputGraphMismatch(expected: String, actual: String)
+    case invalidPackageDependencyRequirement(String)
     case inputsChangedDuringOperation(String)
     case manifestMissing(String)
     case localPackageDependencyInRelease
@@ -37,6 +38,7 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
     case sourceGraphMismatch(expected: String, actual: String)
     case sourceMapMismatch(expected: String, actual: String)
     case sourceMapMissing(String)
+    case staticLibraryBundleMetadataMismatch(String)
     case symbolicLinkUnsupported(String)
     case releaseRequiresCurrentManifest(Int)
     case releaseSliceMismatch(expected: String, actual: String)
@@ -55,6 +57,7 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
         actualCPU: String
     )
     case unmanagedOutputDirectory(String)
+    case unsupportedMojoRuntimeSymbols(target: String, symbols: [String])
     case unsupportedTarget(String)
     case xcframeworkMetadataMismatch(String)
 
@@ -100,6 +103,8 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
             "Mojo artifact manifest is invalid: \(message)"
         case .inputGraphMismatch(let expected, let actual):
             "Prepared Mojo input graph is stale; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
+        case .invalidPackageDependencyRequirement(let requirement):
+            "Package.swift dependency requirement '\(requirement)' is not a full Git object ID or valid semantic version"
         case .inputsChangedDuringOperation(let operation):
             "Swift Mojo inputs changed during \(operation); retry after source and configuration edits finish"
         case .manifestMissing(let path):
@@ -122,6 +127,8 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
             "Prepared Mojo source map is stale or corrupt; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
         case .sourceMapMissing(let path):
             "Prepared Mojo source map is missing at '\(path)'. Run '\(Self.prepareCommand)'."
+        case .staticLibraryBundleMetadataMismatch(let message):
+            "Static-library artifact bundle metadata does not match the prepared Linux slices: \(message)"
         case .symbolicLinkUnsupported(let path):
             "Release inputs and generated artifacts cannot be symbolic links: '\(path)'"
         case .releaseRequiresCurrentManifest(let version):
@@ -145,8 +152,10 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
             "Prepared Mojo target \(expectedTriple)/\(expectedCPU) does not match the Swift destination \(actualTriple)/\(actualCPU). Run '\(Self.prepareCommand)' for the active destination."
         case .unmanagedOutputDirectory(let path):
             "Refusing to replace unmanaged output directory '\(path)'; choose an empty path or run '\(Self.initializeCommand)' first"
+        case .unsupportedMojoRuntimeSymbols(let target, let symbols):
+            "Mojo object for target '\(target)' requires compiler runtime symbols that swift-mojo does not distribute: \(symbols.joined(separator: ", ")). Use a link-closed implementation backed by the target system libraries, or add an explicit versioned runtime adapter."
         case .unsupportedTarget(let target):
-            "The XCFramework adapter supports Apple arm64/aarch64/x86_64 targets; received '\(target)'"
+            "The native artifact adapters support Apple and Linux arm64/aarch64/x86_64 targets; received '\(target)'"
         case .xcframeworkMetadataMismatch(let message):
             "XCFramework metadata does not match the prepared slices: \(message)"
         }

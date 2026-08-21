@@ -2,12 +2,12 @@
 
 set -euo pipefail
 
-root=${0:A:h:h}
+root=${0:A:h:h:h}
 package_root=${1:-}
 timeout_seconds=${SWIFT_MOJO_COLD_BUILD_TIMEOUT_SECONDS:-600}
 
 if [[ -z $package_root || $package_root != /* || ! -f $package_root/Package.swift ]]; then
-    print -u2 "usage: measure-cold-consumer-build.sh /absolute/path/to/consumer-package"
+    print -u2 "usage: Benchmarks/ColdConsumerBuild/run.sh /absolute/path/to/consumer-package"
     exit 64
 fi
 if [[ $timeout_seconds != <-> \

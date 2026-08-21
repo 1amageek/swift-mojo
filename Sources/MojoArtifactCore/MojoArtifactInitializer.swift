@@ -19,12 +19,31 @@ package struct MojoArtifactInitializer: Sendable {
     @discardableResult
     package func initialize(
         outputDirectoryURL: URL,
-        identity: MojoArtifactIdentity = .legacy
+        identity: MojoArtifactIdentity = .legacy,
+        targets: [MojoTargetConfiguration]? = nil
     ) throws -> MojoInitializationDisposition {
-        try transaction.withExclusiveAccess(to: outputDirectoryURL) { access in
+        let resolvedTargets: [MojoTargetConfiguration]
+        if let targets {
+            resolvedTargets = targets
+        } else {
+            resolvedTargets = [try Self.hostTarget()]
+        }
+        guard !resolvedTargets.isEmpty else {
+            throw MojoArtifactError.invalidArguments(
+                "Artifact initialization requires at least one target"
+            )
+        }
+        try MojoNativeArtifactAdapter.validate(
+            targets: resolvedTargets,
+            error: MojoArtifactError.invalidArguments
+        )
+        return try transaction.withExclusiveAccess(
+            to: outputDirectoryURL
+        ) { access in
             try initialize(
                 outputDirectoryURL: outputDirectoryURL,
                 identity: identity,
+                targets: resolvedTargets,
                 access: access
             )
         }
@@ -33,6 +52,7 @@ package struct MojoArtifactInitializer: Sendable {
     private func initialize(
         outputDirectoryURL: URL,
         identity: MojoArtifactIdentity,
+        targets: [MojoTargetConfiguration],
         access: MojoOutputTransaction.ExclusiveAccess
     ) throws -> MojoInitializationDisposition {
         let fileManager = FileManager.default
@@ -42,40 +62,22 @@ package struct MojoArtifactInitializer: Sendable {
                     outputDirectoryURL.path
                 )
             }
-            let artifactURL = outputDirectoryURL.appendingPathComponent(
-                identity.artifactName,
-                isDirectory: true
+            try validateExistingArtifacts(
+                in: outputDirectoryURL,
+                identity: identity,
+                targets: targets
             )
-            guard fileManager.fileExists(atPath: artifactURL.path) else {
-                throw MojoArtifactError.invalidManagedOutputDirectory(
-                    outputDirectoryURL.path
-                )
-            }
-            let archives = try MojoArtifactVerifier.archiveURLs(
-                in: artifactURL,
-                identity: identity
-            )
-            let infoPlistURL = artifactURL.appendingPathComponent("Info.plist")
-            guard !archives.isEmpty,
-                  fileManager.fileExists(atPath: infoPlistURL.path),
-                  archives.allSatisfy({ archiveURL in
-                    Self.hasCompleteInterface(
-                        for: archiveURL,
-                        identity: identity,
-                        fileManager: fileManager
-                    )
-                  }) else {
-                throw MojoArtifactError.invalidManagedOutputDirectory(
-                    outputDirectoryURL.path
-                )
-            }
             return .alreadyInitialized
         }
         let staging = try transaction.makeStagingDirectory(
             for: outputDirectoryURL
         )
         do {
-            try createBootstrap(in: staging, identity: identity)
+            try createBootstrap(
+                in: staging,
+                identity: identity,
+                targets: targets
+            )
             try transaction.commit(
                 stagingURL: staging,
                 outputURL: outputDirectoryURL,
@@ -100,7 +102,8 @@ package struct MojoArtifactInitializer: Sendable {
 
     private func createBootstrap(
         in staging: URL,
-        identity: MojoArtifactIdentity
+        identity: MojoArtifactIdentity,
+        targets: [MojoTargetConfiguration]
     ) throws {
         let buildURL = staging.appendingPathComponent(
             ".bootstrap",
@@ -111,18 +114,6 @@ package struct MojoArtifactInitializer: Sendable {
             withIntermediateDirectories: false
         )
         let sourceURL = buildURL.appendingPathComponent("Bootstrap.c")
-        let objectURL = buildURL.appendingPathComponent("Bootstrap.o")
-        let archiveURL = buildURL.appendingPathComponent(
-            identity.libraryName
-        )
-        let frameworkURL = MojoStaticFrameworkLayout.frameworkURL(
-            in: buildURL,
-            identity: identity
-        )
-        let artifactURL = staging.appendingPathComponent(
-            identity.artifactName,
-            isDirectory: true
-        )
         let prefix = identity.symbolPrefix
         let graphFunction = identity == .legacy
             ? "\(prefix)_source_graph_identifier"
@@ -134,7 +125,9 @@ package struct MojoArtifactInitializer: Sendable {
         // until prepare replaces it with a compiler-produced artifact and
         // matching manifest.
         let source = """
-        #include <stdint.h>
+        typedef unsigned int uint32_t;
+        typedef unsigned long long uint64_t;
+        typedef int int32_t;
 
         uint32_t \(prefix)_static_abi_version(void) { return 0; }
         uint64_t \(graphFunction)(void) { return 0; }
@@ -157,6 +150,48 @@ package struct MojoArtifactInitializer: Sendable {
         let header = identity == .legacy
             ? renderer.header
             : renderer.header(identity: identity)
+        let groups = try Dictionary(grouping: targets) {
+            try MojoNativeArtifactAdapter(target: $0)
+        }
+        if groups[.appleXCFramework] != nil {
+            try createAppleBootstrap(
+                sourceURL: sourceURL,
+                buildURL: buildURL,
+                stagingURL: staging,
+                identity: identity,
+                header: header
+            )
+        }
+        if let linuxTargets = groups[.linuxStaticLibraryBundle] {
+            try createLinuxBootstrap(
+                sourceURL: sourceURL,
+                buildURL: buildURL,
+                stagingURL: staging,
+                identity: identity,
+                header: header,
+                targets: linuxTargets
+            )
+        }
+        try FileManager.default.removeItem(at: buildURL)
+    }
+
+    private func createAppleBootstrap(
+        sourceURL: URL,
+        buildURL: URL,
+        stagingURL: URL,
+        identity: MojoArtifactIdentity,
+        header: String
+    ) throws {
+        let objectURL = buildURL.appendingPathComponent("AppleBootstrap.o")
+        let archiveURL = buildURL.appendingPathComponent(identity.libraryName)
+        let frameworkURL = MojoStaticFrameworkLayout.frameworkURL(
+            in: buildURL,
+            identity: identity
+        )
+        let artifactURL = stagingURL.appendingPathComponent(
+            identity.artifactName,
+            isDirectory: true
+        )
         try run(
             executablePath: "/usr/bin/xcrun",
             arguments: [
@@ -187,7 +222,123 @@ package struct MojoArtifactInitializer: Sendable {
                 "-output", artifactURL.path,
             ]
         )
-        try FileManager.default.removeItem(at: buildURL)
+    }
+
+    private func createLinuxBootstrap(
+        sourceURL: URL,
+        buildURL: URL,
+        stagingURL: URL,
+        identity: MojoArtifactIdentity,
+        header: String,
+        targets: [MojoTargetConfiguration]
+    ) throws {
+        var archives: [(
+            target: MojoTargetConfiguration,
+            archiveURL: URL
+        )] = []
+        for (index, target) in targets.sorted(by: {
+            $0.identity < $1.identity
+        }).enumerated() {
+            let directory = buildURL.appendingPathComponent(
+                "linux-\(index)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: false
+            )
+            let objectURL = directory.appendingPathComponent("Bootstrap.o")
+            let archiveURL = directory.appendingPathComponent(
+                identity.libraryName
+            )
+            try run(
+                executablePath: "/usr/bin/xcrun",
+                arguments: [
+                    "clang",
+                    "-target", target.triple,
+                    "-ffreestanding",
+                    "-c", sourceURL.path,
+                    "-o", objectURL.path,
+                ]
+            )
+            try run(
+                executablePath: "/usr/bin/ar",
+                arguments: ["rcs", archiveURL.path, objectURL.path]
+            )
+            archives.append((target: target, archiveURL: archiveURL))
+        }
+        _ = try MojoStaticLibraryArtifactBundleLayout.create(
+            at: stagingURL.appendingPathComponent(
+                identity.linuxArtifactName,
+                isDirectory: true
+            ),
+            identity: identity,
+            archives: archives,
+            header: header,
+            moduleMap: renderer.moduleMap(identity: identity)
+        )
+    }
+
+    private func validateExistingArtifacts(
+        in outputDirectoryURL: URL,
+        identity: MojoArtifactIdentity,
+        targets: [MojoTargetConfiguration]
+    ) throws {
+        let fileManager = FileManager.default
+        let groups = try Dictionary(grouping: targets) {
+            try MojoNativeArtifactAdapter(target: $0)
+        }
+        if groups[.appleXCFramework] != nil {
+            let artifactURL = outputDirectoryURL.appendingPathComponent(
+                identity.artifactName,
+                isDirectory: true
+            )
+            guard fileManager.fileExists(atPath: artifactURL.path) else {
+                throw MojoArtifactError.invalidManagedOutputDirectory(
+                    outputDirectoryURL.path
+                )
+            }
+            let archives = try MojoArtifactVerifier.archiveURLs(
+                in: artifactURL,
+                identity: identity
+            )
+            let infoPlistURL = artifactURL.appendingPathComponent("Info.plist")
+            guard !archives.isEmpty,
+                  fileManager.fileExists(atPath: infoPlistURL.path),
+                  archives.allSatisfy({ archiveURL in
+                      Self.hasCompleteInterface(
+                          for: archiveURL,
+                          identity: identity,
+                          fileManager: fileManager
+                      )
+                  }) else {
+                throw MojoArtifactError.invalidManagedOutputDirectory(
+                    outputDirectoryURL.path
+                )
+            }
+        }
+        if let linuxTargets = groups[.linuxStaticLibraryBundle] {
+            let artifactURL = outputDirectoryURL.appendingPathComponent(
+                identity.linuxArtifactName,
+                isDirectory: true
+            )
+            guard fileManager.fileExists(atPath: artifactURL.path) else {
+                throw MojoArtifactError.invalidManagedOutputDirectory(
+                    outputDirectoryURL.path
+                )
+            }
+            do {
+                _ = try MojoStaticLibraryArtifactBundleLayout.resolveSlices(
+                    artifactURL: artifactURL,
+                    identity: identity,
+                    targets: linuxTargets
+                )
+            } catch {
+                throw MojoArtifactError.invalidManagedOutputDirectory(
+                    outputDirectoryURL.path
+                )
+            }
+        }
     }
 
     private static func hasCompleteInterface(
@@ -228,6 +379,13 @@ package struct MojoArtifactInitializer: Sendable {
 #else
         "unsupported-host"
 #endif
+    }
+
+    private static func hostTarget() throws -> MojoTargetConfiguration {
+        try MojoTargetConfiguration(
+            triple: "\(hostArchitecture)-apple-macosx14.0",
+            cpu: "generic"
+        )
     }
 
     private func run(

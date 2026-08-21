@@ -188,6 +188,7 @@ package struct MojoCommandRunner: Sendable {
         )
         let output: URL
         let identity: MojoArtifactIdentity
+        let initializationTargets: [MojoTargetConfiguration]?
         if let layout {
             guard options.value("--output-dir") == nil,
                   options.value("--artifact-id") == nil else {
@@ -198,24 +199,58 @@ package struct MojoCommandRunner: Sendable {
             try layout.validatePackageTarget()
             output = layout.outputDirectoryURL
             identity = layout.identity
+            initializationTargets = try optionalConfiguration(
+                packageRootURL: layout.packageRootURL
+            )?.target(named: layout.targetName).slices
         } else {
             output = try options.requiredURL("--output-dir")
             identity = try MojoArtifactIdentity(
                 targetName: options.value("--artifact-id") ?? "Standalone"
             )
+            initializationTargets = nil
         }
         let disposition = try MojoArtifactInitializer().initialize(
             outputDirectoryURL: output,
-            identity: identity
+            identity: identity,
+            targets: initializationTargets
         )
         var message = "\(disposition == .initialized ? "Initialized" : "Already initialized") \(identity.moduleName) at \(output.path)."
         if let layout {
+            let integrations: [MojoPackageBinaryIntegration]
+            if let initializationTargets {
+                integrations = try layout.binaryIntegrations(
+                    targets: initializationTargets
+                )
+            } else {
+                integrations = [
+                    MojoPackageBinaryIntegration(
+                        adapter: .appleXCFramework,
+                        binaryTargetName: identity.moduleName,
+                        binaryTargetPath: layout.binaryTargetRelativePath,
+                        platforms: []
+                    ),
+                ]
+            }
+            let binaryTargets = integrations.map { integration in
+                "  .binaryTarget(name: \"\(integration.binaryTargetName)\", path: \"\(integration.binaryTargetPath)\")"
+            }.joined(separator: "\n")
+            let dependencies = integrations.map { integration in
+                guard !integration.platforms.isEmpty else {
+                    return "  \"\(integration.binaryTargetName)\""
+                }
+                let platforms = integration.platforms.sorted().map {
+                    ".\($0)"
+                }.joined(separator: ", ")
+                return "  .target(name: \"\(integration.binaryTargetName)\", condition: .when(platforms: [\(platforms)]))"
+            }.joined(separator: ",\n")
             message += """
 
 
-            Add this binary target to Package.swift:
-              .binaryTarget(name: "\(identity.moduleName)", path: "\(layout.binaryTargetRelativePath)")
-            Then make target "\(layout.targetName)" depend on "\(identity.moduleName)" and apply MojoBuildPlugin.
+            Add these binary targets to Package.swift:
+            \(binaryTargets)
+            Add these dependencies to target "\(layout.targetName)":
+            \(dependencies)
+            Then apply MojoBuildPlugin to target "\(layout.targetName)".
             """
         }
         return try success(
@@ -249,14 +284,17 @@ package struct MojoCommandRunner: Sendable {
         )
         let prepareOptions: MojoPrepareOptions
         if let layout {
-            guard options.urls("--source").isEmpty,
-                  options.urls("--mojo-package").isEmpty,
+            guard options.urls("--mojo-package").isEmpty,
                   options.value("--output-dir") == nil,
                   options.value("--artifact-id") == nil else {
                 throw MojoArtifactError.invalidArguments(
-                    "Package layout mode discovers Swift and Mojo sources"
+                    "Package layout mode receives SwiftPM-resolved Swift sources and discovers Mojo packages"
                 )
             }
+            let sourceURLs = try resolvedPackageSources(
+                options: options,
+                layout: layout
+            )
             if let configuration = try optionalConfiguration(
                 packageRootURL: layout.packageRootURL
             ) {
@@ -269,7 +307,7 @@ package struct MojoCommandRunner: Sendable {
                 }
                 let target = try configuration.target(named: layout.targetName)
                 prepareOptions = try MojoPrepareOptions(
-                    sourceURLs: layout.sourceURLs(),
+                    sourceURLs: sourceURLs,
                     sourceRootURL: layout.packageRootURL,
                     externalPackages: layout.externalPackages(
                         names: target.mojoPackages
@@ -281,7 +319,7 @@ package struct MojoCommandRunner: Sendable {
                 )
             } else {
                 prepareOptions = try MojoPrepareOptions(
-                    sourceURLs: layout.sourceURLs(),
+                    sourceURLs: sourceURLs,
                     sourceRootURL: layout.packageRootURL,
                     outputDirectoryURL: layout.outputDirectoryURL,
                     identity: layout.identity,
@@ -409,13 +447,20 @@ package struct MojoCommandRunner: Sendable {
         format: OutputFormat
     ) throws -> MojoCommandResult {
         try options.rejectUnknown(
-            allowed: ["--package-root", "--target", "--format"]
+            allowed: [
+                "--package-root", "--target", "--source", "--source-root",
+                "--format",
+            ]
         )
         let layout = try requiredLayout(options: options)
         let report = try MojoArtifactInspector().inspect(
             layout: layout,
             configuration: optionalConfiguration(
                 packageRootURL: layout.packageRootURL
+            ),
+            sourceURLs: resolvedPackageSources(
+                options: options,
+                layout: layout
             )
         )
         let message = "Inspected \(report.bindingCount) binding(s) for \(report.moduleName)."
@@ -483,11 +528,18 @@ package struct MojoCommandRunner: Sendable {
         format: OutputFormat
     ) throws -> MojoCommandResult {
         try options.rejectUnknown(
-            allowed: ["--package-root", "--target", "--format"]
+            allowed: [
+                "--package-root", "--target", "--source", "--source-root",
+                "--format",
+            ]
         )
         let layout = try requiredLayout(options: options)
         let report = try MojoReleaseVerifier().verify(
-            layout: layout
+            layout: layout,
+            sourceURLs: resolvedPackageSources(
+                options: options,
+                layout: layout
+            )
         )
         let message = "Release verification passed for \(report.targetName): \(report.bindingCount) binding(s), \(report.slices.count) slice(s), artifact \(report.artifactDigest)."
         return try success(
@@ -533,6 +585,54 @@ package struct MojoCommandRunner: Sendable {
             return nil
         }
         return try SwiftMojoConfiguration.load(packageRootURL: packageRootURL)
+    }
+
+    private func resolvedPackageSources(
+        options: ParsedOptions,
+        layout: MojoPackageLayout
+    ) throws -> [URL] {
+        let sourceURLs = options.urls("--source")
+        guard !sourceURLs.isEmpty else {
+            throw MojoArtifactError.invalidArguments(
+                "MojoCommandPlugin must supply SwiftPM-resolved --source paths"
+            )
+        }
+        guard let sourceRoot = options.value("--source-root") else {
+            throw MojoArtifactError.invalidArguments(
+                "MojoCommandPlugin must supply --source-root"
+            )
+        }
+        try layout.validatePackageTarget()
+        let resolvedRoot = URL(fileURLWithPath: sourceRoot)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        guard resolvedRoot == layout.packageRootURL else {
+            throw MojoArtifactError.invalidArguments(
+                "SwiftPM source root does not match the package root"
+            )
+        }
+        let rootPrefix = resolvedRoot.path.hasSuffix("/")
+            ? resolvedRoot.path
+            : resolvedRoot.path + "/"
+        let normalizedSources = sourceURLs.map {
+            $0.standardizedFileURL
+        }.sorted { $0.path < $1.path }
+        guard Set(normalizedSources.map(\.path)).count
+                == normalizedSources.count else {
+            throw MojoArtifactError.invalidArguments(
+                "SwiftPM source inventory contains duplicate paths"
+            )
+        }
+        guard normalizedSources.allSatisfy({ source in
+            source.resolvingSymlinksInPath().standardizedFileURL.path
+                .hasPrefix(rootPrefix)
+                && source.pathExtension == "swift"
+        }) else {
+            throw MojoArtifactError.invalidArguments(
+                "SwiftPM source inventory must contain only package-owned Swift files"
+            )
+        }
+        return normalizedSources
     }
 
     private func target(

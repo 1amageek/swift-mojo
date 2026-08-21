@@ -1,0 +1,77 @@
+# Toolchain and CI contract
+
+## Supported development matrix
+
+| Lane | Swift | Purpose | Release blocking |
+|---|---|---|---:|
+| Stable | Swift 6.3.3 release toolchain | Detect regressions against the latest stable compiler that supports the public macro surface | Yes after the lane has passed on the release commit |
+| Snapshot | `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a` | Reproduce the repository's current development baseline | Yes |
+| Real Mojo | Mojo version pinned per target in `SwiftMojo.json` | Compile, link, relocate, and execute prepared artifacts | Yes for a release; scheduled/manual rather than per pull request |
+| Runtime benchmark | Same host/toolchain/compiler as the result record | Measure wrapper/direct-dispatcher p50 and p95 | No automatic threshold; explicit evidence review only |
+| Cold-build benchmark | Explicitly selected consumer and host | Measure fresh-scratch consumer build time | Manual only; never a correctness gate |
+
+The SwiftSyntax dependency is pinned to the full Git object ID `050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf`. The human-readable snapshot name remains documentation metadata; it is not used as a mutable package requirement.
+
+GitHub-hosted workflows pin `actions/checkout` to a full commit object ID and disable persisted checkout credentials because no workflow writes to the repository. Before installing Swiftly, compiler-free CI verifies that the downloaded package is notarized and signed by the Swift Open Source Developer ID Installer identity (`V9AUD2URP3`). The selected Swift compiler, Swift Testing runtime, and macro plugin still come from the exact matrix toolchain described above.
+
+## CI ownership
+
+```mermaid
+flowchart LR
+    PR["Pull request / main push"] --> C["Compiler-free xcodebuild tests"]
+    C --> S["Stable Swift 6.3.3"]
+    C --> N["Pinned Swift 6.4 snapshot"]
+    M["Monthly or manual"] --> A["Real Mojo acceptance"]
+    B["Manual only"] --> P["Release runtime benchmark"]
+    B --> D["Cold consumer build benchmark"]
+```
+
+The normal CI workflow does not install or execute Mojo and does not run performance measurements. It verifies the committed generated artifact through the normal build plugin, macro, static link, and correctness tests. Xcode owns package-manifest evaluation, package resolution, and build-tool-plugin hosting. `SWIFT_EXEC` pins package libraries, macros, generated code, and test bundles to the selected matrix compiler. The selected toolchain's matching `Testing.swiftmodule`, `libTesting.dylib`, and testing macro plugin are passed through `SWIFT_INCLUDE_PATHS`, `LIBRARY_SEARCH_PATHS`, `LD_RUNPATH_SEARCH_PATHS`, and `OTHER_SWIFT_FLAGS`; mixing those components with Xcode's built-in Swift Testing ABI is not a supported lane. This separation avoids relying on Xcode's ability to link a package manifest with an external development snapshot while preserving one compiler/testing-runtime set for the code under test.
+
+Real-Mojo acceptance runs on a repository-owned macOS runner labelled `self-hosted`, `macOS`, and `swift-mojo`. The runner must define the repository variable `SWIFT_MOJO_EXECUTABLE` as an absolute executable path. The workflow verifies the public command-plugin path, a custom SwiftPM source layout, full remote revision resolution, universal static packaging, immutable and mutable buffer execution, owned-session and owned-buffer creation/use/transfer/shutdown, typed copy and synchronization failure propagation, relocation, two target-scoped artifacts, absence of a Mojo dynamic dependency in the consumer, and separate Swift-side and Mojo-side Address Sanitizer lanes for the current-checkout session path.
+
+The runtime benchmark workflow is `workflow_dispatch` only. Its result must be retained with the commit, host, Swift version, Mojo version, buffer size, sample count, warm-up count, calls per sample, and p50/p95 output. The cold-build harness is also explicit-only and records a fresh-scratch build of a selected compiler-free consumer. Neither benchmark is a unit test, release-acceptance step, or per-pull-request job.
+
+## Local mutable-buffer development gate
+
+The caller-owned mutable-output ABI has a bounded local acceptance that uses the current checkout through the public command plugin:
+
+```bash
+SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
+scripts/local-mutable-buffer-acceptance.sh
+```
+
+It compiles a real arm64 Mojo object, prepares and verifies the static artifact, builds a separate temporary Swift consumer, executes mutation and typed failure paths, and inspects the final Mach-O. It does not prove an immutable remote revision, the x86_64 slice, performance, sanitizers, Linux, Jetson, or device ownership. Those remain separate release and platform gates.
+
+## Local owned-session development gate
+
+The session gate prepares an arm64/x86_64 universal static artifact and executes the host slice through the public Swift API:
+
+```bash
+SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
+scripts/local-session-acceptance.sh
+```
+
+It covers capability negotiation, session-domain validation, repeated use, owned host-buffer round-trip transfer, exact-count validation, nonzero create/use/copy/synchronize status, invalid response schema, child-before-parent destruction, explicit and repeated shutdown, use after shutdown, static linking, and absence of a Mojo dynamic dependency. The normal compiler-free tests cover deterministic concurrent-borrow/shutdown behavior and deinit fallback. The same script provides two explicit sanitizer modes:
+
+```bash
+SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
+SWIFT_MOJO_SANITIZE=swift-address \
+scripts/local-session-acceptance.sh
+
+SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
+SWIFT_MOJO_SANITIZE=mojo-address \
+scripts/local-session-acceptance.sh
+```
+
+`swift-address` instruments the Swift consumer with Apple's matching Swift toolchain runtime while keeping the normal Mojo object. `mojo-address` instruments the Mojo objects and links an upstream LLVM ASan dylib only after verifying the object's required `__asan_version_mismatch_check_*` symbol is exported by that runtime. The two compiler-runtime families are not mixed implicitly. These lanes do not claim GPU, async, native Linux/Jetson, or model-inference support, and they do not replace allocation/copy benchmarks for the standalone borrowed-buffer families.
+
+## Updating the baseline
+
+1. Select an exact Swift snapshot and the corresponding SwiftSyntax commit.
+2. Replace the root package revision with the full commit object ID and refresh `Package.resolved` without a branch field.
+3. Build test bundles with `xcodebuild build-for-testing`, the selected `SWIFT_EXEC`, and that toolchain's matching Swift Testing module/library/plugin paths. Run both compiler-free matrix lanes with the same settings through `xcodebuild test-without-building` under the 120-second hang guard.
+4. Run real-Mojo acceptance on the same committed and pushed revision.
+5. Record any changed compiler or ABI assumptions in README, requirements, design, and the relevant ADR.
+
+A declaration that parses, a package that resolves, or a compiler-free test pass does not alone prove the real Mojo path. Release readiness requires the separate real-compiler acceptance evidence from the same revision.

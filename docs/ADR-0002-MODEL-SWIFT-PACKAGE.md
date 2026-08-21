@@ -6,7 +6,7 @@
 
 ## Implementation status
 
-ADR-0003 through ADR-0005 implement and verify the bridge substrate for real external packages、target-scoped static frameworks、arm64/x86_64 universal Apple artifacts、compiler pins、build/release verification、compiler-free relocated consumption、two-target linking、and the first borrowed `Float` runtime slice. This ADR remains Proposed because model/session ownership、weights compatibility、real inference、remote binary artifacts、and model-level failure behavior are not complete.
+ADR-0003 through ADR-0008 implement and verify the bridge substrate for real external packages、target-scoped static frameworks、arm64/x86_64 universal Apple artifacts、Linux static-library artifact bundles、compiler pins、build/release verification、compiler-free relocated consumption、two-target linking、borrowed/mutable `Float` slices、and a generic synchronous session/resource owner. This ADR remains Proposed because model-specific session semantics、weights compatibility、real inference、remote binary artifacts、and model-level failure behavior are not complete.
 
 ## Context
 
@@ -21,7 +21,7 @@ ADR-0003 through ADR-0005 implement and verify the bridge substrate for real ext
 | native ABI artifact | prepare/release workflow | Swift linker/process | release/platform slice |
 | model weights | application/model resolver | model session | model revision/cache policy |
 
-このdecisionの起点となったschema-3 baselineは `Sources/<Target>/**/*.swift` だけをscanし、fixed C moduleを生成していました。ADR-0003のschema-4 sourceはexternal `.mojo` packageをinput graph、cache、plugin verification、artifact generationへ含め、generated identityをtarget scopeへ分離しています。model distribution全体のacceptanceは引き続き本ADRの未完了範囲です。
+このdecisionの起点となったschema-3 baselineは `Sources/<Target>/**/*.swift` だけをscanし、fixed C moduleを生成していました。ADR-0003のschema-4 sourceはexternal `.mojo` packageをinput graph、cache、plugin verification、artifact generationへ含め、generated identityをtarget scopeへ分離しました。ADR-0008のschema 5はそのidentityをApple/Linux native artifact adapterへ拡張しています。model distribution全体のacceptanceは引き続き本ADRの未完了範囲です。
 
 ## Decision
 
@@ -36,6 +36,7 @@ model実装は、`swift-mojo` repositoryへ組み込むのではなく、model�
 │   └── *.mojo
 ├── Generated/<ModelTarget>/
 │   ├── <GeneratedModule>.xcframework
+│   ├── <GeneratedModule>.artifactbundle
 │   ├── Bindings.mojo
 │   ├── MojoSourceMap.json
 │   └── MojoArtifact.json

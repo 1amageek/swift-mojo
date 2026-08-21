@@ -16,6 +16,30 @@ package enum PackageManifestReleaseInspector {
         binaryTargetName: String,
         binaryTargetPath: String
     ) throws -> String {
+        try validateReleaseIntegration(
+            packageRootURL: packageRootURL,
+            targetName: targetName,
+            binaryIntegrations: [
+                MojoPackageBinaryIntegration(
+                    adapter: .appleXCFramework,
+                    binaryTargetName: binaryTargetName,
+                    binaryTargetPath: binaryTargetPath,
+                    platforms: []
+                ),
+            ]
+        )
+    }
+
+    package static func validateReleaseIntegration(
+        packageRootURL: URL,
+        targetName: String,
+        binaryIntegrations: [MojoPackageBinaryIntegration]
+    ) throws -> String {
+        guard !binaryIntegrations.isEmpty else {
+            throw MojoArtifactError.packageManifestIntegrationMismatch(
+                "at least one native binary integration is required"
+            )
+        }
         let manifest = try manifestSyntax(packageRootURL: packageRootURL)
         let package = try packageDeclaration(in: manifest.syntax)
         guard !containsConditionalCompilation(in: Syntax(package)) else {
@@ -52,21 +76,24 @@ package enum PackageManifestReleaseInspector {
                 "Package targets must use literal PackageDescription target declarations"
             )
         }
-        let binaryTargets = targetDeclarations.filter {
-            functionName($0) == "binaryTarget"
-                && stringArgument(label: "name", in: $0) == binaryTargetName
-        }
-        guard binaryTargets.count == 1,
-              let binaryTarget = binaryTargets.first else {
-            throw MojoArtifactError.packageManifestIntegrationMismatch(
-                "expected exactly one binaryTarget named '\(binaryTargetName)'"
-            )
-        }
-        guard stringArgument(label: "path", in: binaryTarget)
-                == binaryTargetPath else {
-            throw MojoArtifactError.packageManifestIntegrationMismatch(
-                "binaryTarget '\(binaryTargetName)' must use path '\(binaryTargetPath)'"
-            )
+        for integration in binaryIntegrations {
+            let binaryTargets = targetDeclarations.filter {
+                functionName($0) == "binaryTarget"
+                    && stringArgument(label: "name", in: $0)
+                        == integration.binaryTargetName
+            }
+            guard binaryTargets.count == 1,
+                  let binaryTarget = binaryTargets.first else {
+                throw MojoArtifactError.packageManifestIntegrationMismatch(
+                    "expected exactly one binaryTarget named '\(integration.binaryTargetName)'"
+                )
+            }
+            guard stringArgument(label: "path", in: binaryTarget)
+                    == integration.binaryTargetPath else {
+                throw MojoArtifactError.packageManifestIntegrationMismatch(
+                    "binaryTarget '\(integration.binaryTargetName)' must use path '\(integration.binaryTargetPath)'"
+                )
+            }
         }
 
         let sourceTargets = targetDeclarations.filter {
@@ -88,12 +115,21 @@ package enum PackageManifestReleaseInspector {
             label: "dependencies",
             in: sourceTarget
         )
-        guard sourceDependencies.contains(where: {
-            dependency($0, references: binaryTargetName)
-        }) else {
-            throw MojoArtifactError.packageManifestIntegrationMismatch(
-                "target '\(targetName)' must depend on '\(binaryTargetName)'"
-            )
+        for integration in binaryIntegrations {
+            let matches = sourceDependencies.filter {
+                dependency($0, references: integration.binaryTargetName)
+            }
+            guard matches.count == 1, let match = matches.first else {
+                throw MojoArtifactError.packageManifestIntegrationMismatch(
+                    "target '\(targetName)' must depend exactly once on '\(integration.binaryTargetName)'"
+                )
+            }
+            if binaryIntegrations.count > 1,
+               dependencyPlatforms(match) != integration.platforms {
+                throw MojoArtifactError.packageManifestIntegrationMismatch(
+                    "target '\(targetName)' dependency '\(integration.binaryTargetName)' must use platforms \(integration.platforms.sorted())"
+                )
+            }
         }
         let mojoPackageReferences = sourceDependencies.compactMap {
             productPackageReference($0, productName: "Mojo")
@@ -159,11 +195,20 @@ package enum PackageManifestReleaseInspector {
             }
             let requirementLabels = ["from", "exact", "revision"]
             let requirements = requirementLabels.compactMap { label in
-                stringArgument(label: label, in: call)
+                stringArgument(label: label, in: call).map { (label, $0) }
             }
             guard requirements.count == 1,
-                  requirements[0].isEmpty == false else {
+                  requirements[0].1.isEmpty == false else {
                 throw MojoArtifactError.localPackageDependencyInRelease
+            }
+            let requirement = requirements[0]
+            let isValidRequirement = requirement.0 == "revision"
+                ? isFullGitObjectID(requirement.1)
+                : isSemanticVersion(requirement.1)
+            guard isValidRequirement else {
+                throw MojoArtifactError.invalidPackageDependencyRequirement(
+                    "\(requirement.0): \(requirement.1)"
+                )
             }
             guard references.insert(reference).inserted else {
                 throw MojoArtifactError.packageManifestIntegrationMismatch(
@@ -172,6 +217,94 @@ package enum PackageManifestReleaseInspector {
             }
         }
         return references
+    }
+
+    private static func isFullGitObjectID(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        guard bytes.count == 40 || bytes.count == 64 else {
+            return false
+        }
+        return bytes.allSatisfy { byte in
+            (byte >= 48 && byte <= 57)
+                || (byte >= 65 && byte <= 70)
+                || (byte >= 97 && byte <= 102)
+        }
+    }
+
+    private static func isSemanticVersion(_ value: String) -> Bool {
+        let buildParts = value.split(
+            separator: "+",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard buildParts.count <= 2,
+              !buildParts[0].isEmpty else {
+            return false
+        }
+        if buildParts.count == 2,
+           !isDotSeparatedIdentifiers(
+            buildParts[1],
+            numericLeadingZerosAllowed: true
+           ) {
+            return false
+        }
+        let releaseParts = buildParts[0].split(
+            separator: "-",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard !releaseParts[0].isEmpty else {
+            return false
+        }
+        if releaseParts.count == 2,
+           !isDotSeparatedIdentifiers(
+            releaseParts[1],
+            numericLeadingZerosAllowed: false
+           ) {
+            return false
+        }
+        let core = releaseParts[0].split(
+            separator: ".",
+            omittingEmptySubsequences: false
+        )
+        guard core.count == 3 else {
+            return false
+        }
+        return core.allSatisfy { identifier in
+            guard !identifier.isEmpty,
+                  identifier.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else {
+                return false
+            }
+            return identifier == "0" || identifier.first != "0"
+        }
+    }
+
+    private static func isDotSeparatedIdentifiers(
+        _ value: Substring,
+        numericLeadingZerosAllowed: Bool
+    ) -> Bool {
+        let identifiers = value.split(
+            separator: ".",
+            omittingEmptySubsequences: false
+        )
+        return !identifiers.isEmpty && identifiers.allSatisfy { identifier in
+            guard !identifier.isEmpty,
+                  identifier.utf8.allSatisfy({ byte in
+                    (byte >= 48 && byte <= 57)
+                        || (byte >= 65 && byte <= 90)
+                        || (byte >= 97 && byte <= 122)
+                        || byte == 45
+                  }) else {
+                return false
+            }
+            let isNumeric = identifier.utf8.allSatisfy {
+                $0 >= 48 && $0 <= 57
+            }
+            return numericLeadingZerosAllowed
+                || !isNumeric
+                || identifier == "0"
+                || identifier.first != "0"
+        }
     }
 
     private static func isLiteralRemotePackageURL(_ value: String) -> Bool {
@@ -358,6 +491,36 @@ package enum PackageManifestReleaseInspector {
             return false
         }
         return stringArgument(label: "name", in: call) == targetName
+    }
+
+    private static func dependencyPlatforms(
+        _ expression: ExprSyntax
+    ) -> Set<String>? {
+        guard let dependency = expression.as(FunctionCallExprSyntax.self),
+              let conditionExpression = argument(
+                label: "condition",
+                in: dependency
+              )?.expression,
+              let condition = conditionExpression.as(
+                FunctionCallExprSyntax.self
+              ),
+              functionName(condition) == "when",
+              let platformsExpression = argument(
+                label: "platforms",
+                in: condition
+              )?.expression,
+              let platforms = platformsExpression.as(ArrayExprSyntax.self)
+        else {
+            return nil
+        }
+        let names = platforms.elements.compactMap { element in
+            element.expression.as(MemberAccessExprSyntax.self)?
+                .declName.baseName.text
+        }
+        guard names.count == platforms.elements.count else {
+            return nil
+        }
+        return Set(names)
     }
 
     private static func productPackageReference(

@@ -35,14 +35,10 @@ package struct MojoPrepareOptions: Equatable, Sendable {
                 "Target slices must be unique"
             )
         }
-        let selectors = try targets.map {
-            try MojoXCFrameworkSliceIdentity(target: $0)
-        }
-        guard Set(selectors).count == selectors.count else {
-            throw MojoArtifactError.invalidArguments(
-                "Target slices must have distinct XCFramework platform/architecture variants"
-            )
-        }
+        try MojoNativeArtifactAdapter.validate(
+            targets: targets,
+            error: MojoArtifactError.invalidArguments
+        )
         self.sourceURLs = sourceURLs.sorted { $0.path < $1.path }
         self.sourceRootURL = sourceRootURL?.standardizedFileURL
         self.externalPackages = externalPackages.sorted { $0.name < $1.name }
@@ -77,6 +73,20 @@ package struct MojoPrepareOptions: Equatable, Sendable {
             identity.artifactName,
             isDirectory: true
         )
+    }
+
+    package var artifactURLs: [URL] {
+        get throws {
+            let adapters = Set(
+                try targets.map(MojoNativeArtifactAdapter.init)
+            )
+            return adapters.sorted { $0.rawValue < $1.rawValue }.map { adapter in
+                outputDirectoryURL.appendingPathComponent(
+                    adapter.artifactName(identity: identity),
+                    isDirectory: true
+                )
+            }
+        }
     }
 
     package var manifestURL: URL {

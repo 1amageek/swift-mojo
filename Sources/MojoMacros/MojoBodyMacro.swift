@@ -46,6 +46,47 @@ public struct MojoBodyMacro: BodyMacro {
                 )
                 """
             )
+        case .borrowedMutableFloat32Buffers:
+            body.append(
+                """
+                try __SwiftMojoGeneratedBindings.invokeFloatBufferMutation(
+                    bindingID: UInt64(\(raw: String(binding.bindingID))),
+                    input: \(raw: binding.inputBufferName),
+                    output: &\(raw: binding.outputBufferName)
+                )
+                """
+            )
+        case .runtimeSessionFactory:
+            body.append(
+                """
+                return try __SwiftMojoGeneratedBindings.makeSession(
+                    bindingID: UInt64(\(raw: String(binding.bindingID))),
+                    requirements: \(raw: binding.requirementsName)
+                )
+                """
+            )
+        case .sessionFloat32BufferFactory:
+            body.append(
+                """
+                return try __SwiftMojoGeneratedBindings.makeFloat32Buffer(
+                    bindingID: UInt64(\(raw: String(binding.bindingID))),
+                    session: \(raw: binding.resourceSessionName),
+                    elementCount: \(raw: binding.resourceElementCountName),
+                    memoryKind: \(raw: binding.resourceMemoryKindName)
+                )
+                """
+            )
+        case .sessionBorrowedMutableFloat32Buffers:
+            body.append(
+                """
+                try __SwiftMojoGeneratedBindings.invokeSessionFloatBufferMutation(
+                    bindingID: UInt64(\(raw: String(binding.bindingID))),
+                    session: \(raw: binding.sessionName),
+                    input: \(raw: binding.sessionInputBufferName),
+                    output: &\(raw: binding.sessionOutputBufferName)
+                )
+                """
+            )
         }
         return body
     }

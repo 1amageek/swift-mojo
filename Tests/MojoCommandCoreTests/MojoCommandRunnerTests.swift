@@ -97,4 +97,176 @@ struct MojoCommandRunnerTests {
         #expect(object?["command"] as? String == "release")
         #expect(result.standardError.isEmpty)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func inspectUsesOnlyPluginResolvedSourceInventory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let included = root.appendingPathComponent(
+            "Implementation/API/Bindings.swift"
+        )
+        let excluded = root.appendingPathComponent(
+            "Implementation/Excluded.swift"
+        )
+        try FileManager.default.createDirectory(
+            at: included.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        defer {
+            do {
+                try FileManager.default.removeItem(at: root)
+            } catch {
+                Issue.record("Failed to remove source inventory fixture: \(error)")
+            }
+        }
+        try "// swift-tools-version: 6.2".write(
+            to: root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        @mojo
+        func add(_ a: Int32, _ b: Int32) -> Int32 {
+            return a + b
+        }
+        """.write(to: included, atomically: true, encoding: .utf8)
+        try "@mojo func excluded() -> String".write(
+            to: excluded,
+            atomically: true,
+            encoding: .utf8
+        )
+        let packageRunner = MojoCommandRunner(
+            environment: [:],
+            currentDirectoryURL: root
+        )
+
+        let result = packageRunner.run(
+            arguments: [
+                "inspect",
+                "--package-root", root.path,
+                "--target", "Application",
+                "--source-root", root.path,
+                "--source", included.path,
+            ]
+        )
+
+        #expect(result.exitCode == 0)
+        #expect(result.standardOutput.contains("Inspected 1 binding(s)"))
+        #expect(!result.standardOutput.contains("excluded"))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func packageCommandsRejectMissingPluginSourceInventory() {
+        let result = runner.run(
+            arguments: [
+                "inspect",
+                "--package-root", "/tmp",
+                "--target", "Application",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.standardError.contains(
+                "MojoCommandPlugin must supply SwiftPM-resolved --source paths"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func packageCommandsRejectDuplicatePluginSourcePaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let source = root.appendingPathComponent("Bindings.swift")
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { removeFixture(root) }
+        try "// swift-tools-version: 6.2".write(
+            to: root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "@mojo func add(_ a: Int32, _ b: Int32) -> Int32 { a + b }".write(
+            to: source,
+            atomically: true,
+            encoding: .utf8
+        )
+        let packageRunner = MojoCommandRunner(
+            environment: [:],
+            currentDirectoryURL: root
+        )
+
+        let result = packageRunner.run(
+            arguments: [
+                "inspect",
+                "--package-root", root.path,
+                "--target", "Application",
+                "--source-root", root.path,
+                "--source", source.path,
+                "--source", source.path,
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.standardError.contains(
+                "SwiftPM source inventory contains duplicate paths"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func packageCommandsRejectPluginSourceOutsidePackageRoot() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let outsideSource = root.deletingLastPathComponent()
+            .appendingPathComponent("\(UUID().uuidString).swift")
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { removeFixture(root) }
+        try "// swift-tools-version: 6.2".write(
+            to: root.appendingPathComponent("Package.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let packageRunner = MojoCommandRunner(
+            environment: [:],
+            currentDirectoryURL: root
+        )
+
+        let result = packageRunner.run(
+            arguments: [
+                "inspect",
+                "--package-root", root.path,
+                "--target", "Application",
+                "--source-root", root.path,
+                "--source", outsideSource.path,
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.standardError.contains(
+                "SwiftPM source inventory must contain only package-owned Swift files"
+            )
+        )
+    }
+
+    private func removeFixture(_ root: URL) {
+        do {
+            try FileManager.default.removeItem(at: root)
+        } catch {
+            Issue.record("Failed to remove command fixture: \(error)")
+        }
+    }
 }

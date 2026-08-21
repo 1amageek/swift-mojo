@@ -1,0 +1,41 @@
+name: Runtime bridge benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      buffer_elements:
+        description: Float elements per call
+        required: true
+        default: "4096"
+      samples:
+        description: Recorded samples
+        required: true
+        default: "80"
+      calls_per_sample:
+        description: Calls in each recorded sample
+        required: true
+        default: "100"
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-bridge:
+    runs-on: [self-hosted, macOS, swift-mojo]
+    timeout-minutes: 45
+    env:
+      BUFFER_ELEMENTS: ${{ inputs.buffer_elements }}
+      CALLS_PER_SAMPLE: ${{ inputs.calls_per_sample }}
+      SAMPLE_COUNT: ${{ inputs.samples }}
+      SWIFT_MOJO_EXECUTABLE: ${{ vars.SWIFT_MOJO_EXECUTABLE }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Run explicit Release benchmark
+        run: |
+          Benchmarks/RuntimeBridge/run.sh \
+            "$BUFFER_ELEMENTS" \
+            "$SAMPLE_COUNT" \
+            "$CALLS_PER_SAMPLE"

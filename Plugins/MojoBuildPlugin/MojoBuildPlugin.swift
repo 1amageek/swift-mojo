@@ -8,8 +8,13 @@ struct MojoBuildPlugin: BuildToolPlugin {
             let artifactName: String
         }
 
+        struct Artifact: Decodable {
+            let name: String
+        }
+
         let schemaVersion: Int
         let artifactIdentity: ArtifactIdentity?
+        let artifacts: [Artifact]?
     }
 
     private struct PackageConfiguration: Decodable {
@@ -97,15 +102,12 @@ struct MojoBuildPlugin: BuildToolPlugin {
 
     private enum ConfigurationError: Error, CustomStringConvertible {
         case invalidEnvironmentVariable(name: String, value: String)
-        case multiplePreparedArtifacts(String)
         case missingTargetConfiguration(String)
 
         var description: String {
             switch self {
             case .invalidEnvironmentVariable(let name, let value):
                 "\(name) contains an unsupported value: '\(value)'"
-            case .multiplePreparedArtifacts(let directory):
-                "Multiple XCFrameworks exist in '\(directory)'; keep only the target-scoped artifact"
             case .missingTargetConfiguration(let target):
                 "SwiftMojo.json does not declare target '\(target)'"
             }
@@ -148,15 +150,25 @@ struct MojoBuildPlugin: BuildToolPlugin {
             "MojoArtifact.json"
         )
         let preparedManifest = try Self.preparedManifest(at: manifest)
-        let artifactName = try preparedManifest?.artifactIdentity?.artifactName
-            ?? Self.discoverArtifactName(
+        let artifactNames: [String]
+        if let preparedArtifacts = preparedManifest?.artifacts,
+           !preparedArtifacts.isEmpty {
+            artifactNames = preparedArtifacts.map(\.name).sorted()
+        } else if let artifactName = preparedManifest?.artifactIdentity?
+            .artifactName {
+            artifactNames = [artifactName]
+        } else {
+            artifactNames = try Self.discoverArtifactNames(
                 in: generatedDirectory,
                 targetName: target.name
             )
-        let artifact = generatedDirectory.appendingPathComponent(
-            artifactName,
-            isDirectory: true
-        )
+        }
+        let artifacts = artifactNames.map {
+            generatedDirectory.appendingPathComponent(
+                $0,
+                isDirectory: true
+            )
+        }
         let externalPackages = try Self.externalPackageURLs(
             configurationURL: configurationURL,
             packageRootURL: context.package.directoryURL,
@@ -165,7 +177,7 @@ struct MojoBuildPlugin: BuildToolPlugin {
         let externalInputs = try externalPackages.flatMap {
             try Self.treeInputs(at: $0)
         }
-        let artifactInputs = try Self.artifactInputs(at: artifact)
+        let artifactInputs = try artifacts.flatMap(Self.artifactInputs)
         let sourceMap = generatedDirectory.appendingPathComponent(
             "MojoSourceMap.json"
         )
@@ -302,31 +314,31 @@ struct MojoBuildPlugin: BuildToolPlugin {
         })
     }
 
-    private static func discoverArtifactName(
+    private static func discoverArtifactNames(
         in generatedDirectory: URL,
         targetName: String
-    ) throws -> String {
+    ) throws -> [String] {
         guard FileManager.default.fileExists(
             atPath: generatedDirectory.path
         ) else {
-            return "SwiftMojo_\(moduleComponent(targetName))_ABI.xcframework"
+            return [
+                "SwiftMojo_\(moduleComponent(targetName))_ABI.xcframework",
+            ]
         }
         let artifacts = try FileManager.default.contentsOfDirectory(
             at: generatedDirectory,
             includingPropertiesForKeys: [.isDirectoryKey]
         ).filter { url in
-            guard url.pathExtension == "xcframework" else {
+            guard url.pathExtension == "xcframework"
+                    || url.pathExtension == "artifactbundle" else {
                 return false
             }
             return (try url.resourceValues(forKeys: [.isDirectoryKey]))
                 .isDirectory == true
         }
-        guard artifacts.count <= 1 else {
-            throw ConfigurationError.multiplePreparedArtifacts(
-                generatedDirectory.path
-            )
-        }
-        return artifacts.first?.lastPathComponent
-            ?? "SwiftMojo_\(moduleComponent(targetName))_ABI.xcframework"
+        let names = artifacts.map(\.lastPathComponent).sorted()
+        return names.isEmpty
+            ? ["SwiftMojo_\(moduleComponent(targetName))_ABI.xcframework"]
+            : names
     }
 }

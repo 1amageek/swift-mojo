@@ -19,7 +19,19 @@ struct MojoArtifactVerifierTests {
             #expect(source.contains("import GeneratedMojoABI"))
             #expect(source.contains("swift_mojo_has_binding"))
             #expect(source.contains(manifest.artifactDigest))
-            #expect(source.contains("guard swift_mojo_static_abi_version()"))
+            #expect(source.contains("private static let artifactValidationError"))
+            #expect(source.contains("let actualABIVersion = swift_mojo_static_abi_version()"))
+            #expect(!source.contains("preparedBindingIDs.contains"))
+            #expect(
+                source.components(
+                    separatedBy: "swift_mojo_static_abi_version()"
+                ).count == 2
+            )
+            #expect(
+                source.components(
+                    separatedBy: "swift_mojo_has_binding(bindingID)"
+                ).count == 2
+            )
             #expect(source.contains("fatalError("))
             #expect(!source.contains("precondition("))
             #expect(!source.contains(fixture.outputDirectory.path))

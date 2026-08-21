@@ -33,14 +33,10 @@ package struct SwiftMojoConfiguration: Codable, Equatable, Sendable {
                     "slices contains duplicate target identities"
                 )
             }
-            let selectors = try slices.map {
-                try MojoXCFrameworkSliceIdentity(target: $0)
-            }
-            guard Set(selectors).count == selectors.count else {
-                throw MojoArtifactError.invalidConfiguration(
-                    "slices contains platform/architecture variants that XCFramework cannot distinguish"
-                )
-            }
+            try MojoNativeArtifactAdapter.validate(
+                targets: slices,
+                error: MojoArtifactError.invalidConfiguration
+            )
             self.compilerVersion = compilerVersion
             self.mojoPackages = mojoPackages.sorted()
             self.slices = slices.sorted { $0.identity < $1.identity }

@@ -75,6 +75,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+plugin_scratch_root="$acceptance_root/plugin-scratch"
+
 mkdir -p \
     "$acceptance_root/Sources/ModelA" \
     "$acceptance_root/Sources/ModelB" \
@@ -88,7 +90,7 @@ import PackageDescription
 
 let package = Package(
     name: "MultiTargetAcceptance",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     dependencies: [
         .package(
             url: "$candidate_url",
@@ -180,9 +182,14 @@ for target in ModelA ModelB; do
     "$root/scripts/command-timeout.sh" 180 -- \
         /usr/bin/xcrun swift package \
         --package-path "$acceptance_root" \
+        --scratch-path "$plugin_scratch_root" \
         --allow-writing-to-package-directory \
         mojo init --target "$target"
 done
+"$root/scripts/verify-resolved-revision.sh" \
+    "$acceptance_root/Package.resolved" \
+    swift-mojo \
+    "$candidate_revision"
 
 cat > "$acceptance_root/Package.swift" <<SWIFT
 // swift-tools-version: 6.2
@@ -191,7 +198,7 @@ import PackageDescription
 
 let package = Package(
     name: "MultiTargetAcceptance",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     dependencies: [
         .package(
             url: "$candidate_url",
@@ -240,6 +247,7 @@ for target in ModelA ModelB; do
         "$root/scripts/command-timeout.sh" 180 -- \
         /usr/bin/xcrun swift package \
         --package-path "$acceptance_root" \
+        --scratch-path "$plugin_scratch_root" \
         --disable-sandbox \
         --allow-writing-to-package-directory \
         mojo prepare --target "$target"

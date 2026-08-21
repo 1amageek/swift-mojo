@@ -1,0 +1,55 @@
+name: Mojo acceptance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 1 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mojo-acceptance
+  cancel-in-progress: false
+
+jobs:
+  real-mojo:
+    runs-on: [self-hosted, macOS, swift-mojo]
+    timeout-minutes: 90
+    env:
+      SWIFT_MOJO_CANDIDATE_URL: https://github.com/${{ github.repository }}.git
+      SWIFT_MOJO_EXECUTABLE: ${{ vars.SWIFT_MOJO_EXECUTABLE }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify configured Mojo compiler
+        run: |
+          if [[ -z "$SWIFT_MOJO_EXECUTABLE" \
+            || "$SWIFT_MOJO_EXECUTABLE" != /* \
+            || ! -x "$SWIFT_MOJO_EXECUTABLE" ]]; then
+            echo "Repository variable SWIFT_MOJO_EXECUTABLE must name an installed executable" >&2
+            exit 64
+          fi
+          "$SWIFT_MOJO_EXECUTABLE" --version
+
+      - name: Run release acceptance
+        run: scripts/release-acceptance.sh
+
+      - name: Run local owned-session acceptance
+        run: scripts/local-session-acceptance.sh
+
+      - name: Run Swift AddressSanitizer owned-session acceptance
+        env:
+          SWIFT_MOJO_SANITIZE: swift-address
+        run: scripts/local-session-acceptance.sh
+
+      - name: Run Mojo AddressSanitizer owned-session acceptance
+        env:
+          SWIFT_MOJO_SANITIZE: mojo-address
+        run: scripts/local-session-acceptance.sh
+
+      - name: Run multi-target acceptance
+        run: scripts/multi-target-acceptance.sh

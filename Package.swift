@@ -6,7 +6,7 @@ import CompilerPluginSupport
 let package = Package(
     name: "swift-mojo",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v15),
     ],
     products: [
         .library(name: "Mojo", targets: ["Mojo"]),
@@ -16,7 +16,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/swiftlang/swift-syntax.git",
-            revision: "swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a"
+            revision: "050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf"
         ),
     ],
     targets: [
@@ -67,11 +67,22 @@ let package = Package(
             name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
             path: "Generated/MojoBuildPluginIntegrationFixture/SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
         ),
+        .binaryTarget(
+            name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI_Linux",
+            path: "Generated/MojoBuildPluginIntegrationFixture/SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.artifactbundle"
+        ),
         .target(
             name: "MojoBuildPluginIntegrationFixture",
             dependencies: [
                 "Mojo",
-                "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
+                .target(
+                    name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
+                    condition: .when(platforms: [.macOS])
+                ),
+                .target(
+                    name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI_Linux",
+                    condition: .when(platforms: [.linux])
+                ),
             ],
             plugins: [
                 .plugin(name: "MojoBuildPlugin"),

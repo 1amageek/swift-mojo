@@ -12,6 +12,10 @@
         {
           "cpu": "x86-64",
           "triple": "x86_64-apple-macosx14.0"
+        },
+        {
+          "cpu": "generic",
+          "triple": "aarch64-unknown-linux-gnu"
         }
       ]
     }

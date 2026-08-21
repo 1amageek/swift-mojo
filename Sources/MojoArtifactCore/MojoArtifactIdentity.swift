@@ -8,6 +8,14 @@ package struct MojoArtifactIdentity: Codable, Equatable, Sendable {
     package let libraryName: String
     package let symbolPrefix: String
 
+    package var linuxArtifactName: String {
+        "\(moduleName).artifactbundle"
+    }
+
+    package var linuxBinaryTargetName: String {
+        "\(moduleName)_Linux"
+    }
+
     package init(targetName: String) throws {
         guard Self.isPortableTargetName(targetName) else {
             throw MojoArtifactError.invalidArguments(

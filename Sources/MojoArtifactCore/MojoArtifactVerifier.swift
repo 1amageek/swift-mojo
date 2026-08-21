@@ -97,11 +97,8 @@ package struct MojoArtifactVerifier: Sendable {
                 )
             }
         }
-        let artifactURL = options.artifactURL(identity: identity)
-        guard fileManager.fileExists(atPath: artifactURL.path) else {
-            throw MojoArtifactError.artifactMissing(artifactURL.path)
-        }
         try validateTarget(manifest: manifest, requested: options.target)
+        try validateArtifactContract(manifest: manifest, identity: identity)
 
         let inputGraph = try options.inputGraph()
         try validatePipeline(manifest: manifest, inputGraph: inputGraph)
@@ -112,11 +109,26 @@ package struct MojoArtifactVerifier: Sendable {
             preparedSourceURL: options.preparedSourceURL,
             sourceMapURL: options.sourceMapURL
         )
-        try validateArtifact(
-            manifest: manifest,
-            artifactURL: artifactURL,
-            identity: identity
-        )
+        for artifact in manifest.effectiveArtifacts {
+            let artifactURL = options.outputDirectoryURL.appendingPathComponent(
+                artifact.name,
+                isDirectory: true
+            )
+            guard fileManager.fileExists(atPath: artifactURL.path) else {
+                throw MojoArtifactError.artifactMissing(artifactURL.path)
+            }
+            let slices = try manifest.effectiveSlices.filter {
+                try MojoNativeArtifactAdapter(target: $0.target)
+                    == artifact.adapter
+            }
+            try validateArtifact(
+                manifest: manifest,
+                artifact: artifact,
+                artifactURL: artifactURL,
+                identity: identity,
+                slices: slices
+            )
+        }
         return MojoArtifactValidation(
             manifest: manifest,
             inputGraph: inputGraph
@@ -128,6 +140,8 @@ package struct MojoArtifactVerifier: Sendable {
     ) throws {
         let supportedSchema = manifest.schemaVersion
             == MojoArtifactManifest.currentSchemaVersion
+            || manifest.schemaVersion
+                == MojoArtifactManifest.appleSchemaVersion
             || manifest.schemaVersion
                 == MojoArtifactManifest.legacySchemaVersion
         guard supportedSchema else {
@@ -209,7 +223,7 @@ package struct MojoArtifactVerifier: Sendable {
                 ) else {
             throw MojoArtifactError.bindingGraphMismatch
         }
-        if manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion {
+        if manifest.supportsInputGraph {
             guard manifest.inputGraphDigest == inputGraph.digest,
                   manifest.inputGraphIdentifier == inputGraph.digestIdentifier,
                   manifest.externalPackages
@@ -232,7 +246,7 @@ package struct MojoArtifactVerifier: Sendable {
         preparedSourceURL: URL,
         sourceMapURL: URL
     ) throws {
-        guard manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion else {
+        guard manifest.supportsInputGraph else {
             return
         }
         guard FileManager.default.fileExists(atPath: preparedSourceURL.path) else {
@@ -281,81 +295,133 @@ package struct MojoArtifactVerifier: Sendable {
         }
     }
 
-    private func validateArtifact(
+    private func validateArtifactContract(
         manifest: MojoArtifactManifest,
-        artifactURL: URL,
         identity: MojoArtifactIdentity
     ) throws {
-        let archives = try Self.archiveURLs(
-            in: artifactURL,
-            identity: identity
-        )
-        let packagedLibraryCount = Set(
-            manifest.effectiveSlices.map(\.libraryIdentifier)
-        ).count
-        guard archives.count == packagedLibraryCount else {
-            throw MojoArtifactError.artifactArchiveCount(archives.count)
+        guard manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion else {
+            return
         }
-        if manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion {
-            let infoPlist = artifactURL.appendingPathComponent("Info.plist")
-            guard FileManager.default.fileExists(atPath: infoPlist.path) else {
-                throw MojoArtifactError.artifactInterfaceMissing(infoPlist.path)
+        guard let artifacts = manifest.artifacts,
+              !artifacts.isEmpty,
+              Set(artifacts.map(\.adapter)).count == artifacts.count,
+              Set(artifacts.map(\.name)).count == artifacts.count,
+              artifacts.allSatisfy({ artifact in
+                  artifact.name
+                      == artifact.adapter.artifactName(identity: identity)
+              }),
+              manifest.artifactDigest
+                == MojoArtifactManifest.digest(artifacts: artifacts) else {
+            throw MojoArtifactError.invalidManifest(
+                "schema-5 native artifact records are missing, duplicated, or inconsistent"
+            )
+        }
+        let sliceAdapters = Set(
+            try manifest.effectiveSlices.map {
+                try MojoNativeArtifactAdapter(target: $0.target)
             }
-            for slice in manifest.effectiveSlices {
-                let sliceURL = artifactURL
-                    .appendingPathComponent(
-                        slice.libraryIdentifier,
-                        isDirectory: true
-                    )
-                let frameworkURL = MojoStaticFrameworkLayout.frameworkURL(
-                    in: sliceURL,
-                    identity: identity
-                )
-                let archiveURL = MojoStaticFrameworkLayout.binaryURL(
-                    in: sliceURL,
-                    identity: identity
-                )
-                guard FileManager.default.fileExists(atPath: archiveURL.path) else {
-                    throw MojoArtifactError.sliceArchiveMissing(
-                        slice.target.identity
-                    )
-                }
-                let digest = try MojoCanonicalDigest.file(at: archiveURL)
-                guard digest == slice.archiveDigest else {
-                    throw MojoArtifactError.sliceArchiveDigestMismatch(
-                        target: slice.target.identity,
-                        expected: slice.archiveDigest,
-                        actual: digest
-                    )
-                }
-                let headersURL = MojoStaticFrameworkLayout.headersURL(
-                    in: frameworkURL
-                )
-                let modulesURL = MojoStaticFrameworkLayout.modulesURL(
-                    in: frameworkURL
-                )
-                for required in [
-                    modulesURL.appendingPathComponent("module.modulemap"),
-                    headersURL.appendingPathComponent(
-                        "\(identity.moduleName).h"
-                    ),
-                    frameworkURL.appendingPathComponent("Info.plist"),
-                ] where !FileManager.default.fileExists(atPath: required.path) {
-                    throw MojoArtifactError.artifactInterfaceMissing(
-                        required.path
-                    )
-                }
+        )
+        guard sliceAdapters == Set(artifacts.map(\.adapter)) else {
+            throw MojoArtifactError.invalidManifest(
+                "schema-5 native artifact records do not cover every prepared slice"
+            )
+        }
+    }
+
+    private func validateArtifact(
+        manifest: MojoArtifactManifest,
+        artifact: MojoArtifactManifest.Artifact,
+        artifactURL: URL,
+        identity: MojoArtifactIdentity,
+        slices: [MojoArtifactManifest.Slice]
+    ) throws {
+        switch artifact.adapter {
+        case .appleXCFramework:
+            let archives = try Self.archiveURLs(
+                in: artifactURL,
+                identity: identity
+            )
+            let packagedLibraryCount = Set(slices.map(\.libraryIdentifier)).count
+            guard archives.count == packagedLibraryCount else {
+                throw MojoArtifactError.artifactArchiveCount(archives.count)
             }
-            try MojoXCFrameworkInspector.validate(
+            if manifest.supportsInputGraph {
+                let infoPlist = artifactURL.appendingPathComponent("Info.plist")
+                guard FileManager.default.fileExists(atPath: infoPlist.path) else {
+                    throw MojoArtifactError.artifactInterfaceMissing(infoPlist.path)
+                }
+                for slice in slices {
+                    let sliceURL = artifactURL
+                        .appendingPathComponent(
+                            slice.libraryIdentifier,
+                            isDirectory: true
+                        )
+                    let frameworkURL = MojoStaticFrameworkLayout.frameworkURL(
+                        in: sliceURL,
+                        identity: identity
+                    )
+                    let archiveURL = MojoStaticFrameworkLayout.binaryURL(
+                        in: sliceURL,
+                        identity: identity
+                    )
+                    guard FileManager.default.fileExists(
+                        atPath: archiveURL.path
+                    ) else {
+                        throw MojoArtifactError.sliceArchiveMissing(
+                            slice.target.identity
+                        )
+                    }
+                    let digest = try MojoCanonicalDigest.file(at: archiveURL)
+                    guard digest == slice.archiveDigest else {
+                        throw MojoArtifactError.sliceArchiveDigestMismatch(
+                            target: slice.target.identity,
+                            expected: slice.archiveDigest,
+                            actual: digest
+                        )
+                    }
+                    let headersURL = MojoStaticFrameworkLayout.headersURL(
+                        in: frameworkURL
+                    )
+                    let modulesURL = MojoStaticFrameworkLayout.modulesURL(
+                        in: frameworkURL
+                    )
+                    for required in [
+                        modulesURL.appendingPathComponent("module.modulemap"),
+                        headersURL.appendingPathComponent(
+                            "\(identity.moduleName).h"
+                        ),
+                        frameworkURL.appendingPathComponent("Info.plist"),
+                    ] where !FileManager.default.fileExists(
+                        atPath: required.path
+                    ) {
+                        throw MojoArtifactError.artifactInterfaceMissing(
+                            required.path
+                        )
+                    }
+                }
+                try MojoXCFrameworkInspector.validate(
+                    artifactURL: artifactURL,
+                    identity: identity,
+                    slices: slices
+                )
+            }
+        case .linuxStaticLibraryBundle:
+            guard manifest.schemaVersion
+                    == MojoArtifactManifest.currentSchemaVersion else {
+                throw MojoArtifactError.invalidManifest(
+                    "Linux static-library artifacts require schema 5"
+                )
+            }
+            try MojoStaticLibraryArtifactBundleLayout.validate(
                 artifactURL: artifactURL,
                 identity: identity,
-                slices: manifest.effectiveSlices
+                slices: slices
             )
         }
         let digest = try MojoCanonicalDigest.tree(at: artifactURL)
-        guard digest == manifest.artifactDigest else {
+        guard digest == artifact.digest else {
             throw MojoArtifactError.artifactDigestMismatch(
-                expected: manifest.artifactDigest,
+                expected: artifact.digest,
                 actual: digest
             )
         }

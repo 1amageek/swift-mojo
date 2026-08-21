@@ -13,7 +13,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 このsourceの意味は「Swift関数の公開契約を保ち、bodyのcompute semanticsをMojoで実装する」です。C ABI、binding ID、generated module、artifact pathは利用者が手で同期しません。
 
-current sourceではこのsurfaceとexternal package bindingを実装していますが、inline semanticsは `(Int32, Int32) -> Int32` の加算だけです。external packageには `([Float]) throws -> Float` の同期borrowed-buffer vertical sliceも実装しています。構文の見た目と対応言語範囲、実装済みと実行検証済みを混同しません。
+current sourceではこのsurfaceとexternal package bindingを実装していますが、inline semanticsは `(Int32, Int32) -> Int32` の加算だけです。external packageにはimmutable/mutable `Float` borrow、synchronous opaque-session create/use/shutdown、およびsession-owned Float32-buffer create/synchronous host copy/shutdownを実装しています。構文の見た目と対応言語範囲、caller-owned borrowとowned resource、capability representationと実device実装、generic sessionとmodel inference、実装済みと実行検証済みを混同しません。
 
 ## 2. Confirmed current facts
 
@@ -23,13 +23,19 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Macro and scanner share one IR | `MojoBindingCore` is used by `MojoMacros` and `MojoArtifactCore` |
 | Original DSL body is replaced | `MojoBodyMacro` emits only a Registry invocation |
 | Real Mojo emits the implementation object | `MojoCompiler.compileObject` and real Mojo 1.0 acceptance |
-| Runtime uses static linking | generated XCFramework binary target and final Mach-O symbol inspection |
+| Runtime uses static linking | generated Apple XCFramework / Linux static-library artifact bundle and final Mach-O/archive inspection |
 | Plugin does not compile Mojo | plugin invokes only `swift-mojo verify` |
 | Build verifier covers stale/missing/corrupt/config/source-map/slice state | verifier/release failure tests and the committed plugin integration target pass under `xcodebuild test` |
 | No dynamic legacy path remains | package graph has no loader/shared-library target |
 | External Mojo package files are current author inputs | `MojoExternalPackage`、`MojoInputGraph`、generated package imports、compiler `-I`、plugin tree inputs |
 | Release configuration is explicit | `SwiftMojo.json` pins compiler、external packages、all required slices |
 | Borrowed Float lowering is additive and external-only | signature-aware `MojoBinding`、buffer dispatcher、generated Registry、`MojoInvocationError`、real compile/link/runtime acceptance。allocation/copy and sanitizer evidenceはpending |
+| Mutable Float output lowering is additive and external-only | input/output signature IR、nested scoped borrows、generated status dispatcher、typed nonzero/empty failures、real Mojo 1.0 arm64 compile/static-link/runtime acceptance。immutable-revision universal release、allocation/copy、sanitizer evidenceはpending |
+| Opaque session lowering is external-only | factory/use metadata、versioned flat C ABI、factory-domain-bound owner、capability/lifecycle typed errors、real Mojo CPU runtime acceptance |
+| Session resource lowering is external-only | buffer factory/create/destroy/copy/synchronize metadata、generated post-copy synchronization、versioned C ABI、typed `MojoFloat32BufferOwner`、capability/size/count validation、child-before-parent lifecycle tests、real Mojo host-buffer round-trip acceptance |
+| Mojo 1.0 device API is a separate runtime capability | Official `DeviceContext`/`DeviceBuffer` APIs define enqueue/copy/synchronize semantics, but the installed standalone Mojo 1.0 package does not expose the host `DeviceContext` module; MAX-backed Metal/CUDA and native Jetson remain explicit adapter gates |
+| Static artifacts reject undeclared Mojo runtime dependencies | `MojoObjectLinkageInspector` normalizes `nm -u` output and rejects unresolved `KGEN_CompilerRT_*` before archiving |
+| Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation and KGEN-free archive inspection pass, while native Jetson link/run remains pending |
 
 ## 3. Architecture and responsibilities
 
@@ -49,7 +55,8 @@ flowchart TB
 
     subgraph Preparation
         Compiler["MojoCompilerCore<br/>--emit object"]
-        Packager["MojoArtifactCore<br/>source map + artifact set + schema 4"]
+        Inspector["MojoArtifactCore<br/>object linkage policy"]
+        Packager["MojoArtifactCore<br/>source map + artifact set + schema 5"]
     end
 
     subgraph Build
@@ -63,7 +70,7 @@ flowchart TB
     IR --> Macro
     CLI --> IR
     External --> Packager
-    IR --> Renderer --> Compiler --> Packager
+    IR --> Renderer --> Compiler --> Inspector --> Packager
     Swift --> Plugin
     Packager --> Plugin --> Verifier --> Registry
     Packager --> Release
@@ -78,22 +85,22 @@ flowchart TB
 | `MojoBindingCore` | ephemeral binding/source graph values | macro、prepare、verify | typed parse/semantic error |
 | `MojoMacros` | expanded Swift body | Swift compiler | expansion failure; no fallback body |
 | `MojoCompilerCore` | Mojo version and object | preparer | typed locate/launch/status/timeout/no-output failure; process-group cleanup |
-| `MojoArtifactCore` | input graph、source map、artifact set、schema 4 manifest | source control、plugin、release CI | interprocess-locked transaction; unmanaged path refused |
+| `MojoArtifactCore` | input graph、source map、linkage policy、adapter-specific artifact set、schema 5 manifest | source control、plugin、release CI | interprocess-locked transaction; unmanaged path and undeclared compiler runtime refused |
 | `MojoCommandCore` | testable command result and text/JSON projection | executable、Command Plugin | nonzero/machine-readable failure |
 | internal `swift-mojo` target | standard streams and process exit status | SwiftPM plugins only | no public executable product、business logic、artifact ownership |
 | `MojoBuildPlugin` | verifier command | SwiftPM/Xcode | missing required inputs or verifier failure stops build |
-| generated Registry | internal scalar/buffer call thunk | expanded Swift body | scalar invariant mismatch traps; buffer failures throw typed errors |
+| generated Registry | internal scalar/buffer/session call thunk | expanded Swift body | scalar invariant mismatch traps; buffer/session failures throw typed errors |
 
 ## 4. End-to-end flows
 
 ### 4.1 Prepare flow
 
 ```text
-Sources/<Target>/**/*.swift
+SwiftPM-resolved target source inventory
   + SwiftMojo.json
   + Mojo/<Package>/**/*.mojo
   -> SwiftParser
-  -> recursively collect inline/external @mojo functions
+  -> collect inline/external @mojo functions from exactly those files
   -> validate signature family、direct scalar body、external reference
   -> sort canonical binding records
   -> binding + all regular external-package files input graph SHA-256 + runtime identifier
@@ -102,12 +109,14 @@ Sources/<Target>/**/*.swift
   -> render allowlisted inline source + external package imports + source map
   -> isolated declared-package import root
   -> mojo build --emit object -I <isolated-root> for every configured slice
+  -> inspect undefined symbols and reject undeclared Mojo compiler runtime
   -> archive each target object independently
   -> lipo architecture slices that share one Apple platform/variant into a universal archive
   -> wrap each group archive in a target-scoped static framework
   -> xcodebuild -create-xcframework with one framework per platform/variant group
-  -> canonical XCFramework tree SHA-256
-  -> schema 4 manifest with target identity、source map、slice membership
+  -> package Linux archives as SE-0482 staticLibrary artifact-bundle variants
+  -> canonical tree SHA-256 for every native artifact
+  -> schema 5 manifest with target identity、source map、slice/artifact membership
   -> re-read Swift/Mojo input graph and reject concurrent edits
   -> staged directory swap
   -> release output lock
@@ -118,24 +127,26 @@ Rendererは元のforeign textをpassthroughしません。inline pathは `MojoBi
 ### 4.2 Build flow
 
 ```text
-SwiftPM loads committed binary target
-  -> plugin declares Swift/config/Mojo/source-map/manifest/XCFramework trees as required inputs
+SwiftPM loads platform-conditioned committed binary target
+  -> plugin declares Swift/config/Mojo/source-map/manifest/all artifact trees as required inputs
   -> swift-mojo verify
        schema / ABI
        target-scoped ABI identity + pinned compiler
        complete required slice set + optional explicit destination assertion
        full input graph + binding/package records
-       re-rendered generated Mojo/source map + every expected static framework binary
-       XCFramework Info.plist/interface membership
-       full XCFramework tree digest
+       re-rendered generated Mojo/source map + every expected archive
+       XCFramework and artifact-bundle metadata/interface membership
+       every artifact tree digest + aggregate artifact digest
   -> generate SwiftMojoBindings.generated.swift in plugin work directory
   -> macro-expanded source compiles against generated Registry
-  -> static framework archive links into final executable
+  -> destination-selected static archive links into final executable
 ```
 
 manifestが欠落するとSwiftPMのrequired input checkで停止します。存在するが不正な場合はverifierが停止します。古いgenerated Registryだけを再利用して成功する経路を作りません。
 
-release gateはprepare/initと同じoutput lockを保持し、`Package.swift` をSwiftSyntaxで読み、target-scoped binary target path、binary dependency、declared remote package由来のMojo product、同一package由来の `MojoBuildPlugin`、local dependencyとmoving branchの不在を確認します。package URL/registry identityとversion/revision requirementはliteralだけを受理し、変数やhelperから計算されてprovenanceを証明できないdependencyはfail closedします。終了直前にSwift/Mojo input graph、`SwiftMojo.json`、`Package.swift` を再読し、検証中に変わったsnapshotを成功扱いしません。現在は証明可能性を優先し、manifest fragmentをliteral call/arrayとして要求します。変数やhelperで計算されたmanifestを受理するには、PackageDescription評価結果をtoolchain/versionごとに安定して取得・検証する別contractが必要です。
+Swift source inventoryの正本はSwiftPM plugin APIが返すtarget-resolved `sourceModule.sourceFiles`です。Command Pluginはそのexact listを `prepare` / `inspect` / `release` に渡し、Build Tool Pluginも同じAPIから `verify` のinputと引数を作ります。core CLIはpackage layoutから `Sources/<Target>` を再走査せず、package root外、非Swift、重複したsource inventoryを拒否します。source file自体のsymlinkを拒否してからpackage rootとparent pathをcanonicalizeし、source-map identityを実体root相対で統一します。これにより `path:`、`sources:`、`exclude:`、custom layout、symlink経由で開いたpackage rootの意味をSwiftPMだけが所有します。
+
+release gateはprepare/initと同じoutput lockを保持し、`Package.swift` をSwiftSyntaxで読み、target-scoped binary target path、binary dependency、declared remote package由来のMojo product、同一package由来の `MojoBuildPlugin`、local dependencyとmoving branchの不在を確認します。package URL/registry identityとversion/revision requirementはliteralだけを受理し、`revision:` はfull 40/64-character Git object ID、`from:` / `exact:` はvalid semantic versionだけを受理します。remote acceptanceはさらにadvertised commitとSwiftPMの `Package.resolved` pinが同一であることを検証します。変数やhelperから計算されてprovenanceを証明できないdependencyはfail closedします。終了直前にSwift/Mojo input graph、`SwiftMojo.json`、`Package.swift` を再読し、検証中に変わったsnapshotを成功扱いしません。現在は証明可能性を優先し、manifest fragmentをliteral call/arrayとして要求します。変数やhelperで計算されたmanifestを受理するには、PackageDescription評価結果をtoolchain/versionごとに安定して取得・検証する別contractが必要です。
 
 ### 4.3 Runtime flow
 
@@ -143,15 +154,15 @@ release gateはprepare/initと同じoutput lockを保持し、`Package.swift` �
 add(20, 22)
   -> macro-generated call(bindingID, lhs, rhs)
   -> Swift-compatible checked Int32 overflow guard
-  -> static ABI version check
-  -> input graph identifier check
-  -> prepared binding set + artifact membership check
+  -> thread-safe cached ABI + input graph + complete membership validation
+     (C validation calls occur once per generated Registry)
+  -> inlinable scalar-family binding guard
   -> <target_prefix>_call_i32_i32_i32
   -> Mojo implementation
   -> 42
 ```
 
-P1 runtimeにはloader、cache、mutable state、pointer ownershipがありません。static artifactはprocess imageのlifetimeに従います。
+scalar P1 runtimeにはloader、mutable state、pointer ownershipがありません。唯一のcacheはgenerated Registryのimmutable lazy validation resultで、Swift runtimeのthread-safe static initializationに従います。static artifactはprocess imageのlifetimeに従います。buffer familyはSwift-owned storageを同期borrowし、session familyだけが後述する明示的なforeign handle ownership stateを持ちます。
 
 borrowed buffer runtimeは次の別経路です。
 
@@ -171,6 +182,76 @@ try sum(values)
 ```
 
 Swiftの`Array`がownerであり、generated Registryのclosureがborrow lifetimeです。Mojoへ渡すpointerは保存、返却、非同期利用、free、mutationを許可しません。現段階では中間配列を生成しない実装ですが、copy/allocationの計測前にzero-copy verifiedとは扱いません。
+
+caller-owned mutable outputはさらに別のsignature familyです。
+
+```text
+try scale(input, into: &output)
+  -> macro-generated invokeFloatBufferMutation(bindingID, input, &output)
+  -> cached ABI + input graph + complete membership validation
+  -> signature-family binding guard
+  -> input.withUnsafeBufferPointer
+  -> output.withUnsafeMutableBufferPointer
+  -> reject either empty storage before dispatch
+  -> <target_prefix>_call_f32_buffer_f32_buffer_i32(
+         bindingID, const float*, inputCount, float*, outputCount) -> int32_t
+  -> Mojo external implementation synchronously mutates output
+  -> status 0: both borrows end and return Void
+  -> status nonzero: both borrows end and throw invocationFailed
+```
+
+Swiftがinput/outputのownerで、nested closureが共通borrow lifetimeです。Mojoはoutputを範囲内で変更できますが、pointerの保存、返却、非同期利用、freeはできません。nonzero statusはrollbackを保証せず、failure時のoutput内容は未規定です。このsliceはKuyuのhost-side canonical buffer更新に必要な最小境界ですが、device allocation、tensor owner、session、GPU executionの代替ではありません。
+
+opaque runtime sessionは別のsignature familyです。
+
+```text
+try openSession(requirements)
+  -> generated create_session_v1
+  -> Mojo initializes one resource and returns flat capability fields + void*
+  -> Registry validates schema/device/ordinal/capability
+  -> validation failure: paired shutdown, then typed error
+  -> success: MojoSessionOwner owns one factory-domain-bound handle
+
+try scale(session, input, into: &output)
+  -> domain check -> begin single synchronous lease
+  -> nested Swift buffer borrows -> generated session dispatcher
+  -> defer ends handle lease and buffer borrows
+
+try makeBuffer(session, elementCount, memoryKind)
+  -> validate Float32 + memory-kind capabilities and byte-count overflow
+  -> begin session lease -> generated create_f32_buffer_v1
+  -> success: atomically register one opaque child before ending the lease
+  -> failure: destroy any returned handle before throwing typed error
+
+try buffer.copy(from: hostValues)
+  -> require an exact non-zero element count
+  -> borrow session + child under the same single lease
+  -> generated copy_host_to_f32_buffer_v1
+  -> external implementation completes transfer synchronization before return
+
+try buffer.copy(into: &hostValues)
+  -> require the exact element count
+  -> borrow session + child under the same single lease
+  -> generated copy_f32_buffer_to_host_v1
+  -> external implementation completes transfer synchronization before return
+
+try buffer.shutdown()
+  -> remove child under Mutex -> paired destroy outside Mutex -> idempotent terminal state
+
+try session.shutdown()
+  -> reject while any child is active
+  -> clear handle under Mutex -> destroy outside Mutex -> idempotent terminal state
+```
+
+session/resourceのcreator/destructorはMojo package、lifecycle ownerはSwiftの
+`MojoSessionOwner`と`MojoFloat32BufferOwner`、raw handle pairのconsumerはgenerated
+Registryだけです。同時・再入useまたはborrow中shutdownは待機やfallbackを行わず
+typed `busy`で失敗し、active childより先のparent shutdownは`activeResources`で
+失敗します。host buffer ownershipと同期round-trip transferはreal runtimeで検証済み
+ですが、capability enumやhost `malloc` fixtureだけからMetal/CUDA allocation、DMA、
+synchronization、native Jetson executionを推測しません。`.hostPinned` はMojo
+`DeviceContext.enqueue_create_host_buffer` が表すpage-locked host memoryの契約であり、
+vendor固有のmanaged/unified memoryをcross-platform共通機能として公開しません。
 
 ## 5. Why a normal macro is sufficient only for a subset
 
@@ -235,7 +316,9 @@ hash collision at runtime ID     -> duplicate failure or full build-time digest 
 
 dispatcherのunknown ID branchはC ABI上のtotal functionとして値を返しますが、generated Swift Registryはmembershipを確認してからだけ呼びます。build verifierと、`-Ounchecked` でも除去されないruntime guardを通らないIDはSwift成功値として到達できません。
 
-buffer dispatcherはC ABIを越えてSwift/Mojo errorをunwindせず、`Float32` を直接返します。ABI/input graph/全binding membershipはgenerated Registryのthread-safeなimmutable static cacheで最初のaccess時に一度だけ検証します。各呼び出しにはinlining可能なsignature-family guardだけを残し、out storage、status分岐、反復C検証を置きません。buffer validationはthrowing Swift surfaceで `MojoInvocationError` に写像します。
+すべてのsignature familyは同じgenerated Registry validation cacheを使います。ABI/input graph/全binding membershipは最初のaccess時に一度だけC ABIで検証され、scalar-only artifactでもbuffer binding追加後でも同じscalar hot pathを維持します。各呼び出しにはinlining可能なsignature-family guardだけを残し、out storage、status分岐、反復C検証を置きません。buffer dispatcherはC ABIを越えてSwift/Mojo errorをunwindせず、`Float32` を直接返し、validation failureはthrowing Swift surfaceで `MojoInvocationError` に写像します。
+
+performance measurementはcorrectness testから分離します。`Benchmarks/RuntimeBridge`だけが明示実行時に同一Release executableのpublic wrapperとdirect dispatcherを比較し、p50/p95、input size、warm-up、sample/call count、host、Swift、Mojoを出力します。通常の `Tests/` とPR CIは時間閾値を持ちません。
 
 ### 8.2 Integrity envelope
 
@@ -245,12 +328,12 @@ Swift source full digest
   + Mojo compiler version
   + every target triple/CPU/accelerator
   + ABI/schema version
-  + XCFramework canonical tree digest
+  + adapter-specific artifact records and canonical tree digests
 ```
 
-schema 4のmanifestはcompiler sliceを個別に保持しますが、XCFramework内のstatic frameworkはplatformとvariantでgroup化します。同じgroupのarchitecture objectは個別にarchiveした後 `lipo` で1つのuniversal static framework binaryへ統合します。SwiftPM/Xcodeのdestination selectorと一致しない「同一platform/variantのframeworkをarchitectureごとに複数登録する」構造は生成しません。targetごとにframework/module/header/binary名を分離し、複数binary targetの `module.modulemap` がbuild product上で衝突しないようにします。verifierはmanifest上の全compiler sliceと、group framework binaryのexact architecture集合を双方向に照合します。
+schema 5のmanifestはcompiler sliceとartifact recordを独立して保持します。Apple static frameworkはplatform/variantでgroup化し、同じgroupのarchitecture archiveを`lipo`でuniversal binaryへ統合します。Linux sliceはexact target tripleごとのSE-0482 `staticLibrary` variantへ写像します。Swift source targetはApple/Linux binary targetへplatform condition付きで依存し、両artifactは同じgenerated C moduleを公開します。verifierはconfigured slice、adapter集合、archive、metadata、tree digestを双方向に照合します。
 
-tree digestは全group archiveだけでなく、header、module map、Info.plistも対象にします。absolute path、mtime、filesystem enumeration orderは含めません。pluginはartifact rootだけでなく既存の全regular fileとdirectoryをbuild inputへ登録するため、内容の上書きとtree entryの増減の双方がverify commandをinvalidateします。
+tree digestは全archiveだけでなく、header、module map、Info.plist/info.jsonも対象にします。absolute path、mtime、filesystem enumeration orderは含めません。pluginは全artifact rootと既存の全regular file/directoryをbuild inputへ登録するため、内容の上書きとtree entryの増減の双方がverify commandをinvalidateします。
 
 ### 8.3 Static linking choice
 
@@ -276,8 +359,12 @@ P1はdynamic loadingを使いません。理由は次です。
 | static artifact | linker/process | executable image | process lifetime | immutable code/data | link failure or invariant trap |
 | borrowed `[Float]` storage | Swift caller | Swift `Array` | synchronous `withUnsafeBufferPointer` closure | immutable borrow; no shared mutation | empty buffer is typed failure |
 | buffer result value | Swift caller | returned `Float` | value lifetime | immutable value | no separate status channel in the current signature family |
+| mutable output `[Float]` storage | Swift caller | Swift `Array` | nested synchronous `withUnsafeMutableBufferPointer` closure | exclusive mutable borrow during call | empty output or nonzero Mojo status is typed failure; content after failure is unspecified |
+| mutable call status | Mojo implementation | returned `Int32` value | one dispatcher call | immutable value | `0` succeeds; nonzero maps to `invocationFailed(bindingID:status:)` |
+| opaque session handle | Mojo factory | `MojoSessionOwner` | successful create through explicit shutdown/deinit | one `Mutex<State>` and one synchronous lease | create/use/lifecycle failures are typed; destroy is exactly once |
+| Float32 resource handle | Mojo buffer factory | `MojoFloat32BufferOwner` retained by the caller and registered by its session | successful create through explicit shutdown/deinit | parent session Mutex + the same synchronous lease | capability/size/create/lifecycle failures are typed; child destroy is exactly once and precedes parent destroy |
 
-P1 runtimeに共有可変stateはありません。一方、generated directoryは複数CLI processから到達できる外部可変stateなので、cache readからcommitまでoutput path由来のinterprocess lockで保護します。process-localなunchecked Sendable、actor、Mutexでfilesystem transactionの排他を代替しません。将来async operation、callback ownerを追加するときはruntime stateに別の明示isolationを設計します。
+scalar/borrowed-buffer runtimeに共有可変ownership stateはありません。session lifecycleとchild-resource registryは全targetで同じ `Mutex<State>` により保護し、foreign callとdestroyはcritical section外で実行します。一方、generated directoryは複数CLI processから到達できる外部可変stateなので、cache readからcommitまでoutput path由来のinterprocess lockで保護します。process-localなMutexでfilesystem transactionの排他を代替しません。将来async operation、callback ownerを追加するときは現在の同期leaseを流用せず、completion ownerを含む別の明示isolationを設計します。
 
 ## 10. Error contract
 
@@ -285,13 +372,16 @@ P1 runtimeに共有可変stateはありません。一方、generated directory�
 |---|---|---|
 | macro | generated thunk | source-located macro diagnostic |
 | scanner | versioned graph | typed unsupported syntax/signature/duplicate/no-binding error |
-| compiler | produced object + diagnostic | locate/launch/status/timeout/UTF-8/no-output error; descendants reaped |
+| compiler/object linkage | produced link-closed object + diagnostic | locate/launch/status/timeout/UTF-8/no-output error; unsupported `KGEN_CompilerRT_*` dependency; descendants reaped |
 | transaction | complete managed directory | lock/scope/primary error; cleanup/restore failureも保持 |
 | verifier | generated Registry | missing/invalid/stale/target/digest error |
 | scalar runtime | `Int32` result | verified invariant mismatch traps |
 | borrowed-buffer runtime | `Float` result | cached `MojoInvocationError` for ABI、graph、binding mismatch; per-call error for empty buffer |
+| mutable-output runtime | caller-owned output mutation + `Void` | cached artifact errors; per-call empty input/output errors; nonzero Mojo status with binding ID |
+| opaque-session runtime | typed capabilities + factory-domain-bound `MojoSessionOwner` | create/status/schema/capability errors; busy、shutdown、domain mismatch; paired cleanup after rejected creation |
+| session-owned Float32 buffer | typed `MojoFloat32BufferOwner` | missing capability、byte-count overflow、status/missing handle、busy/resource shutdown/active-resource errors; paired cleanup after rejected creation |
 
-scalar runtimeで `throws` にしないのは、toolchain/artifact failureをprepare/build gateへ移した静的設計だからです。borrowed-buffer sliceはdirect-return ABIとtyped Swift validation errorの最小形を実装していますが、owned diagnostic payloadやMojo-side recoverable error envelopeはまだ持ちません。
+scalar runtimeで `throws` にしないのは、toolchain/artifact failureをprepare/build gateへ移した静的設計だからです。immutable borrowed-buffer sliceはdirect-return ABIとtyped Swift validation errorの最小形です。mutable-output sliceはrecoverable Mojo-side statusを追加しましたが、owned diagnostic payloadやtransactional output rollbackは持ちません。opaque session/resource sliceはMojo-created stateのlifetimeを跨ぎますが、operationは同期かつsingle-leaseです。GPU availability、device execution、async completionはcapability spellingから推測せず、実adapterとacceptanceを要求します。
 
 ## 11. Public API, implementation, and tests
 
@@ -301,15 +391,17 @@ scalar runtimeで `throws` にしないのは、toolchain/artifact failureをpre
 | `swift package --allow-writing-to-package-directory mojo init` | `MojoArtifactInitializer` + transaction | preserve prepared、reject unmanaged/incomplete tests |
 | `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare` | source graph + pipeline identity + renderer + compiler + packager | cache invalidation/lock tests、gated real Mojo acceptance |
 | borrowed `[Float]` | buffer signature IR + macro + generated Mojo/C/Registry | unit/artifact tests、real Mojo compile、compiler-free link/run、typed empty failure、Mach-O inspection verified; allocation/copy and sanitizers pending |
-| build plugin | leaf/directory inputs + `verify` | committed schema-4 fixture verifies, links, and returns `42`; verifier/release suites cover wrong target、stale、missing/corrupt nested inputs |
-| static artifact | XCFramework + generated Registry | corrupt archive/header tests、Mach-O symbol/dylib inspection |
+| mutable `inout [Float]` output | mutable signature IR + macro + nested borrow Registry + generated status ABI | unit/artifact tests、real Mojo 1.0 arm64 compile/static link/runtime mutation、typed status、empty input/output、Mach-O/no-dylib inspection verified locally; immutable-revision universal release、allocation/copy、sanitizers pending |
+| `MojoSessionOwner` / `MojoFloat32BufferOwner` | session/resource factory IR + macro + generated versioned create/use/copy/synchronize/shutdown ABI + `Mutex<State>` owner | unit/artifact tests、real Mojo 1.0 universal macOS session/host-buffer lifecycle and round-trip copy、cleanup、typed copy/synchronize failures、reentrant/concurrent busy、ten-symbol/no-dylib inspection、Swift Address Sanitizer、Mojo Address Sanitizer verified locally; native Jetson/MAX-backed GPU pending |
+| build plugin | leaf/directory inputs + `verify` | committed schema-5 mixed fixture verifies, Apple-links, and returns `42`; verifier/release suites cover wrong target、stale、missing/corrupt nested inputs |
+| static artifact | Apple XCFramework + Linux static-library artifact bundle + generated Registry | corrupt archive/header/metadata tests、Mach-O and ELF archive inspection |
 | relocation | static executable | artifact copy outside build location returns scalar `42` and buffer `10.0` without Mojo installed |
 
 ## 12. Target and packaging behavior
 
-schema 4では `SwiftMojo.json` がtargetごとのApple slice setを所有します。同一platform/architecture/variantへcollapseするCPU違いのsliceはXCFrameworkが選択できないため、configuration/prepare boundaryで拒否します。
+schema 5では `SwiftMojo.json` がtargetごとのApple/Linux slice setを所有します。同一Apple platform/architecture/variant、または同一Linux target tripleへcollapseするCPU違いのsliceはSwiftPMが選択できないため、configuration/prepare boundaryで拒否します。
 
-configured buildはhost architectureをdestinationと仮定せず、manifestとconfigurationの全slice set、XCFramework metadata、generated compile-time platform guardを検証したうえでXcode/SwiftPMのlinker selectionへ委ねます。`SWIFT_MOJO_TARGET_TRIPLE` / `CPU` / `ACCELERATOR` が明示された場合だけ、verifierがそのexact prepared targetも要求します。schema-3 compatibility pathはhost macOS defaultを使います。
+configured buildはhost architectureをdestinationと仮定せず、manifestとconfigurationの全slice/adapter set、native metadata、generated compile-time platform guardを検証したうえでXcode/SwiftPMのlinker selectionへ委ねます。`SWIFT_MOJO_TARGET_TRIPLE` / `CPU` / `ACCELERATOR` が明示された場合だけ、verifierがそのexact prepared targetも要求します。schema-3 compatibility pathはhost macOS defaultを使います。
 
 `Generated/<Target>` はsource-controlled inputです。SwiftPMはlocal binary targetをpackage graph読込時に必要とするため、pluginだけで空のbinary target pathを後から作ることはできません。`init` が最初のbootstrapを担います。
 
@@ -342,6 +434,7 @@ configured buildはhost architectureをdestinationと仮定せず、manifestとc
 │   └── Kernels.mojo
 ├── Generated/<ModelTarget>/
 │   ├── <GeneratedModule>.xcframework
+│   ├── <GeneratedModule>.artifactbundle
 │   ├── Bindings.mojo
 │   ├── MojoSourceMap.json
 │   └── MojoArtifact.json
@@ -379,7 +472,7 @@ Mojo package directoryは `__init__.mojo` を持ちます。prepareはgenerated 
 
 External package/function names use Mojo's current unescaped ASCII identifier grammar and reject the language's reserved keywords. Escaped identifiers are not accepted at this boundary because generated imports, canonical identity, and source-map diagnostics must share one portable spelling.
 
-schema-4 input graphとmanifestは現在、次をidentityへ含めます。
+schema-5 input graphとmanifestは現在、次をidentityへ含めます。
 
 - Mojo package内の全regular source fileのrelative path、length、content。
 - package name、entry module、exported binding mapping。
@@ -403,13 +496,13 @@ LLM weightsはSwiftPM source packageやXCFrameworkへ同梱しません。model 
 
 ### 13.6 Current implementation boundary
 
-schema-4 sourceはtarget-scoped identity、Swift + external Mojo input graph、generated package import、compiler `-I` roots、multiple Apple slices、configuration-aware build verification、read-only release gateを実装しています。real external package、arm64/x86_64 universal artifact、compiler-free relocated scalar/borrowed-buffer consumer、two-target static-framework link/runtimeまで実証済みです。残るdistribution gapは次です。
+schema-5 sourceはtarget-scoped identity、Swift + external Mojo input graph、generated package import、compiler `-I` roots、multiple Apple/Linux slices、adapter-specific packaging、configuration-aware build verification、read-only release gateを実装しています。real external package、arm64/x86_64 universal Apple artifact、aarch64 Linux cross artifact、compiler-free relocated scalar/borrowed-buffer consumer、two-target static-framework link/runtimeまで実証済みです。残るdistribution gapは次です。
 
 1. imported Mojo dependency lock identityとreproducible dependency acquisition。
 2. remote artifact distribution、checksum、signing、release/tag policy。
 3. model/session API、weights compatibility、実推論、shutdown/error/cancellation acceptance。
 
-Apple platformではXCFrameworkをnative artifact adapterとして継続できます。SwiftPMのbinary targetがApple platform向けである現行制約のもと、Linux等をXCFrameworkまたは同一manifest spellingで扱えるとは仮定しません。各platform adapterはlink方法、artifact layout、consumer verificationを実証してからsupported sliceへ追加します。
+Apple platformはXCFramework、LinuxはSwiftPM SE-0482 `staticLibrary` artifact bundleをnative artifact adapterとして使います。両者を同じlayoutとして偽装せず、schema 5のadapter recordとplatform-conditioned binary dependencyで分離します。Linuxのcross artifactは検証済みですが、supported native deploymentを名乗るにはJetson上のSwift link/run gateが必要です。
 
 ## 14. `@c`, callbacks, and platform frameworks
 

@@ -96,7 +96,7 @@ The implementation is not Verified until all of the following are executed:
 7. allocation/copy measurement before describing the path as verified zero-copy;
 8. supported sanitizer runs for pointer bounds and lifetime failures.
 
-Gates 1 through 6 are complete on macOS with Mojo `1.0.0 (ed45d567)`. The immutable remote revision produced scalar `42`、buffer sum `10.0`、the typed empty-buffer failure、five expected bridge symbols、and no Mojo dynamic dependency. A same-executable Release latency benchmark measured `0.893%` median wrapper overhead against the direct dispatcher for work above 1 µs. Gate 7 remains incomplete because allocation/copy counts were not observed, and gate 8 remains incomplete.
+Gates 1 through 6 are complete on macOS with Mojo `1.0.0 (ed45d567)` for the previously recorded candidate. That immutable remote revision produced scalar `42`、buffer sum `10.0`、the typed empty-buffer failure、five expected bridge symbols、and no Mojo dynamic dependency. Its `0.893%` median wrapper-over-direct result is historical evidence and is not treated as reproducible proof for later commits. `Benchmarks/RuntimeBridge` now owns explicit same-executable Release measurement and records p50/p95 plus its environment; it is separate from correctness tests and normal CI. Gate 7 remains incomplete because allocation/copy counts were not observed, and gate 8 remains incomplete. The latest Registry/source-inventory hardening requires fresh gate execution before release.
 
 ## References
 

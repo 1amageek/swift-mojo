@@ -1,0 +1,160 @@
+import Foundation
+import Mojo
+import SwiftMojo_RuntimeBridgeBenchmark_ABI
+
+@mojo(package: "BenchmarkModel", function: "sum")
+func mojoSum(_ values: [Float]) throws -> Float
+
+@inline(never)
+private func callWrapper(_ values: borrowing [Float]) throws -> Float {
+    try mojoSum(values)
+}
+
+@inline(never)
+private func callDirectDispatcher(_ values: borrowing [Float]) throws -> Float {
+    try values.withUnsafeBufferPointer { buffer in
+        guard let baseAddress = buffer.baseAddress,
+              !buffer.isEmpty else {
+            throw MojoInvocationError.emptyBorrowedBuffer
+        }
+        return __SWIFT_MOJO_DIRECT_CALL__(
+            __SWIFT_MOJO_BINDING_ID__,
+            baseAddress,
+            UInt64(buffer.count)
+        )
+    }
+}
+
+@main
+enum RuntimeBridgeBenchmark {
+    private struct Measurement {
+        let samples: [Double]
+        let checksum: Float
+
+        var p50: Double { percentile(0.50) }
+        var p95: Double { percentile(0.95) }
+
+        private func percentile(_ quantile: Double) -> Double {
+            let sorted = samples.sorted()
+            let index = Int((Double(sorted.count - 1) * quantile).rounded())
+            return sorted[index]
+        }
+    }
+
+    static func main() throws {
+        let bufferCount = try positiveArgument(at: 1, default: 4_096)
+        let sampleCount = try positiveArgument(at: 2, default: 80)
+        let callsPerSample = try positiveArgument(at: 3, default: 100)
+        let warmupCalls = max(1_000, callsPerSample * 5)
+        let values = (0..<bufferCount).map { Float(($0 % 17) + 1) }
+
+        for _ in 0..<warmupCalls {
+            _ = try callWrapper(values)
+            _ = try callDirectDispatcher(values)
+        }
+
+        var wrapperSamples: [Double] = []
+        var directSamples: [Double] = []
+        wrapperSamples.reserveCapacity(sampleCount)
+        directSamples.reserveCapacity(sampleCount)
+        var wrapperChecksum: Float = 0
+        var directChecksum: Float = 0
+
+        for sample in 0..<sampleCount {
+            if sample.isMultiple(of: 2) {
+                let wrapper = try measure(
+                    calls: callsPerSample,
+                    body: { try callWrapper(values) }
+                )
+                let direct = try measure(
+                    calls: callsPerSample,
+                    body: { try callDirectDispatcher(values) }
+                )
+                wrapperSamples.append(wrapper.nanosecondsPerCall)
+                directSamples.append(direct.nanosecondsPerCall)
+                wrapperChecksum += wrapper.checksum
+                directChecksum += direct.checksum
+            } else {
+                let direct = try measure(
+                    calls: callsPerSample,
+                    body: { try callDirectDispatcher(values) }
+                )
+                let wrapper = try measure(
+                    calls: callsPerSample,
+                    body: { try callWrapper(values) }
+                )
+                directSamples.append(direct.nanosecondsPerCall)
+                wrapperSamples.append(wrapper.nanosecondsPerCall)
+                directChecksum += direct.checksum
+                wrapperChecksum += wrapper.checksum
+            }
+        }
+
+        let wrapper = Measurement(
+            samples: wrapperSamples,
+            checksum: wrapperChecksum
+        )
+        let direct = Measurement(
+            samples: directSamples,
+            checksum: directChecksum
+        )
+        guard wrapper.checksum == direct.checksum else {
+            throw BenchmarkError.checksumMismatch
+        }
+        let report: [String: Any] = [
+            "bufferElements": bufferCount,
+            "callsPerSample": callsPerSample,
+            "checksum": wrapper.checksum,
+            "directP50Nanoseconds": direct.p50,
+            "directP95Nanoseconds": direct.p95,
+            "host": ProcessInfo.processInfo.operatingSystemVersionString,
+            "sampleCount": sampleCount,
+            "warmupCalls": warmupCalls,
+            "wrapperOverheadPercentP50": ((wrapper.p50 / direct.p50) - 1) * 100,
+            "wrapperP50Nanoseconds": wrapper.p50,
+            "wrapperP95Nanoseconds": wrapper.p95,
+        ]
+        let data = try JSONSerialization.data(
+            withJSONObject: report,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        guard let output = String(data: data, encoding: .utf8) else {
+            throw BenchmarkError.outputEncodingFailed
+        }
+        print(output)
+    }
+
+    private static func positiveArgument(
+        at index: Int,
+        default defaultValue: Int
+    ) throws -> Int {
+        guard CommandLine.arguments.indices.contains(index) else {
+            return defaultValue
+        }
+        guard let value = Int(CommandLine.arguments[index]), value > 0 else {
+            throw BenchmarkError.invalidPositiveInteger(
+                CommandLine.arguments[index]
+            )
+        }
+        return value
+    }
+
+    private static func measure(
+        calls: Int,
+        body: () throws -> Float
+    ) rethrows -> (nanosecondsPerCall: Double, checksum: Float) {
+        var checksum: Float = 0
+        let start = DispatchTime.now().uptimeNanoseconds
+        for _ in 0..<calls {
+            checksum += try body()
+        }
+        let elapsed = DispatchTime.now().uptimeNanoseconds - start
+        return (Double(elapsed) / Double(calls), checksum)
+    }
+}
+
+private enum BenchmarkError: Error {
+    case checksumMismatch
+    case invalidPositiveInteger(String)
+    case outputEncodingFailed
+}

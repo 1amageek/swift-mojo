@@ -12,13 +12,14 @@ package struct MojoArtifactInspector: Sendable {
 
     package func inspect(
         layout: MojoPackageLayout,
-        configuration: SwiftMojoConfiguration?
+        configuration: SwiftMojoConfiguration?,
+        sourceURLs: [URL]
     ) throws -> MojoInspectionReport {
         let packageNames = try configuration?
             .target(named: layout.targetName).mojoPackages ?? []
         let inputGraph = try MojoInputGraph(
             bindingGraph: MojoSourceGraph(
-                sourceURLs: layout.sourceURLs(),
+                sourceURLs: sourceURLs,
                 sourceRootURL: layout.packageRootURL
             ),
             externalPackages: layout.externalPackages(names: packageNames)

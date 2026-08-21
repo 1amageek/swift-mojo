@@ -3,10 +3,11 @@ import MojoBindingCore
 import MojoCompilerCore
 
 package struct MojoArtifactPreparer: Sendable {
-    package static let packagingVersion = 5
+    package static let packagingVersion = 7
 
     private let compiler: any MojoObjectCompiling
     private let generationPipelineDigestOverride: String?
+    private let linkageInspector: MojoObjectLinkageInspector
     private let processRunner: any MojoProcessRunning
     private let renderer: MojoStaticSourceRenderer
     private let transaction: MojoOutputTransaction
@@ -29,6 +30,9 @@ package struct MojoArtifactPreparer: Sendable {
     ) {
         self.compiler = compiler
         self.generationPipelineDigestOverride = generationPipelineDigest
+        self.linkageInspector = MojoObjectLinkageInspector(
+            processRunner: processRunner
+        )
         self.processRunner = processRunner
         self.renderer = renderer
         self.transaction = transaction
@@ -146,6 +150,10 @@ package struct MojoArtifactPreparer: Sendable {
                     }
                     throw error
                 }
+                try linkageInspector.validate(
+                    objectURL: objectURL,
+                    target: target
+                )
                 try run(
                     executablePath: "/usr/bin/ar",
                     arguments: ["rcs", archiveURL.path, objectURL.path]
@@ -158,56 +166,22 @@ package struct MojoArtifactPreparer: Sendable {
                 )
             }
 
-            let packagedArchives = try packageLibraries(
+            let packaged = try packageArtifacts(
                 builtArchives,
-                in: staging,
-                identity: options.identity
-            )
-            let artifactURL = staging.appendingPathComponent(
-                options.identity.artifactName,
-                isDirectory: true
-            )
-            let frameworks = try createStaticFrameworks(
-                from: packagedArchives,
                 header: renderedHeader,
                 in: staging,
                 identity: options.identity
             )
-            var packagingArguments = ["xcodebuild", "-create-xcframework"]
-            for frameworkURL in frameworks {
-                packagingArguments.append(
-                    contentsOf: [
-                        "-framework", frameworkURL.path,
-                    ]
-                )
-            }
-            packagingArguments.append(contentsOf: ["-output", artifactURL.path])
-            try run(
-                executablePath: "/usr/bin/xcrun",
-                arguments: packagingArguments
-            )
-
-            let slices = try MojoXCFrameworkInspector.resolveSlices(
-                artifactURL: artifactURL,
-                identity: options.identity,
-                targets: options.targets
-            )
-            try MojoXCFrameworkInspector.validate(
-                artifactURL: artifactURL,
-                identity: options.identity,
-                slices: slices
-            )
-            let artifactDigest = try MojoCanonicalDigest.tree(at: artifactURL)
             let manifest = MojoArtifactManifest(
                 compilerVersion: compilerVersion,
                 artifactIdentity: options.identity,
                 inputGraph: inputGraph,
-                slices: slices,
+                slices: packaged.slices,
                 generatedSourceDigest: MojoCanonicalDigest.hex(
                     generatedSourceData
                 ),
                 sourceMapDigest: MojoCanonicalDigest.hex(sourceMapData),
-                artifactDigest: artifactDigest,
+                artifacts: packaged.artifacts,
                 generationPipelineDigest: generationPipelineDigest
             )
             let encoder = JSONEncoder()
@@ -277,7 +251,101 @@ package struct MojoArtifactPreparer: Sendable {
         }
     }
 
-    private func packageLibraries(
+    private func packageArtifacts(
+        _ builtArchives: [(MojoTargetConfiguration, URL)],
+        header: String,
+        in stagingURL: URL,
+        identity: MojoArtifactIdentity
+    ) throws -> (
+        artifacts: [MojoArtifactManifest.Artifact],
+        slices: [MojoArtifactManifest.Slice]
+    ) {
+        let groups = try Dictionary(grouping: builtArchives) { archive in
+            try MojoNativeArtifactAdapter(target: archive.0)
+        }
+        var artifacts: [MojoArtifactManifest.Artifact] = []
+        var slices: [MojoArtifactManifest.Slice] = []
+
+        if let archives = groups[.appleXCFramework] {
+            let artifactURL = stagingURL.appendingPathComponent(
+                identity.artifactName,
+                isDirectory: true
+            )
+            let packagedArchives = try packageAppleLibraries(
+                archives,
+                in: stagingURL,
+                identity: identity
+            )
+            let frameworks = try createStaticFrameworks(
+                from: packagedArchives,
+                header: header,
+                in: stagingURL,
+                identity: identity
+            )
+            var arguments = ["xcodebuild", "-create-xcframework"]
+            for frameworkURL in frameworks {
+                arguments.append(
+                    contentsOf: ["-framework", frameworkURL.path]
+                )
+            }
+            arguments.append(contentsOf: ["-output", artifactURL.path])
+            try run(
+                executablePath: "/usr/bin/xcrun",
+                arguments: arguments
+            )
+            let appleSlices = try MojoXCFrameworkInspector.resolveSlices(
+                artifactURL: artifactURL,
+                identity: identity,
+                targets: archives.map(\.0)
+            )
+            try MojoXCFrameworkInspector.validate(
+                artifactURL: artifactURL,
+                identity: identity,
+                slices: appleSlices
+            )
+            slices.append(contentsOf: appleSlices)
+            artifacts.append(
+                MojoArtifactManifest.Artifact(
+                    adapter: .appleXCFramework,
+                    name: identity.artifactName,
+                    digest: try MojoCanonicalDigest.tree(at: artifactURL)
+                )
+            )
+        }
+
+        if let archives = groups[.linuxStaticLibraryBundle] {
+            let artifactURL = stagingURL.appendingPathComponent(
+                identity.linuxArtifactName,
+                isDirectory: true
+            )
+            let linuxSlices = try MojoStaticLibraryArtifactBundleLayout.create(
+                at: artifactURL,
+                identity: identity,
+                archives: archives.map {
+                    (target: $0.0, archiveURL: $0.1)
+                },
+                header: header,
+                moduleMap: renderer.moduleMap(identity: identity)
+            )
+            slices.append(contentsOf: linuxSlices)
+            artifacts.append(
+                MojoArtifactManifest.Artifact(
+                    adapter: .linuxStaticLibraryBundle,
+                    name: identity.linuxArtifactName,
+                    digest: try MojoCanonicalDigest.tree(at: artifactURL)
+                )
+            )
+        }
+
+        return (
+            artifacts: artifacts.sorted {
+                $0.adapter.rawValue < $1.adapter.rawValue
+            },
+            slices: slices.sorted { $0.target.identity < $1.target.identity }
+        )
+    }
+
+    private func packageAppleLibraries(
         _ builtArchives: [(MojoTargetConfiguration, URL)],
         in stagingURL: URL,
         identity: MojoArtifactIdentity
@@ -398,15 +466,7 @@ package struct MojoArtifactPreparer: Sendable {
     }
 
     private static func validate(target: MojoTargetConfiguration) throws {
-        let normalized = target.triple.lowercased()
-        let supportedArchitecture = normalized.hasPrefix("arm64-")
-            || normalized.hasPrefix("aarch64-")
-            || normalized.hasPrefix("x86_64-")
-        let supportedPlatform = normalized.contains("-apple-macos")
-            || normalized.contains("-apple-ios")
-        guard supportedArchitecture && supportedPlatform else {
-            throw MojoArtifactError.unsupportedTarget(target.triple)
-        }
+        _ = try MojoNativeArtifactAdapter(target: target)
     }
 
     private func cachedManifest(
@@ -416,8 +476,11 @@ package struct MojoArtifactPreparer: Sendable {
         generationPipelineDigest: String
     ) throws -> MojoArtifactManifest? {
         let fileManager = FileManager.default
+        let artifactURLs = try options.artifactURLs
         guard fileManager.fileExists(atPath: options.manifestURL.path),
-              fileManager.fileExists(atPath: options.artifactURL.path),
+              artifactURLs.allSatisfy({
+                  fileManager.fileExists(atPath: $0.path)
+              }),
               fileManager.fileExists(atPath: options.generatedSourceURL.path),
               fileManager.fileExists(atPath: options.sourceMapURL.path),
               MojoRegularFile.isValid(at: options.manifestURL),
@@ -469,24 +532,53 @@ package struct MojoArtifactPreparer: Sendable {
                 ) else {
             return nil
         }
-        let archives = try MojoArtifactVerifier.archiveURLs(
-            in: options.artifactURL,
-            identity: options.identity
+        let expectedAdapters = Set(
+            try options.targets.map(MojoNativeArtifactAdapter.init)
         )
-        let packagedLibraryCount = Set(
-            manifest.effectiveSlices.map(\.libraryIdentifier)
-        ).count
-        guard archives.count == packagedLibraryCount else {
+        let artifacts = manifest.effectiveArtifacts
+        guard artifacts.count == expectedAdapters.count,
+              Set(artifacts.map(\.adapter)) == expectedAdapters,
+              artifacts.allSatisfy({ artifact in
+                  artifact.name
+                      == artifact.adapter.artifactName(identity: options.identity)
+              }),
+              manifest.artifactDigest
+                == MojoArtifactManifest.digest(artifacts: artifacts) else {
             return nil
         }
-        let digest: String
-        do {
-            digest = try MojoCanonicalDigest.tree(at: options.artifactURL)
-        } catch is MojoCanonicalDigestError {
-            return nil
-        }
-        guard digest == manifest.artifactDigest else {
-            return nil
+        for artifact in artifacts {
+            let artifactURL = options.outputDirectoryURL.appendingPathComponent(
+                artifact.name,
+                isDirectory: true
+            )
+            let artifactSlices = try manifest.effectiveSlices.filter {
+                try MojoNativeArtifactAdapter(target: $0.target)
+                    == artifact.adapter
+            }
+            do {
+                switch artifact.adapter {
+                case .appleXCFramework:
+                    try MojoXCFrameworkInspector.validate(
+                        artifactURL: artifactURL,
+                        identity: options.identity,
+                        slices: artifactSlices
+                    )
+                case .linuxStaticLibraryBundle:
+                    try MojoStaticLibraryArtifactBundleLayout.validate(
+                        artifactURL: artifactURL,
+                        identity: options.identity,
+                        slices: artifactSlices
+                    )
+                }
+                guard try MojoCanonicalDigest.tree(at: artifactURL)
+                        == artifact.digest else {
+                    return nil
+                }
+            } catch is MojoCanonicalDigestError {
+                return nil
+            } catch is MojoArtifactError {
+                return nil
+            }
         }
         guard try options.inputGraph() == inputGraph else {
             throw MojoArtifactError.inputsChangedDuringOperation(

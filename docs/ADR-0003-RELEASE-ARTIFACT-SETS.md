@@ -1,8 +1,8 @@
 # ADR-0003: Target-scoped artifact sets and release verification
 
-- Status: Accepted
+- Status: Accepted; schema-4 packaging extended by ADR-0008
 - Date: 2026-08-20
-- Scope: Schema-4 authoring and release contract
+- Scope: Target-scoped authoring and release contract; schema 4 is the historical Apple-only form
 
 ## Context
 
@@ -17,7 +17,7 @@ schema-3 P1は1つのfixed C module、1つのarm64 macOS archive、Swift source�
 3. `MojoInputGraph` はparser diagnosticのないSwift binding graphとexternal package内全regular fileのrelative path/content digestを合成し、package内部のsymbolic linkを拒否する。
 4. generated entry moduleはexternal functionをimportし、Mojo compilerへ宣言済みpackageだけをsymlinkしたstaging import rootを `-I` で渡す。packageの実parentや未宣言の兄弟packageはcompiler search pathへ公開しない。
 5. module、archive、artifact、C symbol prefixはSwift target identityから決定し、複数targetのlink collisionを防ぐ。hyphenを含むtargetはfull target digestをmodule/archive componentへ含め、underscore正規化との衝突を避ける。
-6. schema-4 manifestはinput graph、canonical generated Mojo、source map、compiler、全slice、各archive、hidden fileを含むXCFramework treeを1つのcompatibility envelopeへ入れる。artifact treeのsymbolic linkは外部可変byteを参照し得るため拒否する。verifyはgenerated Mojo/source mapをcurrent rendererから再構成し、manifestの自己申告digestだけを信頼しない。
+6. schema-4 manifestはinput graph、canonical generated Mojo、source map、compiler、全slice、各archive、hidden fileを含むXCFramework treeを1つのcompatibility envelopeへ入れる。artifact treeのsymbolic linkは外部可変byteを参照し得るため拒否する。verifyはgenerated Mojo/source mapをcurrent rendererから再構成し、manifestの自己申告digestだけを信頼しない。ADR-0008はこの同じidentity envelopeをschema 5のadapter-specific Apple/Linux artifact setへ拡張する。
    同じApple platform/variantに属する異なるarchitecture sliceは個別compile/archive後にuniversal static framework binaryへ統合し、XCFrameworkにはgroupごとに1 target-scoped frameworkだけを登録する。manifestはcompiler sliceを個別に保持し、verifierはgroup framework binaryのexact architecture集合と照合する。詳細なmulti-target packaging decisionはADR-0005が所有する。
 7. `MojoBuildPlugin` はSwift/config/Mojo/source-map/manifest/artifactをinputとして `verify` だけを実行する。
 8. `swift package --allow-writing-to-package-directory mojo release` はpackage-owned outputを書き換えず、current schema、compiler pin、全required slices、target identity、source/package graph、source map、XCFramework metadata/interface/tree、local/moving-branch dependency absence、literal remote package requirement、binary target、Mojo product、binary dependency、同一package由来のbuild plugin wiringを検証する。
@@ -30,7 +30,7 @@ flowchart LR
     S["Swift @mojo bindings"] --> G
     M["External Mojo packages"] --> G
     G --> P["Pinned prepare"]
-    P --> A["Target-scoped XCFramework + source map + schema 4"]
+    P --> A["Target-scoped native artifact set + source map + current schema"]
     A --> B["Build verify"]
     A --> R["Read-only release verify"]
     C --> B
@@ -59,7 +59,7 @@ flowchart LR
 
 ## Compatibility
 
-schema-3 artifactはtarget identityとsource mapを持たないため、current releaseとして承認できません。一方、既存consumer exampleの移行を壊さないため、known legacy generation digestとfixed symbolsを通常build verifier/Registryが読み取る期間を設けます。新しい `prepare` はschema 4だけを生成します。このlegacy read pathはschema-4 real acceptanceとexample regeneration後に削除判断します。
+schema-3 artifactはtarget identityとsource mapを持たないため、current releaseとして承認できません。一方、既存consumer exampleの移行を壊さないため、known legacy generation digestとfixed symbolsを通常build verifier/Registryが読み取る期間を設けます。schema-4 Apple-only artifactもbuild compatibilityのため読み取れますが、新しい `prepare` とrelease gateはADR-0008のschema 5 artifact setを要求します。legacy read pathの削除はsupported consumer migrationを確認した後に別途判断します。
 
 ## Acceptance gates
 
@@ -88,5 +88,6 @@ Current evidence:
 - [ADR-0001](ADR-0001-STATIC-PREPARE-PIPELINE.md)
 - [ADR-0002](ADR-0002-MODEL-SWIFT-PACKAGE.md)
 - [ADR-0005](ADR-0005-TARGET-SCOPED-STATIC-FRAMEWORKS.md)
+- [ADR-0008](ADR-0008-NON-APPLE-STATIC-LIBRARY-ARTIFACTS.md)
 - [Mojo modules and packages](https://mojolang.org/docs/manual/packages/)
 - [Mojo compilation targets](https://mojolang.org/docs/tools/compilation/)

@@ -69,7 +69,7 @@ import PackageDescription
 
 let package = Package(
     name: "SwiftMojoTagProbe",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     dependencies: [
         .package(
             url: "$candidate_url",
@@ -107,5 +107,9 @@ if [[ $version_json != $expected_version_json ]]; then
     print -u2 "error: exact-tag command reported '$version_json', expected '$expected_version_json'"
     exit 1
 fi
+"$root/scripts/verify-resolved-revision.sh" \
+    "$gate_root/Package/Package.resolved" \
+    swift-mojo \
+    "$tag_commit"
 
 print "PASS: exact version $release_version resolves tag $tag_name at origin/main and runs the public command plugin"

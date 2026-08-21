@@ -1,9 +1,44 @@
 import Foundation
 import MojoArtifactCore
+import MojoCompilerCore
 import Testing
 
 @Suite("Artifact initialization safety")
 struct MojoArtifactInitializerTests {
+    @Test(.timeLimit(.minutes(1)))
+    func createsLinuxBootstrapForPackageResolution() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let identity = try MojoArtifactIdentity(targetName: "JetsonModel")
+        let target = try MojoTargetConfiguration(
+            triple: "aarch64-unknown-linux-gnu",
+            cpu: "generic"
+        )
+        defer { removeArtifactFixture(root) }
+
+        let initializer = MojoArtifactInitializer()
+        let first = try initializer.initialize(
+            outputDirectoryURL: root,
+            identity: identity,
+            targets: [target]
+        )
+        let second = try initializer.initialize(
+            outputDirectoryURL: root,
+            identity: identity,
+            targets: [target]
+        )
+
+        #expect(first == .initialized)
+        #expect(second == .alreadyInitialized)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(
+                    identity.linuxArtifactName
+                ).appendingPathComponent("info.json").path
+            )
+        )
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func preservesExistingPreparedArtifact() throws {
         let root = FileManager.default.temporaryDirectory

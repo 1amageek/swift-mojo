@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  SWIFT_SYNTAX_REVISION: "050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compiler-free-tests:
+    name: Compiler-free tests (${{ matrix.channel }})
+    runs-on: macos-15
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: stable-6.3.3
+            selector: 6.3.3
+            bundle: swift-6.3.3-RELEASE
+          - channel: snapshot-6.4-2026-08-14
+            selector: 6.4.x-snapshot-2026-08-14
+            bundle: swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable SwiftSyntax resolution
+        run: |
+          scripts/verify-resolved-revision.sh \
+            Package.resolved \
+            swift-syntax \
+            "$SWIFT_SYNTAX_REVISION"
+
+      - name: Install Swiftly
+        run: |
+          /usr/bin/curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$RUNNER_TEMP/swiftly.pkg" \
+            https://download.swift.org/swiftly/darwin/swiftly.pkg
+          signature_report=$(/usr/sbin/pkgutil \
+            --check-signature \
+            "$RUNNER_TEMP/swiftly.pkg" 2>&1)
+          printf '%s\n' "$signature_report"
+          if ! /usr/bin/grep -Fq \
+            'Developer ID Installer: Swift Open Source (V9AUD2URP3)' \
+            <<< "$signature_report"; then
+            echo "Swiftly installer signer is not Swift Open Source" >&2
+            exit 1
+          fi
+          if ! /usr/bin/grep -Fq \
+            'Notarization: trusted by the Apple notary service' \
+            <<< "$signature_report"; then
+            echo "Swiftly installer is not trusted by Apple notarization" >&2
+            exit 1
+          fi
+          /usr/sbin/installer \
+            -pkg "$RUNNER_TEMP/swiftly.pkg" \
+            -target CurrentUserHomeDirectory
+          "$HOME/.swiftly/bin/swiftly" init \
+            --skip-install \
+            --assume-yes \
+            --quiet-shell-followup
+
+      - name: Install selected Swift toolchain
+        run: |
+          "$HOME/.swiftly/bin/swiftly" install \
+            "${{ matrix.selector }}" \
+            --use \
+            --verify \
+            --assume-yes
+          toolchain_root="$HOME/Library/Developer/Toolchains/${{ matrix.bundle }}.xctoolchain"
+          toolchain_plist="$toolchain_root/Info.plist"
+          if [[ ! -f "$toolchain_plist" ]]; then
+            echo "Expected toolchain metadata is missing: $toolchain_plist" >&2
+            exit 1
+          fi
+          toolchain_identifier=$(/usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleIdentifier' \
+            "$toolchain_plist")
+          echo "SWIFT_MOJO_CI_TOOLCHAIN=$toolchain_identifier" >> "$GITHUB_ENV"
+          echo "SWIFT_MOJO_CI_SWIFT=$toolchain_root/usr/bin/swift" >> "$GITHUB_ENV"
+          echo "SWIFT_MOJO_CI_SWIFTC=$toolchain_root/usr/bin/swiftc" >> "$GITHUB_ENV"
+          echo "SWIFT_MOJO_CI_TESTING_ROOT=$toolchain_root/usr/lib/swift/macosx/testing" >> "$GITHUB_ENV"
+          echo "SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT=$toolchain_root/usr/lib/swift/host/plugins/testing" >> "$GITHUB_ENV"
+          echo "SWIFT_MOJO_CI_DERIVED_DATA=$RUNNER_TEMP/swift-mojo-${{ matrix.channel }}" >> "$GITHUB_ENV"
+
+      - name: Record toolchain
+        run: |
+          if [[ ! -x "$SWIFT_MOJO_CI_SWIFT" \
+            || ! -x "$SWIFT_MOJO_CI_SWIFTC" ]]; then
+            echo "Selected Swift toolchain executables are missing" >&2
+            exit 1
+          fi
+          if [[ ! -d "$SWIFT_MOJO_CI_TESTING_ROOT/Testing.swiftmodule" \
+            || ! -f "$SWIFT_MOJO_CI_TESTING_ROOT/libTesting.dylib" \
+            || ! -d "$SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT" ]]; then
+            echo "Selected Swift toolchain testing support is incomplete" >&2
+            exit 1
+          fi
+          "$SWIFT_MOJO_CI_SWIFT" --version
+          /usr/bin/xcodebuild -version
+
+      - name: Confirm Mojo is absent
+        run: |
+          if command -v mojo >/dev/null 2>&1; then
+            echo "Mojo must not be installed in compiler-free CI" >&2
+            exit 1
+          fi
+
+      - name: Run static test-safety guards
+        run: |
+          scripts/check-sync-shutdown-in-deinit.sh Sources Tests
+
+      - name: Build test bundles with the selected compiler
+        run: |
+          scripts/command-timeout.sh 900 -- \
+            env -u TOOLCHAINS -u SWIFT_MOJO_EXECUTABLE \
+              /usr/bin/xcodebuild build-for-testing \
+              -scheme swift-mojo-Package \
+              -destination 'platform=macOS' \
+              -derivedDataPath "$SWIFT_MOJO_CI_DERIVED_DATA" \
+              CODE_SIGNING_ALLOWED=NO \
+              SWIFT_EXEC="$SWIFT_MOJO_CI_SWIFTC" \
+              SWIFT_INCLUDE_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
+              LIBRARY_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
+              LD_RUNPATH_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
+              OTHER_SWIFT_FLAGS="-plugin-path $SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT"
+
+      - name: Run bounded correctness suite
+        run: |
+          scripts/swift-test-hang-guard.sh \
+            --repeats 1 \
+            --timeout 120 \
+            -- \
+            env -u SWIFT_MOJO_EXECUTABLE \
+              -u TOOLCHAINS \
+              /usr/bin/xcodebuild test-without-building \
+              -scheme swift-mojo-Package \
+              -destination 'platform=macOS' \
+              -derivedDataPath "$SWIFT_MOJO_CI_DERIVED_DATA" \
+              CODE_SIGNING_ALLOWED=NO \
+              SWIFT_EXEC="$SWIFT_MOJO_CI_SWIFTC" \
+              SWIFT_INCLUDE_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
+              LIBRARY_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
+              LD_RUNPATH_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
+              OTHER_SWIFT_FLAGS="-plugin-path $SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT" \
+              -quiet

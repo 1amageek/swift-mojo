@@ -1,0 +1,23 @@
+{
+  "artifacts" : {
+    "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI_Linux" : {
+      "type" : "staticLibrary",
+      "variants" : [
+        {
+          "path" : "variants\/linux-234e17a28cd31bbdd7861545e26b882a5e96f4b155fa3922926bac590e206378\/libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a",
+          "staticLibraryMetadata" : {
+            "headerPaths" : [
+              "include"
+            ],
+            "moduleMapPath" : "include\/module.modulemap"
+          },
+          "supportedTriples" : [
+            "aarch64-unknown-linux-gnu"
+          ]
+        }
+      ],
+      "version" : "1.0.0"
+    }
+  },
+  "schemaVersion" : "1.0"
+}

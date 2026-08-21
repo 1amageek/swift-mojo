@@ -102,7 +102,7 @@ import PackageDescription
 
 let package = Package(
     name: "SwiftMojoReleaseProbe",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     dependencies: [
         .package(
             url: "$candidate_url",
@@ -143,6 +143,10 @@ if [[ $version_json != $expected_version_json ]]; then
     print -u2 "error: candidate command reported '$version_json', expected '$expected_version_json'"
     exit 1
 fi
+"$root/scripts/verify-resolved-revision.sh" \
+    "$gate_package/Package.resolved" \
+    swift-mojo \
+    "$head_commit"
 
 "$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \

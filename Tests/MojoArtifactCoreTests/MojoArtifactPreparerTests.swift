@@ -4,7 +4,7 @@ import MojoBindingCore
 import MojoCompilerCore
 import Testing
 
-private struct FixtureMojoCompiler: MojoObjectCompiling {
+struct FixtureMojoCompiler: MojoObjectCompiling {
     func compilerVersion() throws -> String {
         "fixture-mojo 1.0"
     }
@@ -34,7 +34,18 @@ private struct FixtureMojoCompiler: MojoObjectCompiling {
                 .contentsOfDirectory(
                     atPath: importSearchPaths[0]
                 )
-            guard visiblePackages == ["MathModel"] else {
+            let importedPackages: Set<String> = Set(
+                generatedSource.split(separator: "\n").compactMap { line in
+                    let components = line.split(separator: " ")
+                    guard components.count >= 3,
+                          components[0] == "from",
+                          components[1] != "std.memory" else {
+                        return nil
+                    }
+                    return String(components[1])
+                }
+            )
+            guard Set(visiblePackages) == importedPackages else {
                 throw MojoArtifactError.invalidArguments(
                     "Compiler import root exposed undeclared packages"
                 )
@@ -104,12 +115,28 @@ private struct FixtureSourceMutatingCompiler: MojoObjectCompiling {
     }
 }
 
-private struct FixturePackagingRunner: MojoProcessRunning {
+struct FixturePackagingRunner: MojoProcessRunning {
+    let undefinedSymbols: [String]
+
+    init(undefinedSymbols: [String] = []) {
+        self.undefinedSymbols = undefinedSymbols
+    }
+
     func capture(
         executablePath: String,
         arguments: [String]
     ) throws -> MojoProcessResult {
         switch executablePath {
+        case "/usr/bin/nm":
+            guard arguments.count == 2,
+                  arguments[0] == "-u",
+                  FileManager.default.fileExists(atPath: arguments[1]) else {
+                throw MojoArtifactError.invalidArguments("Unexpected nm arguments")
+            }
+            return MojoProcessResult(
+                status: 0,
+                output: undefinedSymbols.joined(separator: "\n")
+            )
         case "/usr/bin/ar":
             guard arguments.count == 3 else {
                 throw MojoArtifactError.invalidArguments("Unexpected ar arguments")
@@ -611,6 +638,75 @@ struct MojoArtifactPreparerTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func preparesAndVerifiesAppleAndLinuxArtifactsAsOneTargetSet() throws {
+        try withPreparerFixture { fixture in
+            let identity = try MojoArtifactIdentity(targetName: "MixedNative")
+            let targets = try [
+                MojoTargetConfiguration(
+                    triple: "arm64-apple-macosx14.0",
+                    cpu: "generic"
+                ),
+                MojoTargetConfiguration(
+                    triple: "aarch64-unknown-linux-gnu",
+                    cpu: "generic"
+                ),
+            ]
+            let options = try MojoPrepareOptions(
+                sourceURLs: [fixture.sourceURL],
+                outputDirectoryURL: fixture.outputDirectory,
+                identity: identity,
+                targets: targets
+            )
+            let preparer = MojoArtifactPreparer(
+                compiler: FixtureMojoCompiler(),
+                processRunner: FixturePackagingRunner()
+            )
+
+            let result = try preparer.prepare(options: options)
+            let artifactAdapters = Set(
+                result.manifest.effectiveArtifacts.map(\.adapter)
+            )
+
+            #expect(result.manifest.schemaVersion == 5)
+            #expect(
+                artifactAdapters
+                    == [.appleXCFramework, .linuxStaticLibraryBundle]
+            )
+            #expect(result.manifest.effectiveSlices.map(\.target) == options.targets)
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: fixture.outputDirectory.appendingPathComponent(
+                        identity.linuxArtifactName
+                    ).appendingPathComponent("info.json").path
+                )
+            )
+
+            let registryURL = fixture.root.appendingPathComponent(
+                "Registry.swift"
+            )
+            _ = try MojoArtifactVerifier().verify(
+                options: MojoVerifyOptions(
+                    sourceURLs: [fixture.sourceURL],
+                    outputDirectoryURL: fixture.outputDirectory,
+                    generatedSourceURL: registryURL,
+                    target: targets[1],
+                    expectedIdentity: identity,
+                    expectedSlices: options.targets
+                )
+            )
+            let registry = try String(
+                contentsOf: registryURL,
+                encoding: .utf8
+            )
+            #expect(registry.contains("os(macOS)"))
+            #expect(registry.contains("os(Linux)"))
+            #expect(
+                try preparer.prepare(options: options).disposition == .reused
+            )
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func duplicateXCFrameworkSelectorsAreRejectedBeforeCompilation() throws {
         try withPreparerFixture { fixture in
             let first = try MojoTargetConfiguration(
@@ -736,6 +832,39 @@ struct MojoArtifactPreparerTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func rejectsUnpackagedMojoCompilerRuntimeBeforeArchiving() throws {
+        try withPreparerFixture { fixture in
+            do {
+                _ = try MojoArtifactPreparer(
+                    compiler: FixtureMojoCompiler(),
+                    processRunner: FixturePackagingRunner(
+                        undefinedSymbols: [
+                            "_KGEN_CompilerRT_fprintf",
+                            "_KGEN_CompilerRT_AlignedAlloc",
+                        ]
+                    )
+                ).prepare(options: fixture.options)
+                Issue.record("Unsupported Mojo runtime unexpectedly succeeded")
+            } catch let error as MojoArtifactError {
+                #expect(
+                    error == .unsupportedMojoRuntimeSymbols(
+                        target: "arm64-apple-macosx14.0|generic|none",
+                        symbols: [
+                            "KGEN_CompilerRT_AlignedAlloc",
+                            "KGEN_CompilerRT_fprintf",
+                        ]
+                    )
+                )
+            }
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: fixture.outputDirectory.path
+                )
+            )
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func sourceChangeDuringCompilationPreventsArtifactCommit() throws {
         try withPreparerFixture { fixture in
             #expect(
@@ -783,7 +912,7 @@ struct MojoArtifactPreparerTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func scalarPipelinePreservesTheReleasedGenerationIdentity() throws {
+    func scalarPipelinePinsTheCurrentGenerationIdentity() throws {
         try withPreparerFixture { fixture in
             let inputGraph = try fixture.options.inputGraph()
 
@@ -793,7 +922,7 @@ struct MojoArtifactPreparerTests {
             )
             #expect(
                 MojoGenerationPipeline.digest
-                    == "8bbc50839ee771eeafae781d83e16ee1b36e31af7e2f7e94275cf752fc4f2b78"
+                    == "925aa13cf1fdfada782bcf09fb8240cb7258789e92cebb7245a4ecdb5e8692e4"
             )
         }
     }

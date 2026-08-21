@@ -108,6 +108,49 @@ struct MojoBindingCoreTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func externalMutableFloatBufferProducesTypedSignature() throws {
+        let external = try graph(
+            source: """
+            @mojo(package: "MathModel", function: "scale")
+            func scale(
+                _ input: [Float],
+                into output: inout [Float]
+            ) throws
+            """
+        )
+
+        #expect(
+            external.bindings[0].signature
+                == .borrowedMutableFloat32Buffers
+        )
+        #expect(external.bindings[0].parameterNames == ["input", "output"])
+        #expect(
+            external.bindings[0].implementation
+                == .external(package: "MathModel", function: "scale")
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func mutableFloatBufferRequiresInoutAndThrowingSurface() throws {
+        #expect(throws: MojoBindingError.unsupportedSignature) {
+            _ = try graph(
+                source: """
+                @mojo(package: "MathModel", function: "scale")
+                func scale(_ input: [Float], into output: [Float]) throws
+                """
+            )
+        }
+        #expect(throws: MojoBindingError.unsupportedSignature) {
+            _ = try graph(
+                source: """
+                @mojo(package: "MathModel", function: "scale")
+                func scale(_ input: [Float], into output: inout [Float])
+                """
+            )
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func scalarAndBufferOverloadsHaveDistinctABIIdentities() throws {
         let overloads = try graph(
             source: """
@@ -141,6 +184,142 @@ struct MojoBindingCoreTests {
             Issue.record("Inline borrowed buffer unexpectedly succeeded")
         } catch let error as MojoBindingError {
             #expect(error == .bufferRequiresExternalImplementation)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func mutableFloatBufferRequiresExternalImplementation() throws {
+        #expect(throws: MojoBindingError.bufferRequiresExternalImplementation) {
+            _ = try graph(
+                source: """
+                @mojo
+                func scale(
+                    _ input: [Float],
+                    into output: inout [Float]
+                ) throws {
+                    output = input
+                }
+                """
+            )
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func sessionFactoryAndUseProduceLinkedTypedBindings() throws {
+        let graph = try graph(
+            source: """
+            @mojo(
+                package: "SessionModel",
+                function: "create_session",
+                shutdown: "shutdown_session"
+            )
+            func openSession(
+                _ requirements: MojoSessionRequirements
+            ) throws -> MojoSessionOwner
+
+            @mojo(
+                package: "SessionModel",
+                function: "scale",
+                sessionFactory: "openSession"
+            )
+            func scale(
+                _ session: MojoSessionOwner,
+                _ input: [Float],
+                into output: inout [Float]
+            ) throws
+            """
+        )
+
+        let factory = try #require(
+            graph.bindings.first { $0.signature == .runtimeSessionFactory }
+        )
+        let use = try #require(
+            graph.bindings.first {
+                $0.signature == .sessionBorrowedMutableFloat32Buffers
+            }
+        )
+        #expect(factory.parameterNames == ["requirements"])
+        #expect(
+            factory.implementation == .session(
+                package: "SessionModel",
+                create: "create_session",
+                shutdown: "shutdown_session"
+            )
+        )
+        #expect(use.parameterNames == ["session", "input", "output"])
+        #expect(
+            use.implementation == .sessionExternal(
+                package: "SessionModel",
+                function: "scale",
+                sessionFactory: "openSession"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func sessionFactoryRequiresPairedShutdownMetadata() throws {
+        #expect(throws: MojoBindingError.invalidSessionArguments) {
+            _ = try graph(
+                source: """
+                @mojo(package: "SessionModel", function: "create_session")
+                func openSession(
+                    _ requirements: MojoSessionRequirements
+                ) throws -> MojoSessionOwner
+                """
+            )
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func sessionUseRequiresExistingFactoryInSamePackage() throws {
+        #expect(
+            throws: MojoBindingError.sessionFactoryNotFound("openSession")
+        ) {
+            _ = try graph(
+                source: """
+                @mojo(
+                    package: "SessionModel",
+                    function: "scale",
+                    sessionFactory: "openSession"
+                )
+                func scale(
+                    _ session: MojoSessionOwner,
+                    _ input: [Float],
+                    into output: inout [Float]
+                ) throws
+                """
+            )
+        }
+
+        #expect(
+            throws: MojoBindingError.sessionPackageMismatch(
+                binding: "OtherModel",
+                factory: "SessionModel"
+            )
+        ) {
+            _ = try graph(
+                source: """
+                @mojo(
+                    package: "SessionModel",
+                    function: "create_session",
+                    shutdown: "shutdown_session"
+                )
+                func openSession(
+                    _ requirements: MojoSessionRequirements
+                ) throws -> MojoSessionOwner
+
+                @mojo(
+                    package: "OtherModel",
+                    function: "scale",
+                    sessionFactory: "openSession"
+                )
+                func scale(
+                    _ session: MojoSessionOwner,
+                    _ input: [Float],
+                    into output: inout [Float]
+                ) throws
+                """
+            )
         }
     }
 
@@ -315,6 +494,53 @@ struct MojoBindingCoreTests {
         #expect(throws: MojoBindingError.invalidSourceFile(link.path)) {
             _ = try MojoSourceGraph(sourceURLs: [link])
         }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func symbolicPackageRootKeepsCanonicalRelativeSourceIdentity() throws {
+        let fileManager = FileManager.default
+        let container = fileManager.temporaryDirectory.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        let actualRoot = container.appendingPathComponent(
+            "ActualPackage",
+            isDirectory: true
+        )
+        let linkedRoot = container.appendingPathComponent(
+            "LinkedPackage",
+            isDirectory: true
+        )
+        let relativeSourcePath = "Implementation/API/Bindings.swift"
+        let actualSource = actualRoot.appendingPathComponent(relativeSourcePath)
+        try fileManager.createDirectory(
+            at: actualSource.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        @mojo
+        func add(_ a: Int32, _ b: Int32) -> Int32 {
+            return a + b
+        }
+        """.write(to: actualSource, atomically: true, encoding: .utf8)
+        try fileManager.createSymbolicLink(
+            at: linkedRoot,
+            withDestinationURL: actualRoot
+        )
+        defer {
+            do {
+                try fileManager.removeItem(at: container)
+            } catch {
+                Issue.record("Failed to remove linked package fixture: \(error)")
+            }
+        }
+
+        let graph = try MojoSourceGraph(
+            sourceURLs: [linkedRoot.appendingPathComponent(relativeSourcePath)],
+            sourceRootURL: linkedRoot
+        )
+
+        #expect(graph.bindings[0].sourceReference?.file == relativeSourcePath)
     }
 
     private func graph(source: String) throws -> MojoSourceGraph {

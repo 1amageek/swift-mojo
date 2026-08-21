@@ -5,6 +5,10 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     package enum Signature: String, Codable, Equatable, Hashable, Sendable {
         case int32Binary
         case borrowedFloat32Buffer
+        case borrowedMutableFloat32Buffers
+        case runtimeSessionFactory
+        case sessionFloat32BufferFactory
+        case sessionBorrowedMutableFloat32Buffers
 
         package var canonicalRecord: String {
             switch self {
@@ -13,6 +17,14 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                 "(Int32,Int32)->Int32"
             case .borrowedFloat32Buffer:
                 "([Float])->throws Float"
+            case .borrowedMutableFloat32Buffers:
+                "([Float],inout [Float])->throws Void"
+            case .runtimeSessionFactory:
+                "(MojoSessionRequirements)->throws MojoSessionOwner"
+            case .sessionFloat32BufferFactory:
+                "(MojoSessionOwner,UInt64,MojoBufferMemoryKind)->throws MojoFloat32BufferOwner"
+            case .sessionBorrowedMutableFloat32Buffers:
+                "(MojoSessionOwner,[Float],inout [Float])->throws Void"
             }
         }
     }
@@ -34,6 +46,25 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     package enum Implementation: Codable, Equatable, Sendable {
         case inline(Operation)
         case external(package: String, function: String)
+        case session(
+            package: String,
+            create: String,
+            shutdown: String
+        )
+        case sessionExternal(
+            package: String,
+            function: String,
+            sessionFactory: String
+        )
+        case sessionResource(
+            package: String,
+            create: String,
+            shutdown: String,
+            copyFromHost: String,
+            copyToHost: String,
+            synchronize: String,
+            sessionFactory: String
+        )
 
         package var canonicalRecord: String {
             switch self {
@@ -41,11 +72,29 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                 "inline:\(operation.rawValue)"
             case .external(let package, let function):
                 "external:\(package).\(function)"
+            case .session(let package, let create, let shutdown):
+                "session:\(package).\(create):\(shutdown)"
+            case .sessionExternal(
+                let package,
+                let function,
+                let sessionFactory
+            ):
+                "session-external:\(package).\(function):factory=\(sessionFactory)"
+            case .sessionResource(
+                let package,
+                let create,
+                let shutdown,
+                let copyFromHost,
+                let copyToHost,
+                let synchronize,
+                let sessionFactory
+            ):
+                "session-resource:\(package).\(create):\(shutdown):copy-from-host=\(copyFromHost):copy-to-host=\(copyToHost):synchronize=\(synchronize):factory=\(sessionFactory)"
             }
         }
     }
 
-    package static let schemaVersion = 1
+    package static let schemaVersion = 3
 
     package let bindingID: UInt64
     package let functionName: String
@@ -99,7 +148,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         switch implementation {
         case .inline(let operation):
             implementationKey = "\(abiKey)|operation=\(operation.rawValue)"
-        case .external:
+        case .external, .session, .sessionExternal, .sessionResource:
             implementationKey = "\(abiKey)|\(implementation.canonicalRecord)"
         }
 
@@ -157,17 +206,135 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         return parameterNames[0]
     }
 
+    package var inputBufferName: String {
+        precondition(signature == .borrowedMutableFloat32Buffers)
+        return parameterNames[0]
+    }
+
+    package var outputBufferName: String {
+        precondition(signature == .borrowedMutableFloat32Buffers)
+        return parameterNames[1]
+    }
+
+    package var requirementsName: String {
+        precondition(signature == .runtimeSessionFactory)
+        return parameterNames[0]
+    }
+
+    package var sessionName: String {
+        precondition(signature == .sessionBorrowedMutableFloat32Buffers)
+        return parameterNames[0]
+    }
+
+    package var resourceSessionName: String {
+        precondition(signature == .sessionFloat32BufferFactory)
+        return parameterNames[0]
+    }
+
+    package var resourceElementCountName: String {
+        precondition(signature == .sessionFloat32BufferFactory)
+        return parameterNames[1]
+    }
+
+    package var resourceMemoryKindName: String {
+        precondition(signature == .sessionFloat32BufferFactory)
+        return parameterNames[2]
+    }
+
+    package var sessionInputBufferName: String {
+        precondition(signature == .sessionBorrowedMutableFloat32Buffers)
+        return parameterNames[1]
+    }
+
+    package var sessionOutputBufferName: String {
+        precondition(signature == .sessionBorrowedMutableFloat32Buffers)
+        return parameterNames[2]
+    }
+
     private static func implementation(
         function: FunctionDeclSyntax,
         signature: Signature,
         parameterNames: [String]
     ) throws -> Implementation {
-        let arguments = try mojoArguments(function: function)
+        let invalidArgumentsError: MojoBindingError = switch signature {
+        case .runtimeSessionFactory, .sessionFloat32BufferFactory,
+                .sessionBorrowedMutableFloat32Buffers:
+            .invalidSessionArguments
+        case .int32Binary, .borrowedFloat32Buffer,
+                .borrowedMutableFloat32Buffers:
+            .invalidExternalArguments
+        }
+        let arguments = try mojoArguments(
+            function: function,
+            invalidArgumentsError: invalidArgumentsError
+        )
         if !arguments.isEmpty {
-            guard arguments.count == 2,
-                  let package = arguments["package"],
-                  let externalFunction = arguments["function"] else {
-                throw MojoBindingError.invalidExternalArguments
+            let package: String
+            let externalFunction: String
+            let sessionShutdown: String?
+            let resourceCopyFromHost: String?
+            let resourceCopyToHost: String?
+            let resourceSynchronize: String?
+            let sessionFactory: String?
+            if signature == .runtimeSessionFactory {
+                guard arguments.count == 3,
+                      let parsedPackage = arguments["package"],
+                      let parsedFunction = arguments["function"],
+                      let parsedShutdown = arguments["shutdown"] else {
+                    throw MojoBindingError.invalidSessionArguments
+                }
+                package = parsedPackage
+                externalFunction = parsedFunction
+                sessionShutdown = parsedShutdown
+                resourceCopyFromHost = nil
+                resourceCopyToHost = nil
+                resourceSynchronize = nil
+                sessionFactory = nil
+            } else if signature == .sessionFloat32BufferFactory {
+                guard arguments.count == 7,
+                      let parsedPackage = arguments["package"],
+                      let parsedFunction = arguments["function"],
+                      let parsedShutdown = arguments["shutdown"],
+                      let parsedCopyFromHost = arguments["copyFromHost"],
+                      let parsedCopyToHost = arguments["copyToHost"],
+                      let parsedSynchronize = arguments["synchronize"],
+                      let parsedFactory = arguments["sessionFactory"] else {
+                    throw MojoBindingError.invalidSessionArguments
+                }
+                package = parsedPackage
+                externalFunction = parsedFunction
+                sessionShutdown = parsedShutdown
+                resourceCopyFromHost = parsedCopyFromHost
+                resourceCopyToHost = parsedCopyToHost
+                resourceSynchronize = parsedSynchronize
+                sessionFactory = parsedFactory
+            } else if signature == .sessionBorrowedMutableFloat32Buffers {
+                guard arguments.count == 3,
+                      let parsedPackage = arguments["package"],
+                      let parsedFunction = arguments["function"],
+                      let parsedFactory = arguments["sessionFactory"] else {
+                    throw MojoBindingError.invalidSessionArguments
+                }
+                package = parsedPackage
+                externalFunction = parsedFunction
+                sessionShutdown = nil
+                resourceCopyFromHost = nil
+                resourceCopyToHost = nil
+                resourceSynchronize = nil
+                sessionFactory = parsedFactory
+            } else {
+                guard arguments.count == 2,
+                      let parsedPackage = arguments["package"],
+                      let parsedFunction = arguments["function"] else {
+                    throw MojoBindingError.invalidExternalArguments
+                }
+                package = parsedPackage
+                externalFunction = parsedFunction
+                sessionShutdown = nil
+                resourceCopyFromHost = nil
+                resourceCopyToHost = nil
+                resourceSynchronize = nil
+                sessionFactory = nil
             }
             guard MojoPortableIdentifier.isValid(package) else {
                 throw MojoBindingError.unsupportedPackageName(package)
@@ -180,12 +347,80 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             guard function.body == nil || function.body?.statements.isEmpty == true else {
                 throw MojoBindingError.externalBodyUnsupported
             }
+            if let sessionShutdown,
+               let resourceCopyFromHost,
+               let resourceCopyToHost,
+               let resourceSynchronize,
+               let sessionFactory {
+                guard MojoPortableIdentifier.isValid(sessionShutdown) else {
+                    throw MojoBindingError.unsupportedExternalFunctionName(
+                        sessionShutdown
+                    )
+                }
+                guard Self.isCIdentifier(sessionFactory) else {
+                    throw MojoBindingError.unsupportedSessionFactoryName(
+                        sessionFactory
+                    )
+                }
+                guard MojoPortableIdentifier.isValid(resourceCopyFromHost) else {
+                    throw MojoBindingError.unsupportedExternalFunctionName(
+                        resourceCopyFromHost
+                    )
+                }
+                guard MojoPortableIdentifier.isValid(resourceCopyToHost) else {
+                    throw MojoBindingError.unsupportedExternalFunctionName(
+                        resourceCopyToHost
+                    )
+                }
+                guard MojoPortableIdentifier.isValid(resourceSynchronize) else {
+                    throw MojoBindingError.unsupportedExternalFunctionName(
+                        resourceSynchronize
+                    )
+                }
+                return .sessionResource(
+                    package: package,
+                    create: externalFunction,
+                    shutdown: sessionShutdown,
+                    copyFromHost: resourceCopyFromHost,
+                    copyToHost: resourceCopyToHost,
+                    synchronize: resourceSynchronize,
+                    sessionFactory: sessionFactory
+                )
+            }
+            if let sessionShutdown {
+                guard MojoPortableIdentifier.isValid(sessionShutdown) else {
+                    throw MojoBindingError.unsupportedExternalFunctionName(
+                        sessionShutdown
+                    )
+                }
+                return .session(
+                    package: package,
+                    create: externalFunction,
+                    shutdown: sessionShutdown
+                )
+            }
+            if let sessionFactory {
+                guard Self.isCIdentifier(sessionFactory) else {
+                    throw MojoBindingError.unsupportedSessionFactoryName(
+                        sessionFactory
+                    )
+                }
+                return .sessionExternal(
+                    package: package,
+                    function: externalFunction,
+                    sessionFactory: sessionFactory
+                )
+            }
             return .external(
                 package: package,
                 function: externalFunction
             )
         }
 
+        if signature == .runtimeSessionFactory
+            || signature == .sessionFloat32BufferFactory {
+            throw MojoBindingError.sessionRequiresExternalImplementation
+        }
         guard signature == .int32Binary else {
             throw MojoBindingError.bufferRequiresExternalImplementation
         }
@@ -220,7 +455,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     }
 
     private static func mojoArguments(
-        function: FunctionDeclSyntax
+        function: FunctionDeclSyntax,
+        invalidArgumentsError: MojoBindingError
     ) throws -> [String: String] {
         guard let attribute = function.attributes.compactMap({ element in
             element.as(AttributeSyntax.self)
@@ -230,7 +466,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             return [:]
         }
         guard case .argumentList(let list) = arguments else {
-            throw MojoBindingError.invalidExternalArguments
+            throw invalidArgumentsError
         }
 
         var values: [String: String] = [:]
@@ -244,7 +480,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                     StringSegmentSyntax.self
                   ),
                   values.updateValue(segment.content.text, forKey: label) == nil else {
-                throw MojoBindingError.invalidExternalArguments
+                throw invalidArgumentsError
             }
         }
         return values
@@ -258,6 +494,54 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             && parameter.type.trimmedDescription == "Int32"
     }
 
+    private static func isBorrowedFloat32BufferParameter(
+        _ parameter: FunctionParameterSyntax
+    ) -> Bool {
+        parameter.ellipsis == nil
+            && parameter.defaultValue == nil
+            && parameter.type.trimmedDescription == "[Float]"
+    }
+
+    private static func isMutableFloat32BufferParameter(
+        _ parameter: FunctionParameterSyntax
+    ) -> Bool {
+        parameter.ellipsis == nil
+            && parameter.defaultValue == nil
+            && parameter.type.trimmedDescription == "inout [Float]"
+    }
+
+    private static func isSessionRequirementsParameter(
+        _ parameter: FunctionParameterSyntax
+    ) -> Bool {
+        parameter.ellipsis == nil
+            && parameter.defaultValue == nil
+            && parameter.type.trimmedDescription == "MojoSessionRequirements"
+    }
+
+    private static func isSessionOwnerParameter(
+        _ parameter: FunctionParameterSyntax
+    ) -> Bool {
+        parameter.ellipsis == nil
+            && parameter.defaultValue == nil
+            && parameter.type.trimmedDescription == "MojoSessionOwner"
+    }
+
+    private static func isUInt64Parameter(
+        _ parameter: FunctionParameterSyntax
+    ) -> Bool {
+        parameter.ellipsis == nil
+            && parameter.defaultValue == nil
+            && parameter.type.trimmedDescription == "UInt64"
+    }
+
+    private static func isBufferMemoryKindParameter(
+        _ parameter: FunctionParameterSyntax
+    ) -> Bool {
+        parameter.ellipsis == nil
+            && parameter.defaultValue == nil
+            && parameter.type.trimmedDescription == "MojoBufferMemoryKind"
+    }
+
     private static func signature(
         function: FunctionDeclSyntax
     ) throws -> Signature {
@@ -267,28 +551,64 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         let throwsClause = function.signature.effectSpecifiers?.throwsClause
         let isUntypedThrowing = throwsClause?.trimmedDescription == "throws"
 
+        if parameters.count == 3 {
+            let session = parameters[parameters.startIndex]
+            let input = parameters[parameters.index(after: parameters.startIndex)]
+            let output = parameters[parameters.index(
+                parameters.startIndex,
+                offsetBy: 2
+            )]
+            if Self.isSessionOwnerParameter(session),
+               Self.isBorrowedFloat32BufferParameter(input),
+               Self.isMutableFloat32BufferParameter(output),
+               returnType == nil || returnType == "Void",
+               isUntypedThrowing {
+                return .sessionBorrowedMutableFloat32Buffers
+            }
+            if Self.isSessionOwnerParameter(session),
+               Self.isUInt64Parameter(input),
+               Self.isBufferMemoryKindParameter(output),
+               returnType == "MojoFloat32BufferOwner",
+               isUntypedThrowing {
+                return .sessionFloat32BufferFactory
+            }
+            throw MojoBindingError.unsupportedSignature
+        }
+
         if parameters.count == 2 {
             let lhs = parameters[parameters.startIndex]
             let rhs = parameters[parameters.index(after: parameters.startIndex)]
-            guard Self.isInt32Parameter(lhs),
-                  Self.isInt32Parameter(rhs),
-                  returnType == "Int32" else {
-                throw MojoBindingError.unsupportedSignature
+            if Self.isInt32Parameter(lhs),
+               Self.isInt32Parameter(rhs),
+               returnType == "Int32" {
+                guard throwsClause == nil else {
+                    throw MojoBindingError.throwingUnsupported
+                }
+                return .int32Binary
             }
-            guard throwsClause == nil else {
-                throw MojoBindingError.throwingUnsupported
+            if Self.isBorrowedFloat32BufferParameter(lhs),
+               Self.isMutableFloat32BufferParameter(rhs),
+               returnType == nil || returnType == "Void",
+               isUntypedThrowing {
+                return .borrowedMutableFloat32Buffers
             }
-            return .int32Binary
+            throw MojoBindingError.unsupportedSignature
         }
 
         if parameters.count == 1,
            let parameter = parameters.first,
-           parameter.ellipsis == nil,
-           parameter.defaultValue == nil,
-           parameter.type.trimmedDescription == "[Float]",
+           Self.isBorrowedFloat32BufferParameter(parameter),
            returnType == "Float",
            isUntypedThrowing {
             return .borrowedFloat32Buffer
+        }
+
+        if parameters.count == 1,
+           let parameter = parameters.first,
+           Self.isSessionRequirementsParameter(parameter),
+           returnType == "MojoSessionOwner",
+           isUntypedThrowing {
+            return .runtimeSessionFactory
         }
 
         throw MojoBindingError.unsupportedSignature

@@ -14,17 +14,22 @@ package struct MojoReleaseVerifier: Sendable {
     }
 
     package func verify(
-        layout: MojoPackageLayout
+        layout: MojoPackageLayout,
+        sourceURLs: [URL]
     ) throws -> MojoReleaseReport {
         try transaction.withExclusiveAccess(
             to: layout.outputDirectoryURL
         ) { _ in
-            try verifyWhileOutputIsLocked(layout: layout)
+            try verifyWhileOutputIsLocked(
+                layout: layout,
+                sourceURLs: sourceURLs
+            )
         }
     }
 
     private func verifyWhileOutputIsLocked(
-        layout: MojoPackageLayout
+        layout: MojoPackageLayout,
+        sourceURLs: [URL]
     ) throws -> MojoReleaseReport {
         let configurationURL = layout.packageRootURL.appendingPathComponent(
             SwiftMojoConfiguration.fileName
@@ -45,21 +50,23 @@ package struct MojoReleaseVerifier: Sendable {
             configurationData
         )
         let configurationDigest = MojoCanonicalDigest.hex(configurationData)
+        let targetConfiguration = try configuration.target(
+            named: layout.targetName
+        )
+        let binaryIntegrations = try layout.binaryIntegrations(
+            targets: targetConfiguration.slices
+        )
         let packageManifestDigest = try PackageManifestReleaseInspector
             .validateReleaseIntegration(
                 packageRootURL: layout.packageRootURL,
                 targetName: layout.targetName,
-                binaryTargetName: layout.identity.moduleName,
-                binaryTargetPath: layout.binaryTargetRelativePath
+                binaryIntegrations: binaryIntegrations
             )
-        let targetConfiguration = try configuration.target(
-            named: layout.targetName
-        )
         let externalPackages = try layout.externalPackages(
             names: targetConfiguration.mojoPackages
         )
         let options = try MojoVerifyOptions(
-            sourceURLs: layout.sourceURLs(),
+            sourceURLs: sourceURLs,
             sourceRootURL: layout.packageRootURL,
             externalPackages: externalPackages,
             outputDirectoryURL: layout.outputDirectoryURL,

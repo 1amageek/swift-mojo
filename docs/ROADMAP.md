@@ -9,7 +9,7 @@
 | 0 — Foundation | 要件、責務境界、package skeleton | Complete |
 | 1 — Exact-syntax scalar PoC | direct `@mojo func ... { return ... }` から実Mojo静的実行 | Complete for the macOS scalar contract |
 | 2 — DSL and diagnostics | scalar DSL拡張、source-located diagnostics、inspection | Inspection verified; real diagnostic mapping and DSL expansion planned |
-| 3 — Types and ownership | buffers、strings、records、error envelope | First borrowed `Float` slice verified through real runtime; allocation/copy and sanitizer gates remain |
+| 3 — Types and ownership | buffers、strings、records、error envelope | Immutable/mutable borrows、opaque session、session-owned Float32 buffer verified through real local runtime; the session/resource path also passed separate Swift/Mojo ASan lanes; Metal/CUDA execution、allocation/copy、standalone-buffer sanitizer gates remain |
 | 4 — Async and callbacks | cancellation、completion、shutdown、reverse bridge | Research/Planned |
 | 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean consumer、and two-target linking verified; model/distribution work remains |
 | 6 — GPU compute | device/buffer/event/transfer contracts | Research |
@@ -48,7 +48,7 @@ Phase 0で作った旧dynamic PoCは、Phase 1の理想的な静的経路と競�
 
 **Estimate:** 1–2 weeks
 
-**Status:** Complete for the current macOS `(Int32, Int32) -> Int32` contract
+**Status:** Verified locally for the current macOS `(Int32, Int32) -> Int32` contract across the Swift 6.3.1/6.4 compiler-free matrix and real Mojo 1.0 execution; immutable-revision acceptance on the candidate commit remains
 
 Target usage:
 
@@ -98,7 +98,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 ### G4 — Real static artifact preparation
 
-**Artifact:** `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare`、object、archive、XCFramework
+**Artifact:** `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare`、object、archive、Apple XCFramework、Linux static-library artifact bundle
 
 **Depends on:** G3
 
@@ -106,7 +106,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 - Mojo 1.0 `--emit object` を実行。
 - explicit target triple/CPU。
-- schema 4 manifest、target identity、canonical generated Mojo/source map digests、generation pipeline identity、XCFramework tree digest。
+- schema 5 manifest、target identity、canonical generated Mojo/source map digests、generation pipeline identity、adapter-specific artifact records/tree digests。
 - output-scoped interprocess lock、typed lease、versioned marker、staging、backup/restore transaction。
 - complete cache matchでmtimeを変えず再利用。
 - subprocessはdedicated process group、deadline、TERM/KILL/reapを持つ。
@@ -120,7 +120,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 **Status:** Verified
 
 - schema、ABI、compiler metadata、target、source graph、bindingsを照合。
-- XCFramework全regular fileのcanonical digestを照合。
+- 全XCFramework/artifact-bundle regular fileのcanonical digestを照合。
 - stale source、wrong target、corrupt archive/header、missing artifact/manifestを拒否。
 
 ### G6 — SwiftPM/Xcode build integration
@@ -132,7 +132,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 **Status:** Verified
 
 - pluginはsource-built executableを使う通常build commandとしてverifyを実行。
-- Swift sources、manifest、XCFramework rootと全descendant file/directoryをrequired inputsへ登録。
+- Swift sources、manifest、全native artifact rootと全descendant file/directoryをrequired inputsへ登録。
 - Registryだけをplugin work directoryへ生成。
 - successful fixture returns `42`; wrong target/stale/missing state stops build。
 - warm buildでheader/archiveを直接改変してもverifierを再実行。
@@ -145,10 +145,10 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G4、G6
 
-**Status:** Verified
+**Status:** Implemented; latest custom-layout acceptance execution pending
 
-- `--package-root` / `--target` でrecursive Swift source discovery。
-- `Package.swift` とtarget source directoryを検証。
+- Command/Build PluginがSwiftPM-resolved source inventoryを所有し、`path:` / `sources:` / `exclude:` を全commandで一致させる。
+- `Package.swift` とplugin-resolved target sourceを検証し、core独自の `Sources/<Target>` scanを持たない。
 - bootstrap binary targetを生成。
 - `init` 再実行でprepared artifactを保持。
 - unmanaged/incomplete directoryを拒否。
@@ -160,7 +160,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G1–G7
 
-**Status:** Verified on the current schema-4 tree
+**Status:** Verified on the current schema-5 mixed Apple/Linux tree for the macOS destination; native Linux execution remains a separate gate
 
 - real Mojo `1.0.0 (ed45d567)` compile。
 - Xcode build + plugin + macro + static link。
@@ -171,7 +171,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 - arm64 `generic` とx86_64 `x86-64` objectを1つのtarget-scoped universal static frameworkへ統合。
 - release packageから別directoryへ移設したclean consumerがMojo compilerなしでbuild/link/runし `42`。
 - final consumer Mach-Oにtarget-scoped ABI symbolsが4つ存在し、Mojo dylib dependencyなし。
-- 68 testsのfull package suiteとfocused unit/integration suiteをbounded `xcodebuild test` で各3回実行。
+- full package suiteとfocused unit/integration suiteをbounded `xcodebuild test` で各3回実行。test宣言数は進捗指標にせず、behavior gateを正本とする。
 
 ### G9 — Correctness and developer-experience hardening
 
@@ -179,19 +179,24 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G1–G8
 
-**Status:** Verified
+**Status:** Current compiler-free package suite passed from clean DerivedData on Swift 6.3.1 and the pinned Swift 6.4 snapshot, each with three guarded runs; mutable-buffer/session/dual-ASan real-Mojo local acceptance passed; immutable-revision release acceptance for the candidate commit remains pending
 
 - checked `Int32` overflowとconditional compilation rejection。
 - generation component versionsを合成したpipeline digestでcacheとverifyをinvalidate。
-- XCFramework内部のfile overwriteとdirectory entry変更をbuild graphへ反映。
+- 全native artifact内部のfile overwriteとdirectory entry変更をbuild graphへ反映。
 - cache readからcommitまでをinterprocess lockで直列化。
 - compiler/build subprocessをprocess group単位でtimeout、terminate、kill、reap。
-- normal suite内のcommitted schema-4 integration targetがplugin、macro、static link、`42`をcompiler-freeに毎回検証。
+- normal suite内のcommitted schema-5 mixed-artifact integration targetがplugin、macro、Apple static link、`42`をcompiler-freeに毎回検証。
 - `scripts/release-acceptance.sh` がreal Mojo external package、2-slice packaging、release gate、relocation、static symbols、no-dylib、`42`を独立して検証。
+- scalar/bufferの両方が同じimmutable Registry validation cacheを使い、steady-stateでABI/graph/membership C callを繰り返さない。
+- caller-owned mutable-output familyはnested scoped borrowと`Int32` statusを使い、nonzero/empty failuresをtyped errorとして保持する。
+- normal CIはstable/snapshotのcompiler-free matrix、real Mojoはscheduled/manual acceptance、performanceはmanual benchmark workflowへ分離する。
+
+最新checkoutではSwift 6.3.1とpinned Swift 6.4 snapshotのfresh `xcodebuild build-for-testing`、各3回のbounded full suite、real Mojo 1.0 mutable-buffer/session acceptance、およびsession/resource経路のSwift/Mojo Address Sanitizerを実行済みです。CIが指定するstable Swift 6.3.3、immutable remote revisionのuniversal release acceptance、tag gateはcandidate commit/push後に実行します。benchmarkはcorrectness gateではなく、明示依頼時だけ別workflowで実行します。既存commitの過去evidenceを最新変更のpassとして流用しません。
 
 通常suite、artifact mutation、concurrent output access、bounded process ownership、real Mojo release acceptanceを実行済みです。nested fresh consumer内でSwiftSyntaxを毎回cold compileしていた旧integration testは、製品経路ではなく依存再構築が100秒を超えたため廃止しました。現在は通常package graph内のintegration fixtureと独立release acceptanceへ責務を分離しています。
 
-Historicalなcold Release buildはSwiftSyntaxのhost-side compileがボトルネックとなり、2回の120秒制限内には完了しませんでした。current bounded workflowではtest timeoutとrelease timeoutを分離し、fresh-scratch compiler-free Release buildが165秒で完了しました。correctness gateはpassですが、SwiftSyntax cold compileは引き続きdeveloper-experience上の計測・改善対象です。
+Historicalなcold Release buildはSwiftSyntaxのhost-side compileがボトルネックとなり、2回の120秒制限内には完了しませんでした。後の明示的なfresh-scratch benchmarkは165秒で完了しましたが、これはcorrectness gateではありません。cold buildは `Benchmarks/ColdConsumerBuild` だけで計測し、developer-experience上の改善対象として通常testとrelease acceptanceから分離します。
 
 ## 4. Phase 2 — DSL expansion and diagnostics
 
@@ -228,17 +233,20 @@ flowchart LR
 
 **Depends on:** Phase 1 ABI/artifact pipeline. It can progress in parallel with Phase 2 because external Mojo packages do not require inline DSL expansion.
 
-**Status:** `([Float]) throws -> Float` borrowed-input vertical slice is verified across IR、macro、generated Mojo/C ABI、Registry、typed error、unit/artifact tests、real Mojo compile、compiler-free link/runtime、empty-input failure、and Mach-O inspection. Allocation/copy measurement and sanitizer evidence are pending, so the broader Phase remains in progress.
+**Status:** `([Float]) throws -> Float` is release-acceptance verified. Caller-owned mutable output、synchronous opaque session、and session-owned Float32-buffer create/synchronous host copy/shutdown are verified locally across IR、macro、generated Mojo/C ABI、Registry、real Mojo 1.0 universal macOS compile、static link、runtime behavior、typed failures、and Mach-O inspection. The owner model includes typed capability negotiation、exact transfer count、factory-domain isolation、one session/resource lease、active-child exclusion、and exactly-once child-before-parent destruction. The session/resource/host-transfer path also passes separate Swift-side and Mojo-side Address Sanitizer lanes. Schema-5 Linux ARM64 cross packaging is verified, while native Jetson execution、MAX-backed Metal/CUDA allocation/synchronization、allocation/copy measurement、standalone borrowed-buffer sanitizer coverage、and immutable-revision acceptance remain pending.
 
 Deliverables:
 
 - fixed-width scalar matrix。
 - borrowed contiguous `Float` input（first slice real-runtime verified; allocation/copy and sanitizer gates pending）。
+- caller-owned mutable contiguous `Float` output（local real-runtime verified; universal immutable-release、allocation/copy、sanitizer gates pending）。
 - generic borrowed/owned contiguous buffers。
 - UTF-8 string views。
 - versioned records。
 - signature familyごとに、direct value returnまたは明示的なowned diagnostic error envelopeを設計。
-- owner/lease/borrow APIsとexactly-once deallocation。
+- synchronous opaque owner/lease/shutdown APIとexactly-once deallocation（CPU reference verified）。
+- session-owned Float32 buffer factory/owner/synchronous host-copy/synchronize/shutdown API（host real-runtime and separate Swift/Mojo Address Sanitizer lanes verified; device/pinned-host capability representation implemented）。
+- Metal/CUDA buffer allocation、view、transfer、synchronization execution（pending）。
 
 Verification:
 
@@ -247,20 +255,25 @@ Verification:
 - allocation/copy countとperformance budget。
 - Address Sanitizer等、対象環境で利用できるsanitizer。
 
-First-slice convergence gate:
+Completed host-borrow, session, and owned-buffer lifecycle slices, with the remaining device-execution boundary:
 
 ```mermaid
 flowchart LR
-    S["[Float] Swift API"] --> M["macro + Registry"]
-    M --> C["const float* + count<br/>direct Float32 return"]
-    C --> J["Mojo external function"]
-    J --> R["runtime 10.0"]
-    R --> E{"empty/error and<br/>lifetime gates pass?"}
-    E -->|No| S
-    E -->|Yes| V["Mark slice Verified"]
+    I["immutable input borrow"] --> ABI["generated C ABI"]
+    O["caller-owned mutable output borrow"] --> ABI
+    ABI --> J["Mojo synchronous compute"]
+    J --> S["direct value or typed status"]
+    S --> H["Host-borrow slices verified"]
+    H --> D{"Need persistent runtime state?"}
+    D -->|Yes| N["Opaque session owner verified on CPU"]
+    D -->|No| K["Use scoped host borrow"]
+    N --> B["Session-owned Float32 buffer + sync host copy verified"]
+    B --> G{"Need accelerator execution?"}
+    G -->|Yes| P["Implement Metal/CUDA allocation + sync adapter"]
+    G -->|No| C["Use synchronous session ABI"]
 ```
 
-The functional slice is runtime-verified: real-Mojo release acceptance ran, the compiler-free relocated consumer executed scalar and buffer calls, and empty input returned the typed error. A zero-copy claim remains blocked until copy/allocation counts are measured rather than inferred, and the unsafe boundary still requires sanitizer evidence.
+The immutable-input functional slice is release-runtime verified. The mutable-output slice is local-runtime verified with mutation, status `7`, distinct empty failures, four bridge symbols, and no Mojo dynamic dependency. The session/resource slice is local-runtime verified with session and host-buffer create/copy/use/shutdown, post-create cleanup, exact-count and copy/synchronization-status failures, capability/schema/status/missing-handle/active-resource failures, concurrent/reentrant busy behavior, ten bridge symbols, no Mojo/KGEN dynamic dependency, and separate Swift/Mojo Address Sanitizer execution. A zero-copy claim remains blocked until copy/allocation counts are measured; standalone borrowed/mutable buffer families retain their own sanitizer gate. The typed owner can represent host/device/pinned-host memory, but the installed standalone Mojo 1.0 package does not expose the host `DeviceContext` module; no current acceptance therefore establishes MAX-backed Metal/CUDA allocation, DMA, device synchronization, GPU availability, or async completion.
 
 ## 6. Phase 4 — Async and callbacks
 
@@ -299,8 +312,8 @@ Deliverables:
 - generated ABI entry moduleからMojo packageをimportし、declared bindingsをexport（implemented for scalar and borrowed `Float` signatures）。
 - model-specific Swift APIとMojo sourceとartifactを結ぶcompatibility manifest。
 - multiple Mojo-enabled targets向けtarget-derived static framework/module/archive/C symbol identityとtwo-target acceptance workflow（verified）。
-- arm64/x86_64 Apple slice-aware schema-4 manifest、universal archive、XCFramework metadata gate（verified）。
-- Apple XCFramework adapterと、SwiftPMの実在するlink capabilityに基づく非Apple artifact adapterの分離。
+- arm64/x86_64 Apple and aarch64 Linux slice-aware schema-5 manifest、universal archive、XCFramework/artifact-bundle metadata gates（verified）。
+- Apple XCFramework adapterとLinux SE-0482 static-library artifact-bundle adapterの分離（cross packaging verified; native Jetson pending）。
 - release/cache identity including target accelerator（implemented; arbitrary target feature setはplanned）。
 - remote artifact bundle or package distribution workflow。
 - signed/reproducible generated artifact policy。

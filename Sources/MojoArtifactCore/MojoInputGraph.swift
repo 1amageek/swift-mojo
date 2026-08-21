@@ -18,8 +18,18 @@ package struct MojoInputGraph: Equatable, Sendable {
         }
         let available = Set(sortedPackages.map(\.name))
         for binding in bindingGraph.bindings {
-            guard case .external(let package, _) = binding.implementation else {
+            let package: String
+            switch binding.implementation {
+            case .inline:
                 continue
+            case .external(let externalPackage, _):
+                package = externalPackage
+            case .session(let sessionPackage, _, _):
+                package = sessionPackage
+            case .sessionExternal(let sessionPackage, _, _):
+                package = sessionPackage
+            case .sessionResource(let sessionPackage, _, _, _, _, _, _):
+                package = sessionPackage
             }
             guard available.contains(package) else {
                 throw MojoArtifactError.externalPackageNotDeclared(package)
