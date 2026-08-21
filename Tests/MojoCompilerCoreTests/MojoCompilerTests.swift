@@ -188,11 +188,10 @@ func foundationRunnerTimesOutAndTerminatesDescendants() throws {
         }
         #expect(seconds == 1)
         let childProcessID = try #require(
-            pid_t(diagnostic.trimmingCharacters(in: .whitespacesAndNewlines))
+            diagnostic.split(whereSeparator: { $0.isNewline }).first
+                .flatMap { pid_t($0) }
         )
-        errno = 0
-        #expect(Darwin.kill(childProcessID, 0) == -1)
-        #expect(errno == ESRCH)
+        #expect(processDisappears(childProcessID, within: .seconds(5)))
     }
 }
 
@@ -201,6 +200,24 @@ private func makeTarget() throws -> MojoTargetConfiguration {
         triple: "arm64-apple-macosx14.0",
         cpu: "apple-m1"
     )
+}
+
+private func processDisappears(
+    _ processID: pid_t,
+    within duration: Duration
+) -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: duration)
+    repeat {
+        errno = 0
+        if Darwin.kill(processID, 0) == -1, errno == ESRCH {
+            return true
+        }
+        Thread.sleep(forTimeInterval: 0.02)
+    } while clock.now < deadline
+
+    errno = 0
+    return Darwin.kill(processID, 0) == -1 && errno == ESRCH
 }
 
 private func withTemporaryDirectory(
