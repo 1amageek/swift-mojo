@@ -21,6 +21,7 @@ struct MojoCommandRunnerTests {
             )
         )
         #expect(result.standardOutput.contains("release"))
+        #expect(!result.standardOutput.contains("mojo version"))
         #expect(!result.standardOutput.contains("swift-mojo prepare"))
         #expect(result.standardError.isEmpty)
     }
@@ -40,18 +41,11 @@ struct MojoCommandRunnerTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func versionHasMachineReadableOutput() throws {
-        let result = runner.run(
-            arguments: ["version", "--format", "json"]
-        )
-        let object = try JSONSerialization.jsonObject(
-            with: Data(result.standardOutput.utf8)
-        ) as? [String: Any]
+    func packageVersionIsNotExposedByInternalCommand() {
+        let result = runner.run(arguments: ["version"])
 
-        #expect(result.exitCode == 0)
-        #expect(object?["success"] as? Bool == true)
-        #expect(object?["command"] as? String == "version")
-        #expect(object?["message"] as? String == SwiftMojoVersion.current)
+        #expect(result.exitCode != 0)
+        #expect(result.standardError.contains("Unknown command 'version'"))
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -71,7 +65,7 @@ struct MojoCommandRunnerTests {
     @Test(.timeLimit(.minutes(1)))
     func unsupportedOutputFormatFailsExplicitly() {
         let result = runner.run(
-            arguments: ["version", "--format", "yaml"]
+            arguments: ["help", "--format", "yaml"]
         )
 
         #expect(result.exitCode != 0)

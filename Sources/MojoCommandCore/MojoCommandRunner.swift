@@ -91,8 +91,6 @@ package struct MojoCommandRunner: Sendable {
         }
     }
 
-    package static let version = SwiftMojoVersion.current
-
     private let environment: [String: String]
     private let currentDirectoryURL: URL
 
@@ -149,18 +147,6 @@ package struct MojoCommandRunner: Sendable {
             return try doctor(options: options, format: format)
         case "release":
             return try release(options: options, format: format)
-        case "version", "--version":
-            try options.rejectUnknown(allowed: ["--format"])
-            return try success(
-                command: "version",
-                message: Self.version,
-                json: MojoCommandJSONOutput(
-                    success: true,
-                    command: "version",
-                    message: Self.version
-                ),
-                format: format
-            )
         case "help", "--help", "-h":
             return MojoCommandResult(
                 exitCode: 0,
@@ -762,8 +748,6 @@ package struct MojoCommandRunner: Sendable {
       swift package --allow-writing-to-package-directory mojo inspect --target <target> [--format text|json]
       swift package --disable-sandbox --allow-writing-to-package-directory mojo doctor [--target <target>] [--format text|json]
       swift package --allow-writing-to-package-directory mojo release --target <target> [--format text|json]
-      swift package --allow-writing-to-package-directory mojo version [--format text|json]
-
     The internal build plugin invokes the private swift-mojo verifier tool.
     """
 }

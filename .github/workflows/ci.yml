@@ -129,6 +129,15 @@ jobs:
         run: |
           scripts/check-sync-shutdown-in-deinit.sh Sources Tests
 
+      - name: Rehearse exact-version consumer in an isolated Git remote
+        if: matrix.channel == 'stable-6.3.3'
+        run: |
+          scripts/release-pretag-semver-gate.sh \
+            "$GITHUB_WORKSPACE" \
+            999.0.0 \
+            999.0.0 \
+            "$(git rev-parse HEAD)"
+
       - name: Build test bundles with the selected compiler
         run: |
           scripts/command-timeout.sh 900 -- \

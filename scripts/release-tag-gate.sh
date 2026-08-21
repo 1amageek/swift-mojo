@@ -11,8 +11,9 @@ if [[ $release_version != <->.<->.<-> ]]; then
     print -u2 "usage: release-tag-gate.sh <major.minor.patch> [tag]"
     exit 64
 fi
-if [[ -z $tag_name || $tag_name == *[[:space:]]* ]]; then
-    print -u2 "error: tag must be a non-empty name without whitespace"
+if [[ -z $tag_name || $tag_name == *[[:space:]]* ]] \
+    || ! git check-ref-format "refs/tags/$tag_name"; then
+    print -u2 "error: tag must be a valid Git tag name without whitespace"
     exit 64
 fi
 if [[ $candidate_url != https://* \
@@ -95,21 +96,16 @@ enum Probe {
 }
 SWIFT
 
-version_json=$("$root/scripts/command-timeout.sh" 180 -- \
+"$root/scripts/command-timeout.sh" 180 -- \
     /usr/bin/xcrun swift package \
     --package-path "$gate_root/Package" \
     --scratch-path "$gate_root/Scratch" \
     --allow-writing-to-package-directory \
-    mojo version --format json \
-    | /usr/bin/tail -n 1)
-expected_version_json="{\"command\":\"version\",\"message\":\"$release_version\",\"success\":true}"
-if [[ $version_json != $expected_version_json ]]; then
-    print -u2 "error: exact-tag command reported '$version_json', expected '$expected_version_json'"
-    exit 1
-fi
+    mojo help
 "$root/scripts/verify-resolved-revision.sh" \
     "$gate_root/Package/Package.resolved" \
     swift-mojo \
-    "$tag_commit"
+    "$tag_commit" \
+    "$release_version"
 
 print "PASS: exact version $release_version resolves tag $tag_name at origin/main and runs the public command plugin"

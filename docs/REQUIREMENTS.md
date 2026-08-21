@@ -173,7 +173,7 @@ func scale(
 | N-014 | Destination selection | configured buildは全slice envelopeを検証しXcodeへ選択を委ねる。明示 `SWIFT_MOJO_TARGET_*` がある場合だけexact destination assertionを追加する |
 | N-015 | Snapshot consistency | prepareはcommit直前、build verifyはRegistry生成直前、releaseはoutput lock保持中の終了直前に入力identityを再読し、操作中の変更を拒否する |
 | N-016 | SwiftPM source ownership | Command/Build Pluginが `sourceModule.sourceFiles` からexact inventoryを渡し、coreは `Sources/<Target>` を再走査しない。`path:` / `sources:` / `exclude:` と同じ解決結果を全commandで使う |
-| N-017 | Immutable dependency proof | releaseの `revision:` はfull Git object ID、version requirementはvalid SemVerに限定し、remote gateはadvertised commitと `Package.resolved` pinの一致を確認する |
+| N-017 | Immutable dependency proof | package release versionをsource codeへ複製せず、releaseの `revision:` はfull Git object ID、version requirementはvalid SemVerに限定し、remote gateはadvertised commitと `Package.resolved` のversion/revision一致を確認する |
 | N-018 | Performance isolation | runtime latency、allocation/copy、cold build timeは明示実行benchmark harnessに置き、通常test、release acceptance、PR CIへwall-clock thresholdを入れない |
 | N-019 | Static runtime closure | consumerがMojo compiler installationへ暗黙依存しない。known compiler-runtime namespaceはprepare時にfail closedし、final Mach-Oのlink/run/dynamic-dependency inspectionもrelease gateに残す |
 

@@ -347,9 +347,9 @@ flowchart LR
 
 Authoring commands are exposed through a SwiftPM command plugin. SwiftPM builds the internal `swift-mojo` executable automatically; package authors do not need to install that executable on `PATH`.
 
-The plugin owns both package-mutating commands (`init` and `prepare`) and read-only commands under one `mojo` verb. SwiftPM permissions are declared for the whole plugin rather than per subcommand, so every invocation must include `--allow-writing-to-package-directory`, including `inspect`, `doctor`, `release`, and `version`. The command still performs only the operation selected by the subcommand; in particular, `release` remains read-only for package-owned files.
+The plugin owns both package-mutating commands (`init` and `prepare`) and read-only commands under one `mojo` verb. SwiftPM permissions are declared for the whole plugin rather than per subcommand, so every invocation must include `--allow-writing-to-package-directory`, including `inspect`, `doctor`, and `release`. The command still performs only the operation selected by the subcommand; in particular, `release` remains read-only for package-owned files.
 
-`prepare` and `doctor` also launch the separately installed Mojo toolchain. That toolchain reads its standard library outside the Swift package, and SwiftPM does not offer a directory-read permission for command plugins. Those two commands therefore require `--disable-sandbox`; `init`, `inspect`, `release`, and `version` keep the plugin sandbox enabled. Run authoring commands only with a compiler installation you trust.
+`prepare` and `doctor` also launch the separately installed Mojo toolchain. That toolchain reads its standard library outside the Swift package, and SwiftPM does not offer a directory-read permission for command plugins. Those two commands therefore require `--disable-sandbox`; `init`, `inspect`, and `release` keep the plugin sandbox enabled. Run authoring commands only with a compiler installation you trust.
 
 ### 1. Bootstrap the generated directory
 
@@ -400,7 +400,7 @@ let package = Package(
 
 The generated module, archive, and C symbols are derived from the Swift target identity. Common ASCII identifiers stay readable; a target name containing `-` receives its full target digest in the module/archive component so names such as `Model-Core` and `Model_Core` cannot normalize to the same binary identity. This prevents collisions when a package graph links more than one Mojo-enabled target.
 
-The repository has no semantic-version tag yet, so development consumers must substitute a full Git commit object ID. Symbolic revisions such as a branch or tag name are rejected by release verification; semantic-version requirements must be syntactically valid. The remote acceptance gates additionally prove that SwiftPM's `Package.resolved` pin equals the advertised remote commit. After the release gates in [RELEASING.md](docs/RELEASING.md) pass and the tag points at the same commit as `origin/main`, packages should use a semantic-version requirement.
+Released consumers should use the stable semantic-version requirement shown above; `0.2.1` is the current usable release. A consumer intentionally evaluating an unreleased commit may instead pin its full Git object ID. Release verification rejects moving branches and symbolic or abbreviated revisions, and semantic-version requirements must be syntactically valid. The remote acceptance gates additionally prove that SwiftPM's `Package.resolved` version and revision match the advertised release.
 
 ### 3. Pin the authoring contract
 
@@ -674,6 +674,8 @@ scripts/release-version-gate.sh <version> <tag>
 SWIFT_MOJO_CANDIDATE_URL=https://github.com/owner/swift-mojo.git \
 scripts/release-tag-gate.sh <version> <tag>
 ```
+
+The version gate rehearses the proposed semantic-version tag in an isolated local bare Git remote before any public tag is created. A fresh `exact:` consumer must resolve the proposed version to the candidate commit, build the `Mojo` product, and run the public command plugin. The resolved package version and revision are the release-version authority; source code does not duplicate the package version. The post-tag gate repeats exact-version resolution against the public remote and verifies that the tag still equals `origin/main`.
 
 The explicit benchmark entry points are:
 
