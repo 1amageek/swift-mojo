@@ -12,7 +12,7 @@
 | 3 — Types and ownership | buffers、strings、records、error envelope | Immutable/mutable borrows、opaque session、session-owned Float32 buffer verified through real local runtime; the session/resource path also passed separate Swift/Mojo ASan lanes; Metal/CUDA execution、allocation/copy、standalone-buffer sanitizer gates remain |
 | 4 — Async and callbacks | cancellation、completion、shutdown、reverse bridge | Research/Planned |
 | 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean consumer、and two-target linking verified; model/distribution work remains |
-| 6 — GPU compute | device/buffer/event/transfer contracts | Research |
+| 6 — GPU compute | device/buffer/event/transfer contracts | Runtime receipt implemented; worker link/run remains Research |
 | 7 — Full inline Mojo syntax decision | custom input/preprocessor/compiler integration | Research |
 
 ```mermaid

@@ -14,6 +14,7 @@ package struct MojoCommandJSONOutput: Codable, Equatable, Sendable {
     package let externalPackages: [String]?
     package let checks: [MojoDoctorReport.Check]?
     package let generatedMojo: String?
+    package let runtimeLibraries: [String]?
 
     package init(
         success: Bool,
@@ -28,7 +29,8 @@ package struct MojoCommandJSONOutput: Codable, Equatable, Sendable {
         slices: [String]? = nil,
         externalPackages: [String]? = nil,
         checks: [MojoDoctorReport.Check]? = nil,
-        generatedMojo: String? = nil
+        generatedMojo: String? = nil,
+        runtimeLibraries: [String]? = nil
     ) {
         self.success = success
         self.command = command
@@ -43,5 +45,6 @@ package struct MojoCommandJSONOutput: Codable, Equatable, Sendable {
         self.externalPackages = externalPackages
         self.checks = checks
         self.generatedMojo = generatedMojo
+        self.runtimeLibraries = runtimeLibraries
     }
 }

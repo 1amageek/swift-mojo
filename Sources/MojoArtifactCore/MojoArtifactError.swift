@@ -27,6 +27,8 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
     case invalidManifest(String)
     case inputGraphMismatch(expected: String, actual: String)
     case invalidPackageDependencyRequirement(String)
+    case invalidRuntimeLibrary(library: String, detail: String)
+    case invalidRuntimeReceipt(String)
     case inputsChangedDuringOperation(String)
     case manifestMissing(String)
     case localPackageDependencyInRelease
@@ -43,6 +45,18 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
     case symbolicLinkUnsupported(String)
     case releaseRequiresCurrentManifest(Int)
     case releaseSliceMismatch(expected: String, actual: String)
+    case runtimeDependencyUnresolved(library: String, dependency: String)
+    case runtimeLibrariesUnreachable([String])
+    case runtimeLibraryArchitectureMismatch(
+        library: String,
+        expected: String,
+        actual: String
+    )
+    case runtimeObjectArchitectureMismatch(expected: String, actual: String)
+    case runtimeReceiptHasNoRuntimeSymbols(String)
+    case runtimeReceiptMismatch(expected: String, actual: String)
+    case runtimeSymbolProviderConflict(symbol: String, libraries: [String])
+    case runtimeSymbolsUnresolved(target: String, symbols: [String])
     case sliceArchiveDigestMismatch(
         target: String,
         expected: String,
@@ -106,6 +120,10 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
             "Prepared Mojo input graph is stale; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
         case .invalidPackageDependencyRequirement(let requirement):
             "Package.swift dependency requirement '\(requirement)' is not a full Git object ID or valid semantic version"
+        case .invalidRuntimeLibrary(let library, let detail):
+            "Runtime library '\(library)' is invalid: \(detail)"
+        case .invalidRuntimeReceipt(let detail):
+            "Mojo runtime dependency receipt is invalid: \(detail)"
         case .inputsChangedDuringOperation(let operation):
             "Swift Mojo inputs changed during \(operation); retry after source and configuration edits finish"
         case .manifestMissing(let path):
@@ -138,6 +156,26 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
             "Release verification requires schema \(MojoArtifactManifest.currentSchemaVersion); found legacy schema \(version). Run '\(Self.prepareCommand)'."
         case .releaseSliceMismatch(let expected, let actual):
             "Prepared release slices do not match SwiftMojo.json; expected [\(expected)], found [\(actual)]."
+        case .runtimeDependencyUnresolved(let library, let dependency):
+            "Runtime library '\(library)' requires undeclared non-system dependency '\(dependency)'."
+        case .runtimeLibrariesUnreachable(let libraries):
+            "Declared runtime libraries are not reachable from the object symbol providers: \(libraries.joined(separator: ", "))."
+        case .runtimeLibraryArchitectureMismatch(
+            let library,
+            let expected,
+            let actual
+        ):
+            "Runtime library '\(library)' has architecture '\(actual)', expected '\(expected)'."
+        case .runtimeObjectArchitectureMismatch(let expected, let actual):
+            "Mojo runtime object has architecture '\(actual)', expected '\(expected)'."
+        case .runtimeReceiptHasNoRuntimeSymbols(let target):
+            "Mojo object for target '\(target)' has no runtime symbols for the declared libraries."
+        case .runtimeReceiptMismatch(let expected, let actual):
+            "Mojo runtime dependency receipt is stale or corrupt; expected \(expected), found \(actual)."
+        case .runtimeSymbolProviderConflict(let symbol, let libraries):
+            "Runtime symbol '\(symbol)' has multiple providers: \(libraries.joined(separator: ", "))."
+        case .runtimeSymbolsUnresolved(let target, let symbols):
+            "Mojo object for target '\(target)' has unresolved declared runtime symbols: \(symbols.joined(separator: ", "))."
         case .sliceArchiveDigestMismatch(let target, let expected, let actual):
             "Prepared Mojo archive for \(target) is stale or corrupt; expected \(expected), found \(actual)."
         case .sliceArchiveMissing(let target):

@@ -81,7 +81,12 @@ package struct MojoCommandRunner: Sendable {
                     "Unknown option(s): \(unknown.sorted().joined(separator: ", "))"
                 )
             }
-            let repeatable: Set<String> = ["--source", "--mojo-package"]
+            let repeatable: Set<String> = [
+                "--mojo-package",
+                "--runtime-library",
+                "--source",
+                "--system-library",
+            ]
             for (option, optionValues) in values
             where !repeatable.contains(option) && optionValues.count > 1 {
                 throw MojoArtifactError.invalidArguments(
@@ -147,6 +152,16 @@ package struct MojoCommandRunner: Sendable {
             return try doctor(options: options, format: format)
         case "release":
             return try release(options: options, format: format)
+        case "runtime-prepare":
+            return try prepareRuntimeReceipt(
+                options: options,
+                format: format
+            )
+        case "runtime-verify":
+            return try verifyRuntimeReceipt(
+                options: options,
+                format: format
+            )
         case "help", "--help", "-h":
             return MojoCommandResult(
                 exitCode: 0,
@@ -548,6 +563,114 @@ package struct MojoCommandRunner: Sendable {
         )
     }
 
+    private func prepareRuntimeReceipt(
+        options: ParsedOptions,
+        format: OutputFormat
+    ) throws -> MojoCommandResult {
+        try options.rejectUnknown(
+            allowed: [
+                "--format", "--object", "--receipt", "--runtime-library",
+                "--system-library", "--target-accelerator", "--target-cpu",
+                "--target-triple",
+            ]
+        )
+        let receiptURL = try options.requiredURL("--receipt")
+        let runtimeOptions = try runtimeReceiptOptions(options: options)
+        try validateRuntimeReceiptDestination(
+            receiptURL,
+            options: runtimeOptions
+        )
+        let receipt = try MojoRuntimeReceiptPreparer(
+            environment: environment
+        ).prepare(options: runtimeOptions)
+        try FileManager.default.createDirectory(
+            at: receiptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try receipt.encoded().write(to: receiptURL, options: .atomic)
+        try MojoRegularFile.validate(at: receiptURL)
+        let message = "Prepared runtime receipt \(receipt.digest) for \(receipt.libraries.count) library(s)."
+        return try success(
+            command: "runtime-prepare",
+            message: message,
+            json: MojoCommandJSONOutput(
+                success: true,
+                command: "runtime-prepare",
+                message: message,
+                target: receipt.target.identity,
+                artifactDigest: receipt.digest,
+                runtimeLibraries: receipt.libraries.map(\.fileName)
+            ),
+            format: format
+        )
+    }
+
+    private func verifyRuntimeReceipt(
+        options: ParsedOptions,
+        format: OutputFormat
+    ) throws -> MojoCommandResult {
+        try options.rejectUnknown(
+            allowed: [
+                "--format", "--object", "--receipt", "--runtime-library",
+                "--system-library", "--target-accelerator", "--target-cpu",
+                "--target-triple",
+            ]
+        )
+        let receiptURL = try options.requiredURL("--receipt")
+        try MojoRegularFile.validate(at: receiptURL)
+        let receipt = try MojoRuntimeDependencyReceipt.decode(
+            Data(contentsOf: receiptURL)
+        )
+        let verified = try MojoRuntimeReceiptVerifier(
+            environment: environment
+        ).verify(
+            receipt: receipt,
+            options: runtimeReceiptOptions(options: options)
+        )
+        let message = "Verified runtime receipt \(verified.digest) for \(verified.libraries.count) library(s)."
+        return try success(
+            command: "runtime-verify",
+            message: message,
+            json: MojoCommandJSONOutput(
+                success: true,
+                command: "runtime-verify",
+                message: message,
+                target: verified.target.identity,
+                artifactDigest: verified.digest,
+                runtimeLibraries: verified.libraries.map(\.fileName)
+            ),
+            format: format
+        )
+    }
+
+    private func runtimeReceiptOptions(
+        options: ParsedOptions
+    ) throws -> MojoRuntimeReceiptOptions {
+        try MojoRuntimeReceiptOptions(
+            objectURL: options.requiredURL("--object"),
+            libraryURLs: options.urls("--runtime-library"),
+            target: target(options: options),
+            allowedSystemDependencies: Set(
+                options.values["--system-library"] ?? []
+            )
+        )
+    }
+
+    private func validateRuntimeReceiptDestination(
+        _ receiptURL: URL,
+        options: MojoRuntimeReceiptOptions
+    ) throws {
+        let destination = receiptURL.resolvingSymlinksInPath()
+        let protectedInputs = [options.objectURL] + options.libraryURLs
+        guard !protectedInputs.contains(where: {
+            $0.resolvingSymlinksInPath() == destination
+        }) else {
+            throw MojoArtifactError.invalidArguments(
+                "--receipt must not overwrite the object or a runtime library"
+            )
+        }
+    }
+
     private func requiredLayout(
         options: ParsedOptions
     ) throws -> MojoPackageLayout {
@@ -748,6 +871,8 @@ package struct MojoCommandRunner: Sendable {
       swift package --allow-writing-to-package-directory mojo inspect --target <target> [--format text|json]
       swift package --disable-sandbox --allow-writing-to-package-directory mojo doctor [--target <target>] [--format text|json]
       swift package --allow-writing-to-package-directory mojo release --target <target> [--format text|json]
+      swift package --disable-sandbox --allow-writing-to-package-directory mojo runtime-prepare --object <object> --runtime-library <library> --receipt <receipt> --target-triple <triple> --target-cpu <cpu> [--target-accelerator <accelerator>] [--system-library <name>] [--format text|json]
+      swift package --disable-sandbox mojo runtime-verify --object <object> --runtime-library <library> --receipt <receipt> --target-triple <triple> --target-cpu <cpu> [--target-accelerator <accelerator>] [--system-library <name>] [--format text|json]
     The internal build plugin invokes the private swift-mojo verifier tool.
     """
 }

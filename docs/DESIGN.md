@@ -35,6 +35,7 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Session resource lowering is external-only | buffer factory/create/destroy/copy/synchronize metadata、generated post-copy synchronization、versioned C ABI、typed `MojoFloat32BufferOwner`、capability/size/count validation、child-before-parent lifecycle tests、real Mojo host-buffer round-trip acceptance |
 | Mojo 1.0 device API is a separate runtime capability | Official `DeviceContext`/`DeviceBuffer` APIs define enqueue/copy/synchronize semantics, but the installed standalone Mojo 1.0 package does not expose the host `DeviceContext` module; MAX-backed Metal/CUDA and native Jetson remain explicit adapter gates |
 | Static artifacts reject undeclared Mojo runtime dependencies | `MojoObjectLinkageInspector` normalizes `nm -u` output and rejects unresolved `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` before archiving |
+| Accelerator dependencies have a separate verified identity | schema-1 runtime receipts bind object/library digests、target architecture、exact symbol providers、Mach-O/ELF transitive dependencies、and observed system dependencies without weakening the static adapter |
 | Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation and KGEN-free archive inspection pass, while native Jetson link/run remains pending |
 
 ## 3. Architecture and responsibilities

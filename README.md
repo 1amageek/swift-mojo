@@ -268,6 +268,16 @@ The generated C ABI creates an opaque session and session-owned buffer handles, 
 
 This is a generic CPU-capable ownership bridge, not an LLM API by itself. The model package still defines the Mojo session layout, model loading, weights, tokenization, and inference methods. Current static artifacts must be link-closed against target system libraries; `prepare` rejects unresolved `AsyncRT_*`, `KGEN_CompilerRT_*`, and `MGP_RT_*` dependencies instead of allowing a later consumer link failure. A future MAX, GPU, or async runtime must be introduced as an explicit versioned adapter rather than an implicit dynamic dependency.
 
+For an isolated accelerator worker, `runtime-prepare` creates a separate schema-1
+dependency receipt from a compiled object and explicitly supplied dynamic
+libraries. The receipt binds the object digest, target identity, library digests,
+architecture, install names/SONAMEs, exact symbol providers, transitive dynamic
+closure, and observed system dependencies. `runtime-verify` reconstructs that
+receipt from the current files and rejects missing, extra, ambiguous, unreachable,
+or modified dependencies. This receipt does not weaken the link-closed static
+artifact policy and does not by itself claim that a worker linked or executed.
+See `docs/ADR-0010-ACCELERATOR-RUNTIME-RECEIPTS.md`.
+
 ## Author and consumer experience
 
 ```mermaid

@@ -20,6 +20,22 @@ package struct MojoObjectLinkageInspector: Sendable {
         objectURL: URL,
         target: MojoTargetConfiguration
     ) throws {
+        let unsupportedSymbols = try runtimeSymbols(
+            objectURL: objectURL,
+            target: target
+        )
+        guard unsupportedSymbols.isEmpty else {
+            throw MojoArtifactError.unsupportedMojoRuntimeSymbols(
+                target: target.identity,
+                symbols: unsupportedSymbols
+            )
+        }
+    }
+
+    package func undefinedSymbols(
+        objectURL: URL,
+        target: MojoTargetConfiguration
+    ) throws -> [String] {
         let arguments = ["-u", objectURL.path]
         let result = try processRunner.capture(
             executablePath: "/usr/bin/nm",
@@ -34,21 +50,24 @@ package struct MojoObjectLinkageInspector: Sendable {
                 )
             )
         }
-
-        let unsupportedSymbols = Set(
+        return Set(
             result.output.split(whereSeparator: \Character.isNewline)
                 .compactMap(Self.symbol(from:))
-                .filter { symbol in
-                    Self.unsupportedRuntimeSymbolPrefixes.contains { prefix in
-                        symbol.hasPrefix(prefix)
-                    }
-                }
         ).sorted()
-        guard unsupportedSymbols.isEmpty else {
-            throw MojoArtifactError.unsupportedMojoRuntimeSymbols(
-                target: target.identity,
-                symbols: unsupportedSymbols
-            )
+    }
+
+    package func runtimeSymbols(
+        objectURL: URL,
+        target: MojoTargetConfiguration
+    ) throws -> [String] {
+        try undefinedSymbols(objectURL: objectURL, target: target).filter(
+            Self.isRuntimeSymbol
+        )
+    }
+
+    package static func isRuntimeSymbol(_ symbol: String) -> Bool {
+        unsupportedRuntimeSymbolPrefixes.contains { prefix in
+            symbol.hasPrefix(prefix)
         }
     }
 
