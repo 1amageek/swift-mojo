@@ -10,7 +10,7 @@
 | Runtime benchmark | Same host/toolchain/compiler as the result record | Measure wrapper/direct-dispatcher p50 and p95 | No automatic threshold; explicit evidence review only |
 | Cold-build benchmark | Explicitly selected consumer and host | Measure fresh-scratch consumer build time | Manual only; never a correctness gate |
 
-The SwiftSyntax dependency is pinned to the full Git object ID `050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf`. The human-readable snapshot name remains documentation metadata; it is not used as a mutable package requirement.
+The SwiftSyntax dependency uses the exact stable version `603.0.2`. CI also verifies that `Package.resolved` maps that version to the full Git object ID `79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1`. A stable swift-mojo release cannot depend on a branch or Git revision because SwiftPM treats those requirements as unstable and rejects them from a stable-version dependency graph.
 
 GitHub-hosted workflows pin `actions/checkout` to a full commit object ID and disable persisted checkout credentials because no workflow writes to the repository. Before installing Swiftly, compiler-free CI verifies that the downloaded package is notarized and signed by the Swift Open Source Developer ID Installer identity (`V9AUD2URP3`). The selected Swift compiler, Swift Testing runtime, and macro plugin still come from the exact matrix toolchain described above.
 
@@ -72,8 +72,8 @@ scripts/local-session-acceptance.sh
 
 ## Updating the baseline
 
-1. Select an exact Swift snapshot and the corresponding SwiftSyntax commit.
-2. Replace the root package revision with the full commit object ID and refresh `Package.resolved` without a branch field.
+1. Select the exact Swift toolchains and an exact stable SwiftSyntax version compatible with every compiler lane.
+2. Replace the root package version requirement and refresh `Package.resolved`. Record and verify both the semantic version and its full commit object ID.
 3. Build test bundles with the exact Xcode host, `xcodebuild build-for-testing`, the selected `SWIFT_EXEC`, and that toolchain's matching Swift Testing module/library/plugin paths. Verify the generated link-file lists contain no `MojoMacros.o` or `swift-mojo.o` host executable product, then run both compiler-free matrix lanes with the same settings through `xcodebuild test-without-building` under the 120-second hang guard.
 4. Run real-Mojo acceptance on the same committed and pushed revision.
 5. Record any changed compiler or ABI assumptions in README, requirements, design, and the relevant ADR.

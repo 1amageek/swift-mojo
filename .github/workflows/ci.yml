@@ -10,7 +10,8 @@ permissions:
 
 env:
   DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
-  SWIFT_SYNTAX_REVISION: "050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf"
+  SWIFT_SYNTAX_VERSION: "603.0.2"
+  SWIFT_SYNTAX_REVISION: "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -36,12 +37,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify immutable SwiftSyntax resolution
+      - name: Verify stable SwiftSyntax resolution
         run: |
           scripts/verify-resolved-revision.sh \
             Package.resolved \
             swift-syntax \
-            "$SWIFT_SYNTAX_REVISION"
+            "$SWIFT_SYNTAX_REVISION" \
+            "$SWIFT_SYNTAX_VERSION"
 
       - name: Install Swiftly
         run: |

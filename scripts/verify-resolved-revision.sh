@@ -5,9 +5,14 @@ set -euo pipefail
 resolved_file=${1:-}
 package_identity=${2:-}
 expected_revision=${3:-}
+expected_version=${4:-}
 
 if [[ -z $resolved_file || -z $package_identity || -z $expected_revision ]]; then
-    print -u2 "usage: verify-resolved-revision.sh <Package.resolved> <identity> <full-revision>"
+    print -u2 "usage: verify-resolved-revision.sh <Package.resolved> <identity> <full-revision> [exact-version]"
+    exit 64
+fi
+if [[ -n $expected_version && $expected_version != <->.<->.<-> ]]; then
+    print -u2 "error: expected version must be an exact stable semantic version"
     exit 64
 fi
 if [[ ! -f $resolved_file ]]; then
@@ -24,13 +29,19 @@ if [[ ! -x /usr/bin/python3 ]]; then
     exit 69
 fi
 
-actual_revision=$(/usr/bin/python3 - "$resolved_file" "$package_identity" <<'PYTHON'
+/usr/bin/python3 - \
+    "$resolved_file" \
+    "$package_identity" \
+    "$expected_revision" \
+    "$expected_version" <<'PYTHON'
 import json
 import pathlib
 import sys
 
 resolved_path = pathlib.Path(sys.argv[1])
 identity = sys.argv[2]
+expected_revision = sys.argv[3]
+expected_version = sys.argv[4] or None
 document = json.loads(resolved_path.read_text(encoding="utf-8"))
 matches = [
     pin
@@ -57,13 +68,18 @@ if version is not None and (not isinstance(version, str) or not version):
     raise SystemExit(
         f"resolved pin for package identity '{identity}' has an invalid version"
     )
-print(revision)
+if revision != expected_revision:
+    raise SystemExit(
+        f"package '{identity}' resolved to {revision}, expected {expected_revision}"
+    )
+if expected_version is not None and version != expected_version:
+    raise SystemExit(
+        f"package '{identity}' resolved version {version!r}, expected {expected_version!r}"
+    )
 PYTHON
-)
 
-if [[ $actual_revision != $expected_revision ]]; then
-    print -u2 "error: package '$package_identity' resolved to $actual_revision, expected $expected_revision"
-    exit 1
+if [[ -n $expected_version ]]; then
+    print "PASS: package '$package_identity' resolved exact version $expected_version at immutable revision $expected_revision"
+else
+    print "PASS: package '$package_identity' resolved to immutable revision $expected_revision"
 fi
-
-print "PASS: package '$package_identity' resolved to immutable revision $expected_revision"

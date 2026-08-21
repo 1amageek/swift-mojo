@@ -376,7 +376,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/1amageek/swift-mojo.git",
-            revision: "<full-40-or-64-character-commit-oid>"
+            exact: "0.2.1"
         ),
     ],
     targets: [
@@ -602,7 +602,7 @@ The following state was observed on this machine on 2026-08-21:
 | Xcode default Swift | Apple Swift 6.4 (`swiftlang-6.4.0.30.4`, swift-driver `1.168.6`) |
 | CI Xcode host | GitHub `xcode-27` preview image pinned by an exact Xcode 27.0 beta 4 (`27A5228h`) preflight; host executable link isolation is checked before tests run |
 | Snapshot used by the shell | `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a`, compiler commit `424cae54c1a10da` |
-| swift-syntax | Full commit `050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf`, corresponding to the documented 2026-08-14 snapshot baseline |
+| swift-syntax | Exact stable version `603.0.2`, resolved at `79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1` and verified with both compiler lanes |
 | Mojo | Mojo `1.0.0 (ed45d567)` through an isolated executable wrapper |
 | Global Mojo | Not present on the shell `PATH` |
 | Real result | Scalar, immutable/mutable buffers, owned CPU session, and session-owned host Float32 buffer compiled and ran; host round-trip copy, typed transfer/count/create/use/schema/capability/resource failures, and child-before-parent exactly-once shutdown were exercised |

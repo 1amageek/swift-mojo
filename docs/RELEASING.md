@@ -1,6 +1,6 @@
 # Release process
 
-No semantic-version release has been tagged at this document's last update. A candidate receives its exact `SwiftMojoVersion.current` before the source and test gates run, but it is not a release until every gate below has evidence from the same commit and the final tag checks pass.
+A candidate receives its exact `SwiftMojoVersion.current` before the source and test gates run, but it is not a usable release until every gate below has evidence from the same commit and the final exact-version resolution checks pass. Tag `0.2.0` failed that final check because its stable package depended on a Git-revision SwiftSyntax requirement; use `0.2.1` or later.
 
 ## Release invariants
 
@@ -18,7 +18,7 @@ flowchart LR
 
 | Gate | Required evidence |
 |---|---|
-| Dependency graph | Root `Package.swift` has no `.package(path:)` or other local package dependency |
+| Dependency graph | Root `Package.swift` has no `.package(path:)`, branch, or Git-revision dependency; every dependency of the stable release uses a stable semantic-version requirement |
 | CI supply chain | GitHub Actions use full commit pins, checkout credentials are not persisted, and the Swiftly installer signer/notarization are verified before installation |
 | License | Root `LICENSE` is present and matches the intended release terms |
 | Public surface | `swift package --allow-writing-to-package-directory mojo ...` is the documented author command; the internal executable is not a product |
@@ -38,7 +38,7 @@ Performance is not part of the correctness or release-acceptance suites. Run `Be
 
 1. Choose the semantic version and replace the development version in `Sources/MojoCommandCore/SwiftMojoVersion.swift`.
 2. Replace branch-based dependency examples with the intended semantic-version requirement only when that tag will be created in the same release operation.
-3. Confirm the root manifest contains no local package reference, every `revision:` is a full Git object ID, and `Package.resolved` pins that exact object.
+3. Confirm the root manifest contains no local, branch, or Git-revision package requirement. Verify every exact stable dependency version and its resolved full Git object ID.
 4. Run the focused and full test matrices with explicit timeouts, then verify their Xcode link-file lists with `scripts/verify-host-tool-link-isolation.sh <derived-data-path>`.
 5. Commit and push the candidate revision, then run the public command-plugin acceptance against that immutable revision. The scripts verify both the advertised remote object and SwiftPM's resolved pin:
 
