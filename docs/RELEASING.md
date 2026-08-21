@@ -25,6 +25,7 @@ flowchart LR
 | Version | `SwiftMojoVersion.current` is exactly the release version and has no `-dev` suffix |
 | Generated state | bindings、Mojo source、source map、manifest、header、XCFramework、and pipeline identity agree |
 | Tests | Focused suites and the complete package suite pass through bounded `xcodebuild test` |
+| Host/target isolation | Xcode link-file lists contain no macro or build-tool executable object in consumer test bundles |
 | Real compiler | Updated `scripts/release-acceptance.sh` compiles and runs scalar, immutable-buffer, mutable-buffer, owned-session lifecycle, and typed failure paths from a custom SwiftPM `path`/`sources`/`exclude` layout |
 | Sanitizers | The current-checkout universal session/resource/host-transfer fixture passes separate `swift-address` and `mojo-address` lanes; the Mojo lane verifies its required ASan runtime version symbol before link |
 | Multiple targets | `scripts/multi-target-acceptance.sh` links two Mojo-enabled targets with two symbol prefixes |
@@ -38,7 +39,7 @@ Performance is not part of the correctness or release-acceptance suites. Run `Be
 1. Choose the semantic version and replace the development version in `Sources/MojoCommandCore/SwiftMojoVersion.swift`.
 2. Replace branch-based dependency examples with the intended semantic-version requirement only when that tag will be created in the same release operation.
 3. Confirm the root manifest contains no local package reference, every `revision:` is a full Git object ID, and `Package.resolved` pins that exact object.
-4. Run the focused and full test matrices with explicit timeouts.
+4. Run the focused and full test matrices with explicit timeouts, then verify their Xcode link-file lists with `scripts/verify-host-tool-link-isolation.sh <derived-data-path>`.
 5. Commit and push the candidate revision, then run the public command-plugin acceptance against that immutable revision. The scripts verify both the advertised remote object and SwiftPM's resolved pin:
 
    ```bash

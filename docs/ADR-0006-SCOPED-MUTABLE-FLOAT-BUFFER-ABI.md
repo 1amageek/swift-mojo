@@ -1,6 +1,6 @@
 # ADR-0006: Scoped mutable Float buffer ABI
 
-- Status: Local arm64 runtime verified; immutable-revision universal release pending
+- Status: Accepted; immutable-revision universal runtime verified
 - Date: 2026-08-21
 - Scope: Caller-owned synchronous mutable-output vertical slice
 
@@ -92,23 +92,22 @@ The mutable dispatcher is an additive signature family under static ABI version 
 
 ## Acceptance evidence
 
-The current checkout passed:
+The implementation passed:
 
 1. bounded package-wide `xcodebuild test`, including IR, macro, generated source/header/Registry, cache identity, and typed-error tests;
-2. real Mojo `1.0.0 (ed45d567)` arm64 object generation through the public command plugin;
-3. static XCFramework link into a temporary Swift consumer;
+2. real Mojo `1.0.0 (ed45d567)` arm64 and x86_64 object generation through the public command plugin;
+3. immutable-revision universal static XCFramework link into a relocated temporary Swift consumer;
 4. runtime mutation from `[1, 2, 3]` to `[2, 4, 6]`;
 5. nonzero Mojo status `7` mapped to the typed Swift error;
 6. distinct empty-input and empty-output failures;
 7. final Mach-O inspection showing four required bridge symbols and no Mojo dynamic dependency.
 
-The following gates remain pending and must not be inferred from local acceptance:
+The following gates remain separate and must not be inferred from this decision:
 
-- immutable remote revision and arm64/x86_64 universal release acceptance;
 - allocation and copy counts;
-- supported sanitizer runs;
+- standalone borrowed/mutable-buffer sanitizer runs;
 - Linux/Jetson compilation and runtime;
-- device-owned buffer, capability, session, and shutdown contracts.
+- MAX-backed device-buffer execution.
 
 ## References
 

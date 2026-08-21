@@ -600,6 +600,7 @@ The following state was observed on this machine on 2026-08-21:
 |---|---|
 | Xcode | Xcode 27.0, build `27A5237l` |
 | Xcode default Swift | Apple Swift 6.4 (`swiftlang-6.4.0.30.4`, swift-driver `1.168.6`) |
+| CI Xcode host | GitHub `xcode-27` preview image pinned by an exact Xcode 27.0 beta 4 (`27A5228h`) preflight; host executable link isolation is checked before tests run |
 | Snapshot used by the shell | `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a`, compiler commit `424cae54c1a10da` |
 | swift-syntax | Full commit `050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf`, corresponding to the documented 2026-08-14 snapshot baseline |
 | Mojo | Mojo `1.0.0 (ed45d567)` through an isolated executable wrapper |
@@ -610,13 +611,13 @@ The following state was observed on this machine on 2026-08-21:
 | Link inspection | The scalar-plus-buffer consumer defined exactly five target-scoped ABI symbols; there was no Mojo dynamic-library dependency |
 | Failure evidence | Stale source, generated source/source-map drift, wrong target, missing state, malformed package wiring, symlinks, and corrupt archive/header/interface were rejected |
 | Test evidence | Fresh `xcodebuild build-for-testing` plus three guarded complete-suite runs passed on both local Swift 6.3.1 and the pinned Swift 6.4 snapshot, with unchanged source/artifact hashes and no timeout or stale helper |
-| Remote release acceptance | Immutable revision `fc0589d` passed real external-package compilation, two-slice static-framework packaging, read-only release verification, compiler-free relocation, static link inspection, scalar `42`, buffer `10.0`, and typed empty-buffer failure |
+| Remote release acceptance | An immutable pushed revision passed real external-package compilation, universal static-framework and Linux artifact-bundle packaging, read-only release verification, compiler-free relocation, scalar/immutable/mutable/session execution, typed failures, and static-link inspection; the release process reruns this gate on the final tag commit |
 | Legacy compatibility | The committed schema-3 example passed current plugin verification, Xcode build/link, and runtime `42` |
 | Borrowed buffer change | Source, generated ABI, macro lowering, typed errors, real compile/link/runtime, and failure behavior are verified; allocation/copy counts and sanitizers remain pending |
-| Mutable output change | IR, macro, generated Mojo/C/Registry, real Mojo 1.0 arm64 compile, static link, runtime mutation, typed status, both empty-buffer failures, four-symbol inspection, and no-Mojo-dylib inspection passed locally; immutable-revision universal release acceptance remains pending |
+| Mutable output change | IR, macro, generated Mojo/C/Registry, real Mojo 1.0 universal compile, static link, runtime mutation, typed status, both empty-buffer failures, immutable-revision release acceptance, symbol inspection, and no-Mojo-dylib inspection passed; allocation/copy measurement and standalone-buffer sanitizers remain pending |
 | Runtime session change | IR, macro, generated Mojo/C/Registry, session/resource lifecycle tests, real Mojo 1.0 CPU session and host-buffer create/copy/use/shutdown, copy and synchronization status propagation, typed failures, ten-symbol static link, no-Mojo-dylib inspection, Swift Address Sanitizer, and Mojo Address Sanitizer passed locally; installed standalone Mojo lacks the `DeviceContext` host module, so MAX-backed Metal/CUDA and native Jetson acceptance remain pending |
 | Linux artifact change | Real Mojo cross-compiled `aarch64-unknown-linux-gnu`; schema-5 artifact-bundle layout/digest/package wiring and a KGEN-free archive passed locally. Native Jetson Swift link/run remains pending |
-| Multi-target change | Immutable revision `fc0589d` prepared, linked, and executed two independent Mojo-enabled targets in one consumer; both returned `42` without module or symbol collision |
+| Multi-target change | An immutable pushed revision prepared, linked, and executed two independent Mojo-enabled targets in one consumer; both returned `42` without module or symbol collision, and the release process repeats this on the final tag commit |
 | Wrapper latency | The prior `9.148 µs` versus `9.067 µs` p50 result is retained as historical evidence only. `Benchmarks/RuntimeBridge` now provides the reproducible explicit harness; it has not been rerun for the current changes |
 | Historical cold build | A prior compiler-free fresh-scratch Release consumer build completed in `165` seconds; it is not current correctness or performance evidence |
 

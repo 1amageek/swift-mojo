@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
   SWIFT_SYNTAX_REVISION: "050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf"
 
 concurrency:
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   compiler-free-tests:
     name: Compiler-free tests (${{ matrix.channel }})
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -111,8 +111,8 @@ jobs:
           "$SWIFT_MOJO_CI_SWIFT" --version
           xcode_version=$(/usr/bin/xcodebuild -version)
           printf '%s\n' "$xcode_version"
-          if [[ "$xcode_version" != $'Xcode 26.3\nBuild version 17C529' ]]; then
-            echo "CI requires Xcode 26.3 (17C529) for Swift tools 6.2 manifest evaluation" >&2
+          if [[ "$xcode_version" != $'Xcode 27.0\nBuild version 27A5228h' ]]; then
+            echo "CI requires Xcode 27.0 beta 4 (27A5228h) for package graph isolation" >&2
             exit 1
           fi
 
@@ -141,6 +141,11 @@ jobs:
               LIBRARY_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
               LD_RUNPATH_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
               OTHER_SWIFT_FLAGS="-plugin-path $SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT"
+
+      - name: Verify host executables are isolated from test bundles
+        run: |
+          scripts/verify-host-tool-link-isolation.sh \
+            "$SWIFT_MOJO_CI_DERIVED_DATA"
 
       - name: Run bounded correctness suite
         run: |

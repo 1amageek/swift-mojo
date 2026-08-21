@@ -179,7 +179,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G1–G8
 
-**Status:** Current compiler-free package suite passed from clean DerivedData on Swift 6.3.1 and the pinned Swift 6.4 snapshot, each with three guarded runs; mutable-buffer/session/dual-ASan real-Mojo local acceptance passed; immutable-revision release acceptance for the candidate commit remains pending
+**Status:** The compiler-free package suite passed from clean DerivedData on Swift 6.3.1 and the pinned Swift 6.4 snapshot, each with three guarded runs. Mutable-buffer/session/dual-ASan real-Mojo local acceptance and immutable-revision universal release acceptance passed. Every release candidate must repeat hosted compiler and immutable-revision gates on the final commit.
 
 - checked `Int32` overflowとconditional compilation rejection。
 - generation component versionsを合成したpipeline digestでcacheとverifyをinvalidate。
@@ -192,7 +192,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 - caller-owned mutable-output familyはnested scoped borrowと`Int32` statusを使い、nonzero/empty failuresをtyped errorとして保持する。
 - normal CIはstable/snapshotのcompiler-free matrix、real Mojoはscheduled/manual acceptance、performanceはmanual benchmark workflowへ分離する。
 
-最新checkoutではSwift 6.3.1とpinned Swift 6.4 snapshotのfresh `xcodebuild build-for-testing`、各3回のbounded full suite、real Mojo 1.0 mutable-buffer/session acceptance、およびsession/resource経路のSwift/Mojo Address Sanitizerを実行済みです。CIが指定するstable Swift 6.3.3、immutable remote revisionのuniversal release acceptance、tag gateはcandidate commit/push後に実行します。benchmarkはcorrectness gateではなく、明示依頼時だけ別workflowで実行します。既存commitの過去evidenceを最新変更のpassとして流用しません。
+最新checkoutではSwift 6.3.1とpinned Swift 6.4 snapshotのfresh `xcodebuild build-for-testing`、各3回のbounded full suite、real Mojo 1.0 mutable-buffer/session acceptance、およびsession/resource経路のSwift/Mojo Address Sanitizerを実行済みです。release candidateはhost-tool link isolation、stable Swift 6.3.3、pinned Swift 6.4、immutable remote revisionのuniversal release/multi-target acceptance、version gate、tag gateを同じ最終commitから通過した場合だけreleaseになります。benchmarkはcorrectness gateではなく、明示依頼時だけ別workflowで実行します。既存commitの過去evidenceを最新変更のpassとして流用しません。
 
 通常suite、artifact mutation、concurrent output access、bounded process ownership、real Mojo release acceptanceを実行済みです。nested fresh consumer内でSwiftSyntaxを毎回cold compileしていた旧integration testは、製品経路ではなく依存再構築が100秒を超えたため廃止しました。現在は通常package graph内のintegration fixtureと独立release acceptanceへ責務を分離しています。
 
@@ -233,13 +233,13 @@ flowchart LR
 
 **Depends on:** Phase 1 ABI/artifact pipeline. It can progress in parallel with Phase 2 because external Mojo packages do not require inline DSL expansion.
 
-**Status:** `([Float]) throws -> Float` is release-acceptance verified. Caller-owned mutable output、synchronous opaque session、and session-owned Float32-buffer create/synchronous host copy/shutdown are verified locally across IR、macro、generated Mojo/C ABI、Registry、real Mojo 1.0 universal macOS compile、static link、runtime behavior、typed failures、and Mach-O inspection. The owner model includes typed capability negotiation、exact transfer count、factory-domain isolation、one session/resource lease、active-child exclusion、and exactly-once child-before-parent destruction. The session/resource/host-transfer path also passes separate Swift-side and Mojo-side Address Sanitizer lanes. Schema-5 Linux ARM64 cross packaging is verified, while native Jetson execution、MAX-backed Metal/CUDA allocation/synchronization、allocation/copy measurement、standalone borrowed-buffer sanitizer coverage、and immutable-revision acceptance remain pending.
+**Status:** `([Float]) throws -> Float`、caller-owned mutable output、synchronous opaque session、and session-owned Float32-buffer create/synchronous host copy/shutdown are immutable-revision release-acceptance verified across IR、macro、generated Mojo/C ABI、Registry、real Mojo 1.0 universal macOS compile、static link、runtime behavior、typed failures、and Mach-O inspection. The owner model includes typed capability negotiation、exact transfer count、factory-domain isolation、one session/resource lease、active-child exclusion、and exactly-once child-before-parent destruction. The session/resource/host-transfer path also passes separate Swift-side and Mojo-side Address Sanitizer lanes. Schema-5 Linux ARM64 cross packaging is verified, while native Jetson execution、MAX-backed Metal/CUDA allocation/synchronization、allocation/copy measurement、and standalone borrowed-buffer sanitizer coverage remain pending.
 
 Deliverables:
 
 - fixed-width scalar matrix。
 - borrowed contiguous `Float` input（first slice real-runtime verified; allocation/copy and sanitizer gates pending）。
-- caller-owned mutable contiguous `Float` output（local real-runtime verified; universal immutable-release、allocation/copy、sanitizer gates pending）。
+- caller-owned mutable contiguous `Float` output（universal immutable-release verified; allocation/copy and standalone-buffer sanitizer gates pending）。
 - generic borrowed/owned contiguous buffers。
 - UTF-8 string views。
 - versioned records。

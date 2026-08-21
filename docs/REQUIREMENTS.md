@@ -100,7 +100,7 @@ func scale(_ input: [Float], into output: inout [Float]) throws
 | Swift owner | caller retains both arrays for the complete nested borrow scope |
 | Mojo access | immutable input pointer/count plus mutable output pointer/count; no escape/free |
 | Status | Mojo returns `Int32`; `0` succeeds and every nonzero value throws `invocationFailed(bindingID:status:)` |
-| Verification state | real Mojo 1.0 arm64 compile、static link、runtime mutation、typed status、empty-input/output、Mach-O symbol/no-dylib inspection verified locally; universal immutable-revision release、allocation/copy、sanitizer pending |
+| Verification state | real Mojo 1.0 universal compile、static link、runtime mutation、typed status、empty-input/output、immutable-revision release、Mach-O symbol/no-dylib inspection verified; allocation/copy and standalone-buffer sanitizer evidence pending |
 
 ### 3.3 Opaque runtime session vertical slice
 
@@ -267,7 +267,7 @@ manifestは次を保持します。
 | `Bool` | normalized `uint8_t` | explicit conversion | Planned |
 | `String` | UTF-8 pointer + byte count | borrowed view | Planned |
 | non-empty `[Float]` input, `Float` result | `const float *` + `uint64_t` -> `float` | `Pointer[Float32, ImmUntrackedOrigin]` + count -> `Float32` | Real compile/link/runtime verified; allocation/copy and sanitizer proof pending |
-| non-empty `[Float]` input, mutable `inout [Float]` output, `Void` result | immutable pointer/count + mutable pointer/count -> `int32_t` status | `ImmUntrackedOrigin` input + `MutUntrackedOrigin` output -> `Int32` | Real local arm64 compile/link/runtime/status/failure verified; universal release, allocation/copy, and sanitizer proof pending |
+| non-empty `[Float]` input, mutable `inout [Float]` output, `Void` result | immutable pointer/count + mutable pointer/count -> `int32_t` status | `ImmUntrackedOrigin` input + `MutUntrackedOrigin` output -> `Int32` | Real universal compile/link/runtime/status/failure and immutable-revision release verified; allocation/copy and standalone-buffer sanitizer proof pending |
 | `MojoFloat32BufferOwner` | session + element count + memory kind -> owned `void *`; paired destroy and synchronous host-copy/synchronize functions | session-owned opaque Float32 storage | Host allocation、exact-count round-trip copy、copy/synchronize failure、Swift/Mojo Address Sanitizer verified; device/pinned-host capability representation implemented; MAX-backed Metal/CUDA allocation and synchronization pending |
 | other contiguous/device-owned buffer | pointer + count or owner record | borrowed/owned span | Planned |
 | optional scalar | tag + payload | explicit optional record | Planned |
