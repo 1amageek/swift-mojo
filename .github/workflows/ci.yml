@@ -9,6 +9,7 @@ permissions:
   contents: read
 
 env:
+  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
   SWIFT_SYNTAX_REVISION: "050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf"
 
 concurrency:
@@ -108,7 +109,12 @@ jobs:
             exit 1
           fi
           "$SWIFT_MOJO_CI_SWIFT" --version
-          /usr/bin/xcodebuild -version
+          xcode_version=$(/usr/bin/xcodebuild -version)
+          printf '%s\n' "$xcode_version"
+          if [[ "$xcode_version" != $'Xcode 26.3\nBuild version 17C529' ]]; then
+            echo "CI requires Xcode 26.3 (17C529) for Swift tools 6.2 manifest evaluation" >&2
+            exit 1
+          fi
 
       - name: Confirm Mojo is absent
         run: |
