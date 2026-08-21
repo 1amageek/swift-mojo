@@ -10,6 +10,7 @@ let package = Package(
     ],
     products: [
         .library(name: "Mojo", targets: ["Mojo"]),
+        .library(name: "MojoRuntime", targets: ["MojoRuntime"]),
         .plugin(name: "MojoBuildPlugin", targets: ["MojoBuildPlugin"]),
         .plugin(name: "MojoCommandPlugin", targets: ["MojoCommandPlugin"]),
     ],
@@ -62,6 +63,10 @@ let package = Package(
         .target(
             name: "MojoCommandCore",
             dependencies: ["MojoArtifactCore", "MojoCompilerCore"]
+        ),
+        .target(
+            name: "MojoRuntime",
+            dependencies: ["MojoArtifactCore"]
         ),
         .binaryTarget(
             name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
@@ -146,6 +151,14 @@ let package = Package(
         .testTarget(
             name: "MojoCommandCoreTests",
             dependencies: ["MojoArtifactCore", "MojoCommandCore"]
+        ),
+        .testTarget(
+            name: "MojoRuntimeTests",
+            dependencies: [
+                "MojoArtifactCore",
+                "MojoCompilerCore",
+                "MojoRuntime",
+            ]
         ),
         .testTarget(
             name: "MojoBuildPluginIntegrationTests",

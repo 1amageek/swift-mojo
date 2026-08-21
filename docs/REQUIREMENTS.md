@@ -39,6 +39,7 @@ schema-3 P1はarm64 macOS向けscalar経路、schema 4はApple単一artifactのh
 | F-020 | Linux ARM64 native artifactをcompiler-freeに配布する | Implemented; native acceptance pending | schema 5 manifest、SE-0482 static-library artifact bundle、platform-conditioned binary target wiring、real Mojo aarch64 ELF cross-compile、KGEN-free archiveを検証する。Jetson上のSwift link/runはrelease gateとして残す |
 | F-021 | accelerator runtime dependencyをworker用receiptとして固定する | Implemented on macOS; native Linux acceptance pending | object/library SHA-256、target、architecture、install name/SONAME、exact symbol provider、Mach-O/ELF dynamic closure、system dependencyをschema 1へ記録し、全入力を再inspectionして一致を検証する。static artifactのreject policyは維持する |
 | F-022 | receiptからambient searchのないworker bundleを構築する | Implemented on macOS; native Linux acceptance pending | managed transactionでexact `bin/` + `lib/` treeを作り、object digestをlink前後に確認し、Apple `@executable_path/../lib` / Linux `$ORIGIN/../lib`、ELF interpreter、executable bit、final imports、全file digestを再検証する |
+| F-023 | downstream launcherがbundleをspawn前にfresh verificationできる | Implemented; downstream staging integration pending | public `MojoRuntimeBundleVerifying` はread-only verificationを行い、bundle/receipt digest、target、relative executable、library closure、loader metadataのみをimmutable valueとして返す。検証APIはbundleを変更または実行しない |
 
 ## 3. Current scalar contract
 

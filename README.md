@@ -288,6 +288,13 @@ that differs from the manifest. Bundle creation is local deployment tooling; it
 does not grant redistribution rights for third-party runtime libraries. See
 `docs/ADR-0011-ISOLATED-RUNTIME-BUNDLES.md`.
 
+Downstream launchers import the read-only `MojoRuntime` product and call a
+`MojoRuntimeBundleVerifying` implementation before accepting or spawning a
+relocated bundle. `FileSystemMojoRuntimeBundleVerifier` returns only immutable
+verified identity, target, executable, library, and loader metadata; it does
+not expose source paths, mutate the bundle, or launch accelerator code. See
+`docs/ADR-0012-PUBLIC-RUNTIME-VERIFICATION.md`.
+
 ## Author and consumer experience
 
 ```mermaid

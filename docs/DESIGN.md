@@ -37,6 +37,7 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Static artifacts reject undeclared Mojo runtime dependencies | `MojoObjectLinkageInspector` normalizes `nm -u` output and rejects unresolved `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` before archiving |
 | Accelerator dependencies have a separate verified identity | schema-1 runtime receipts bind object/library digests、target architecture、exact symbol providers、Mach-O/ELF transitive dependencies、and observed system dependencies without weakening the static adapter |
 | Accelerator deployment is an exact managed bundle | schema-1 bundle manifests bind the linked executable、receipt、copied closure、relative loader root、direct system dependencies、and Linux interpreter; final imports are re-derived before atomic commit |
+| Runtime preflight is consumable without the authoring CLI | the public read-only `MojoRuntime` product returns immutable verified metadata through `MojoRuntimeBundleVerifying`; construction, mutation, and execution remain outside that API |
 | Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation and KGEN-free archive inspection pass, while native Jetson link/run remains pending |
 
 ## 3. Architecture and responsibilities
