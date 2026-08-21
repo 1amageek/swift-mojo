@@ -114,11 +114,22 @@ let package = Package(
             name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
             path: "Generated/MojoBuildPluginIntegrationFixture/SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
         ),
+        .binaryTarget(
+            name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI_Linux",
+            path: "Generated/MojoBuildPluginIntegrationFixture/SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.artifactbundle"
+        ),
         .target(
             name: "MojoBuildPluginIntegrationFixture",
             dependencies: [
                 .product(name: "Mojo", package: "swift-mojo"),
-                "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
+                .target(
+                    name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
+                    condition: .when(platforms: [.macOS])
+                ),
+                .target(
+                    name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI_Linux",
+                    condition: .when(platforms: [.linux])
+                ),
             ],
             plugins: [
                 .plugin(
