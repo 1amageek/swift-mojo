@@ -76,6 +76,12 @@ The preparer and verifier treat the bundle as a managed, canonical tree. They
 validate the exact `staticLibrary` JSON shape, artifact identifier, archive path,
 supported triple, header path, module-map path, archive digest, and complete tree
 digest. Symbol inspection continues to reject KGEN compiler-runtime dependencies.
+On a macOS authoring host, Linux ELF objects are archived with `llvm-ar` rather
+than BSD `ar`: BSD `ranlib` can warn about a non-Mach-O member, return success,
+and emit an archive containing only its symbol table. Preparation also lists the
+finished archive and requires the compiled object member before committing any
+artifact or manifest. `SWIFT_MOJO_LLVM_AR` may pin an absolute LLVM archiver
+when the active Xcode toolchain does not expose `llvm-ar` through `xcrun`.
 
 ## Package contract
 

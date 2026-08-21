@@ -3,13 +3,14 @@ import MojoBindingCore
 import MojoCompilerCore
 
 package struct MojoArtifactPreparer: Sendable {
-    package static let packagingVersion = 7
+    package static let packagingVersion = 8
 
     private let compiler: any MojoObjectCompiling
     private let generationPipelineDigestOverride: String?
     private let linkageInspector: MojoObjectLinkageInspector
     private let processRunner: any MojoProcessRunning
     private let renderer: MojoStaticSourceRenderer
+    private let staticArchiveBuilder: MojoStaticArchiveBuilder
     private let transaction: MojoOutputTransaction
 
     package init(
@@ -17,13 +18,15 @@ package struct MojoArtifactPreparer: Sendable {
     ) throws {
         try self.init(
             compiler: MojoCompiler(environment: environment),
-            processRunner: FoundationMojoProcessRunner(environment: environment)
+            processRunner: FoundationMojoProcessRunner(environment: environment),
+            environment: environment
         )
     }
 
     package init(
         compiler: any MojoObjectCompiling,
         processRunner: any MojoProcessRunning,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         generationPipelineDigest: String? = nil,
         renderer: MojoStaticSourceRenderer = MojoStaticSourceRenderer(),
         transaction: MojoOutputTransaction = MojoOutputTransaction()
@@ -35,6 +38,10 @@ package struct MojoArtifactPreparer: Sendable {
         )
         self.processRunner = processRunner
         self.renderer = renderer
+        self.staticArchiveBuilder = MojoStaticArchiveBuilder(
+            processRunner: processRunner,
+            environment: environment
+        )
         self.transaction = transaction
     }
 
@@ -154,9 +161,10 @@ package struct MojoArtifactPreparer: Sendable {
                     objectURL: objectURL,
                     target: target
                 )
-                try run(
-                    executablePath: "/usr/bin/ar",
-                    arguments: ["rcs", archiveURL.path, objectURL.path]
+                try staticArchiveBuilder.build(
+                    objectURL: objectURL,
+                    archiveURL: archiveURL,
+                    target: target
                 )
                 builtArchives.append(
                     (

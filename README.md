@@ -466,6 +466,10 @@ swift package --disable-sandbox --allow-writing-to-package-directory mojo prepar
 ```
 
 When `SWIFT_MOJO_EXECUTABLE` is not set, the command searches `PATH` for `mojo`. The plugin never downloads or runs the compiler inside the build sandbox.
+When a macOS authoring toolchain does not expose `llvm-ar` through `xcrun`, a
+Linux slice additionally requires `SWIFT_MOJO_LLVM_AR` to name its absolute
+LLVM archiver path. Linux preparation fails unless the finished archive lists
+the compiled Mojo object member.
 
 Inline `+` follows Swift-compatible checked-addition semantics. `Int32` overflow traps before entering the Mojo dispatcher. An `@mojo` declaration inside `#if` is rejected because the preparation scanner does not own the Swift compiler's active build conditions.
 

@@ -1,6 +1,6 @@
 {
   "abiVersion" : 1,
-  "artifactDigest" : "a4aa31d846809dd5489e2c4ff56c4090dae7ede7ab5e24a549fb0bbe27774f23",
+  "artifactDigest" : "9c219029ab3285a64aa1051615ba0e4f29a3e12e7f7c43d9fa7fd4389d0eb730",
   "artifactIdentity" : {
     "artifactName" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework",
     "libraryName" : "libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a",
@@ -11,12 +11,12 @@
   "artifacts" : [
     {
       "adapter" : "appleXCFramework",
-      "digest" : "9f1fabe4ed6bd2d7c936604c0f539879cdf96b326384ff97ad4575a4a22849f0",
+      "digest" : "7f3a6472e354dcb9681b2e30b6d670d124d3bdd27e1eb0705098019e7cd81359",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
     },
     {
       "adapter" : "linuxStaticLibraryBundle",
-      "digest" : "b8fd94e6168a0ab8071813d3f8076500af07e9d7fdfe654dc222be08c003a83a",
+      "digest" : "946d0eca1a2c14b95bae5994848243d8fb3a25faf46a0b3f562f03c75cc86012",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.artifactbundle"
     }
   ],
@@ -33,13 +33,13 @@
 
   ],
   "generatedSourceDigest" : "bf9019e69af6d85c8485e323b420159a5ed5e62f48883235440de7215957aad5",
-  "generationPipelineDigest" : "925aa13cf1fdfada782bcf09fb8240cb7258789e92cebb7245a4ecdb5e8692e4",
+  "generationPipelineDigest" : "94def48f56f5a1c8f2d70a11ad929945023a850e0b4408a9efa4a774a94d759f",
   "inputGraphDigest" : "e766e90480c9311d90c7e79e7b66cdab858377dbf38e5427267055032a7b62cd",
   "inputGraphIdentifier" : 7450898839080874269,
   "schemaVersion" : 5,
   "slices" : [
     {
-      "archiveDigest" : "0607cc78d27e7c01c5c492bfcaaac8936f51453ddc603d61f5600bb498e808bd",
+      "archiveDigest" : "fab67551d54e4b2f28e92c637363d8cca7f7844f0ea9d6c4cbde05e7ca000593",
       "libraryIdentifier" : "linux-234e17a28cd31bbdd7861545e26b882a5e96f4b155fa3922926bac590e206378",
       "target" : {
         "cpu" : "generic",
@@ -47,7 +47,7 @@
       }
     },
     {
-      "archiveDigest" : "fdfc17e167996553e1dc137d4c6199ab142f88c9b0424b928dca40030e581124",
+      "archiveDigest" : "02e84073c8b784cc75618bd900d39985d29879b4efe057288aa70d3320bd770a",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "generic",
@@ -55,7 +55,7 @@
       }
     },
     {
-      "archiveDigest" : "fdfc17e167996553e1dc137d4c6199ab142f88c9b0424b928dca40030e581124",
+      "archiveDigest" : "02e84073c8b784cc75618bd900d39985d29879b4efe057288aa70d3320bd770a",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "x86-64",

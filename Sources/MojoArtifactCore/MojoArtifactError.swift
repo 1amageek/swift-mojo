@@ -38,6 +38,7 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
     case sourceGraphMismatch(expected: String, actual: String)
     case sourceMapMismatch(expected: String, actual: String)
     case sourceMapMissing(String)
+    case staticArchiveMissingObject(target: String, object: String)
     case staticLibraryBundleMetadataMismatch(String)
     case symbolicLinkUnsupported(String)
     case releaseRequiresCurrentManifest(Int)
@@ -127,6 +128,8 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
             "Prepared Mojo source map is stale or corrupt; expected \(expected), found \(actual). Run '\(Self.prepareCommand)'."
         case .sourceMapMissing(let path):
             "Prepared Mojo source map is missing at '\(path)'. Run '\(Self.prepareCommand)'."
+        case .staticArchiveMissingObject(let target, let object):
+            "Static archive for target '\(target)' does not contain compiled object '\(object)'"
         case .staticLibraryBundleMetadataMismatch(let message):
             "Static-library artifact bundle metadata does not match the prepared Linux slices: \(message)"
         case .symbolicLinkUnsupported(let path):

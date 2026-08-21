@@ -138,15 +138,13 @@ struct FixturePackagingRunner: MojoProcessRunning {
                 output: undefinedSymbols.joined(separator: "\n")
             )
         case "/usr/bin/ar":
-            guard arguments.count == 3 else {
-                throw MojoArtifactError.invalidArguments("Unexpected ar arguments")
-            }
-            try FileManager.default.copyItem(
-                at: URL(fileURLWithPath: arguments[2]),
-                to: URL(fileURLWithPath: arguments[1])
-            )
+            return try archiveResult(arguments: arguments)
         case "/usr/bin/xcrun":
             switch arguments.first {
+            case "llvm-ar":
+                return try archiveResult(
+                    arguments: Array(arguments.dropFirst())
+                )
             case "lipo":
                 try createUniversalArchive(arguments: arguments)
             case "xcodebuild":
@@ -162,6 +160,26 @@ struct FixturePackagingRunner: MojoProcessRunning {
             )
         }
         return MojoProcessResult(status: 0, output: "")
+    }
+
+    private func archiveResult(
+        arguments: [String]
+    ) throws -> MojoProcessResult {
+        if arguments.count == 3, arguments[0] == "rcs" {
+            try FileManager.default.copyItem(
+                at: URL(fileURLWithPath: arguments[2]),
+                to: URL(fileURLWithPath: arguments[1])
+            )
+            return MojoProcessResult(status: 0, output: "")
+        }
+        if arguments.count == 2,
+           (arguments[0] == "-t" || arguments[0] == "t"),
+           FileManager.default.fileExists(atPath: arguments[1]) {
+            return MojoProcessResult(status: 0, output: "Bindings.o\n")
+        }
+        throw MojoArtifactError.invalidArguments(
+            "Unexpected archive arguments: \(arguments)"
+        )
     }
 
     private func createXCFramework(arguments: [String]) throws {
@@ -922,7 +940,7 @@ struct MojoArtifactPreparerTests {
             )
             #expect(
                 MojoGenerationPipeline.digest
-                    == "925aa13cf1fdfada782bcf09fb8240cb7258789e92cebb7245a4ecdb5e8692e4"
+                    == "94def48f56f5a1c8f2d70a11ad929945023a850e0b4408a9efa4a774a94d759f"
             )
         }
     }
