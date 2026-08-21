@@ -4,6 +4,7 @@ package struct MojoStaticRegistryWriter: Sendable {
     package static let generationVersion = 3
     package static let borrowedFloat32BufferGenerationVersion = 1
     package static let borrowedMutableFloat32BuffersGenerationVersion = 1
+    package static let borrowedMutableFloat64BuffersGenerationVersion = 1
     package static let runtimeSessionGenerationVersion = 1
     package static let sessionResourceGenerationVersion = 2
 
@@ -29,6 +30,10 @@ package struct MojoStaticRegistryWriter: Sendable {
             .joined(separator: ", ")
         let mutationBindingCases = inputGraph.bindingGraph.bindings
             .filter { $0.signature == .borrowedMutableFloat32Buffers }
+            .map { String($0.bindingID) }
+            .joined(separator: ", ")
+        let doubleMutationBindingCases = inputGraph.bindingGraph.bindings
+            .filter { $0.signature == .borrowedMutableFloat64Buffers }
             .map { String($0.bindingID) }
             .joined(separator: ", ")
         let sessionFactories = inputGraph.bindingGraph.bindings.filter {
@@ -179,6 +184,55 @@ package struct MojoStaticRegistryWriter: Sendable {
                                     throw MojoInvocationError.emptyMutableBuffer
                                 }
                                 let status = \(prefix)_call_f32_buffer_f32_buffer_i32(
+                                    bindingID,
+                                    inputBaseAddress,
+                                    UInt64(inputBuffer.count),
+                                    outputBaseAddress,
+                                    UInt64(outputBuffer.count)
+                                )
+                                guard status == 0 else {
+                                    throw MojoInvocationError.invocationFailed(
+                                        bindingID: bindingID,
+                                        status: status
+                                    )
+                                }
+                            }
+                        }
+                    }
+                """
+            )
+        }
+        if signatures.contains(.borrowedMutableFloat64Buffers) {
+            methods.append(
+                """
+                    @inline(__always)
+                    static func invokeDoubleBufferMutation(
+                        bindingID: UInt64,
+                        input: borrowing [Double],
+                        output: inout [Double]
+                    ) throws {
+                        if let error = artifactValidationError {
+                            throw error
+                        }
+                        switch bindingID {
+                        case \(doubleMutationBindingCases):
+                            break
+                        default:
+                            throw MojoInvocationError.bindingUnavailable(
+                                bindingID: bindingID
+                            )
+                        }
+                        try input.withUnsafeBufferPointer { inputBuffer in
+                            guard let inputBaseAddress = inputBuffer.baseAddress,
+                                  !inputBuffer.isEmpty else {
+                                throw MojoInvocationError.emptyBorrowedBuffer
+                            }
+                            try output.withUnsafeMutableBufferPointer { outputBuffer in
+                                guard let outputBaseAddress = outputBuffer.baseAddress,
+                                      !outputBuffer.isEmpty else {
+                                    throw MojoInvocationError.emptyMutableBuffer
+                                }
+                                let status = \(prefix)_call_f64_buffer_f64_buffer_i32(
                                     bindingID,
                                     inputBaseAddress,
                                     UInt64(inputBuffer.count),

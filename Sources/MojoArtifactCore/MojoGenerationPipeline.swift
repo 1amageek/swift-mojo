@@ -32,13 +32,17 @@ package enum MojoGenerationPipeline {
         let hasMutableBuffers = signatures.contains(
             .borrowedMutableFloat32Buffers
         )
+        let hasMutableFloat64Buffers = signatures.contains(
+            .borrowedMutableFloat64Buffers
+        )
         let hasRuntimeSession = signatures.contains(.runtimeSessionFactory)
             || signatures.contains(.sessionFloat32BufferFactory)
             || signatures.contains(.sessionBorrowedMutableFloat32Buffers)
         let hasSessionResource = signatures.contains(
             .sessionFloat32BufferFactory
         )
-        guard hasBorrowedBuffer || hasMutableBuffers || hasRuntimeSession else {
+        guard hasBorrowedBuffer || hasMutableBuffers
+                || hasMutableFloat64Buffers || hasRuntimeSession else {
             return digest
         }
         var components = [
@@ -57,6 +61,13 @@ package enum MojoGenerationPipeline {
                 "borrowed-mutable-float32-buffers-source=\(MojoStaticSourceRenderer.borrowedMutableFloat32BuffersGenerationVersion)",
                 "borrowed-mutable-float32-buffers-registry=\(MojoStaticRegistryWriter.borrowedMutableFloat32BuffersGenerationVersion)",
                 "borrowed-mutable-float32-buffers-c-abi=1",
+            ])
+        }
+        if hasMutableFloat64Buffers {
+            components.append(contentsOf: [
+                "borrowed-mutable-float64-buffers-source=\(MojoStaticSourceRenderer.borrowedMutableFloat64BuffersGenerationVersion)",
+                "borrowed-mutable-float64-buffers-registry=\(MojoStaticRegistryWriter.borrowedMutableFloat64BuffersGenerationVersion)",
+                "borrowed-mutable-float64-buffers-c-abi=1",
             ])
         }
         if hasRuntimeSession {

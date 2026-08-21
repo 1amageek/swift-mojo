@@ -56,6 +56,16 @@ public struct MojoBodyMacro: BodyMacro {
                 )
                 """
             )
+        case .borrowedMutableFloat64Buffers:
+            body.append(
+                """
+                try __SwiftMojoGeneratedBindings.invokeDoubleBufferMutation(
+                    bindingID: UInt64(\(raw: String(binding.bindingID))),
+                    input: \(raw: binding.doubleInputBufferName),
+                    output: &\(raw: binding.doubleOutputBufferName)
+                )
+                """
+            )
         case .runtimeSessionFactory:
             body.append(
                 """

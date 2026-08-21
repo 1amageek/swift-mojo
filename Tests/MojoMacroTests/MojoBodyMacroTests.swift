@@ -100,6 +100,35 @@ final class MojoBodyMacroTests: XCTestCase {
         )
     }
 
+    func testMutableDoubleBufferExpansionUsesScopedRegistry() {
+        let bindingID = MojoCanonicalDigest.identifier(
+            "swift-mojo-binding-v1|execute|([Double],inout [Double])->throws Void"
+        )
+        assertMacroExpansion(
+            """
+            @mojo(package: "Dynamics", function: "execute")
+            func execute(
+                _ input: [Double],
+                into output: inout [Double]
+            ) throws
+            """,
+            expandedSource: """
+            func execute(
+                _ input: [Double],
+                into output: inout [Double]
+            ) throws {
+                try __SwiftMojoGeneratedBindings.invokeDoubleBufferMutation(
+                    bindingID: UInt64(\(bindingID)),
+                    input: input,
+                    output: &output
+                )
+            }
+            """,
+            macros: ["mojo": MojoBodyMacro.self],
+            indentationWidth: .spaces(4)
+        )
+    }
+
     func testSessionFactoryExpansionUsesTypedRegistryFactory() {
         let bindingID = MojoCanonicalDigest.identifier(
             "swift-mojo-binding-v1|openSession|(MojoSessionRequirements)->throws MojoSessionOwner"

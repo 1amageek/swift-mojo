@@ -4,6 +4,7 @@ package struct MojoStaticSourceRenderer: Sendable {
     package static let generationVersion = 2
     package static let borrowedFloat32BufferGenerationVersion = 2
     package static let borrowedMutableFloat32BuffersGenerationVersion = 1
+    package static let borrowedMutableFloat64BuffersGenerationVersion = 1
     package static let runtimeSessionGenerationVersion = 1
     package static let sessionResourceGenerationVersion = 3
 
@@ -49,6 +50,9 @@ package struct MojoStaticSourceRenderer: Sendable {
         let mutationBindings = graph.bindings.filter {
             $0.signature == .borrowedMutableFloat32Buffers
         }
+        let doubleMutationBindings = graph.bindings.filter {
+            $0.signature == .borrowedMutableFloat64Buffers
+        }
         let sessionFactories = graph.bindings.filter {
             $0.signature == .runtimeSessionFactory
         }
@@ -64,7 +68,8 @@ package struct MojoStaticSourceRenderer: Sendable {
         if !sessionFactories.isEmpty || !bufferFactories.isEmpty
             || !sessionMutations.isEmpty {
             lines.append("from std.memory import OpaquePointer, Pointer")
-        } else if !bufferBindings.isEmpty || !mutationBindings.isEmpty {
+        } else if !bufferBindings.isEmpty || !mutationBindings.isEmpty
+            || !doubleMutationBindings.isEmpty {
             lines.append("from std.memory import Pointer")
         }
         for binding in graph.bindings {
@@ -234,6 +239,41 @@ package struct MojoStaticSourceRenderer: Sendable {
                 guard case .external = binding.implementation else {
                     preconditionFailure(
                         "Mutable buffer bindings require external implementations"
+                    )
+                }
+                lines.append(
+                    "        return __swift_mojo_external_\(binding.bindingID)(input, input_count, output, output_count)"
+                )
+                if let source = binding.sourceReference {
+                    entries.append(
+                        MojoSourceMap.Entry(
+                            generatedLine: lines.count,
+                            bindingID: binding.bindingID,
+                            source: source
+                        )
+                    )
+                }
+            }
+            lines.append("    return -1")
+        }
+
+        if !doubleMutationBindings.isEmpty {
+            lines.append("")
+            lines.append("")
+            lines.append("# Both Float64 pointers are valid only for the synchronous Swift call scope.")
+            lines.append("@export(\"\(identity.symbolPrefix)_call_f64_buffer_f64_buffer_i32\")")
+            lines.append("def \(identity.symbolPrefix)_call_f64_buffer_f64_buffer_i32(")
+            lines.append("    binding_id: UInt64,")
+            lines.append("    input: Pointer[Float64, ImmUntrackedOrigin],")
+            lines.append("    input_count: UInt64,")
+            lines.append("    output: Pointer[Float64, MutUntrackedOrigin],")
+            lines.append("    output_count: UInt64,")
+            lines.append(") abi(\"C\") -> Int32:")
+            for binding in doubleMutationBindings {
+                lines.append("    if binding_id == \(binding.bindingID):")
+                guard case .external = binding.implementation else {
+                    preconditionFailure(
+                        "Mutable Float64 buffer bindings require external implementations"
                     )
                 }
                 lines.append(
@@ -507,6 +547,17 @@ package struct MojoStaticSourceRenderer: Sendable {
                 "    const float *input,",
                 "    uint64_t input_count,",
                 "    float *output,",
+                "    uint64_t output_count",
+                ");",
+            ])
+        }
+        if signatures.contains(.borrowedMutableFloat64Buffers) {
+            lines.append(contentsOf: [
+                "int32_t \(prefix)_call_f64_buffer_f64_buffer_i32(",
+                "    uint64_t binding_id,",
+                "    const double *input,",
+                "    uint64_t input_count,",
+                "    double *output,",
                 "    uint64_t output_count",
                 ");",
             ])

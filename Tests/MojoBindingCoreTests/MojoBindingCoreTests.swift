@@ -131,12 +131,51 @@ struct MojoBindingCoreTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func externalMutableDoubleBufferProducesTypedSignature() throws {
+        let external = try graph(
+            source: """
+            @mojo(package: "Dynamics", function: "execute")
+            func execute(
+                _ input: [Double],
+                into output: inout [Double]
+            ) throws
+            """
+        )
+
+        #expect(
+            external.bindings[0].signature
+                == .borrowedMutableFloat64Buffers
+        )
+        #expect(external.bindings[0].parameterNames == ["input", "output"])
+        #expect(
+            external.bindings[0].implementation
+                == .external(package: "Dynamics", function: "execute")
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func mutableFloatBufferRequiresInoutAndThrowingSurface() throws {
         #expect(throws: MojoBindingError.unsupportedSignature) {
             _ = try graph(
                 source: """
                 @mojo(package: "MathModel", function: "scale")
                 func scale(_ input: [Float], into output: [Float]) throws
+                """
+            )
+        }
+        #expect(throws: MojoBindingError.unsupportedSignature) {
+            _ = try graph(
+                source: """
+                @mojo(package: "Dynamics", function: "execute")
+                func execute(_ input: [Double], into output: [Double]) throws
+                """
+            )
+        }
+        #expect(throws: MojoBindingError.unsupportedSignature) {
+            _ = try graph(
+                source: """
+                @mojo(package: "Dynamics", function: "execute")
+                func execute(_ input: [Double], into output: inout [Double])
                 """
             )
         }

@@ -32,7 +32,7 @@ package enum MojoBindingError: Error, Equatable, CustomStringConvertible {
         case .asyncUnsupported:
             "@mojo functions cannot be async in the current ABI"
         case .bufferRequiresExternalImplementation:
-            "Float buffer bindings require an external Mojo package implementation"
+            "Floating-point buffer bindings require an external Mojo package implementation"
         case .conditionalCompilationUnsupported:
             "@mojo functions cannot be declared inside conditional compilation in the current source model"
         case .duplicateBindingID(let bindingID):
@@ -76,7 +76,7 @@ package enum MojoBindingError: Error, Equatable, CustomStringConvertible {
         case .unsupportedSessionFactoryName(let name):
             "Mojo session factory name '\(name)' is not a portable C identifier"
         case .unsupportedSignature:
-            "The Mojo ABI supports scalar, borrowed Float buffers, runtime session factories, session-owned Float32 buffer factories, and synchronous session-bound mutation signatures"
+            "The Mojo ABI supports scalar, borrowed Float32/Float64 buffers, runtime session factories, session-owned Float32 buffer factories, and synchronous session-bound mutation signatures"
         }
     }
 }

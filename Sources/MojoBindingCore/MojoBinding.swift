@@ -6,6 +6,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         case int32Binary
         case borrowedFloat32Buffer
         case borrowedMutableFloat32Buffers
+        case borrowedMutableFloat64Buffers
         case runtimeSessionFactory
         case sessionFloat32BufferFactory
         case sessionBorrowedMutableFloat32Buffers
@@ -19,6 +20,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                 "([Float])->throws Float"
             case .borrowedMutableFloat32Buffers:
                 "([Float],inout [Float])->throws Void"
+            case .borrowedMutableFloat64Buffers:
+                "([Double],inout [Double])->throws Void"
             case .runtimeSessionFactory:
                 "(MojoSessionRequirements)->throws MojoSessionOwner"
             case .sessionFloat32BufferFactory:
@@ -216,6 +219,16 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         return parameterNames[1]
     }
 
+    package var doubleInputBufferName: String {
+        precondition(signature == .borrowedMutableFloat64Buffers)
+        return parameterNames[0]
+    }
+
+    package var doubleOutputBufferName: String {
+        precondition(signature == .borrowedMutableFloat64Buffers)
+        return parameterNames[1]
+    }
+
     package var requirementsName: String {
         precondition(signature == .runtimeSessionFactory)
         return parameterNames[0]
@@ -261,7 +274,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                 .sessionBorrowedMutableFloat32Buffers:
             .invalidSessionArguments
         case .int32Binary, .borrowedFloat32Buffer,
-                .borrowedMutableFloat32Buffers:
+                .borrowedMutableFloat32Buffers,
+                .borrowedMutableFloat64Buffers:
             .invalidExternalArguments
         }
         let arguments = try mojoArguments(
@@ -510,6 +524,22 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             && parameter.type.trimmedDescription == "inout [Float]"
     }
 
+    private static func isBorrowedFloat64BufferParameter(
+        _ parameter: FunctionParameterSyntax
+    ) -> Bool {
+        parameter.ellipsis == nil
+            && parameter.defaultValue == nil
+            && parameter.type.trimmedDescription == "[Double]"
+    }
+
+    private static func isMutableFloat64BufferParameter(
+        _ parameter: FunctionParameterSyntax
+    ) -> Bool {
+        parameter.ellipsis == nil
+            && parameter.defaultValue == nil
+            && parameter.type.trimmedDescription == "inout [Double]"
+    }
+
     private static func isSessionRequirementsParameter(
         _ parameter: FunctionParameterSyntax
     ) -> Bool {
@@ -591,6 +621,12 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                returnType == nil || returnType == "Void",
                isUntypedThrowing {
                 return .borrowedMutableFloat32Buffers
+            }
+            if Self.isBorrowedFloat64BufferParameter(lhs),
+               Self.isMutableFloat64BufferParameter(rhs),
+               returnType == nil || returnType == "Void",
+               isUntypedThrowing {
+                return .borrowedMutableFloat64Buffers
             }
             throw MojoBindingError.unsupportedSignature
         }

@@ -75,6 +75,9 @@ import Mojo
 @mojo(package: "MathModel", function: "scale")
 func scale(_ input: [Float], into output: inout [Float]) throws
 
+@mojo(package: "MathModel", function: "execute")
+func execute(_ input: [Double], into output: inout [Double]) throws
+
 @main
 enum Application {
     static func main() throws {
@@ -104,6 +107,33 @@ enum Application {
         } catch MojoInvocationError.emptyMutableBuffer {
             print("empty-output")
         }
+
+        var doubleOutput = [Double](repeating: 0, count: 3)
+        try execute([1.25, -2.5, 3.75], into: &doubleOutput)
+        print(doubleOutput.map { String($0) }.joined(separator: ","))
+
+        var shortDoubleOutput = [Double](repeating: 0, count: 2)
+        do {
+            try execute([1, 2, 3], into: &shortDoubleOutput)
+            fatalError("Nonzero Float64 Mojo status unexpectedly succeeded")
+        } catch MojoInvocationError.invocationFailed(_, let status) {
+            print("f64-status-\(status)")
+        }
+
+        do {
+            try execute([], into: &doubleOutput)
+            fatalError("Empty Float64 input unexpectedly succeeded")
+        } catch MojoInvocationError.emptyBorrowedBuffer {
+            print("f64-empty-input")
+        }
+
+        var emptyDoubleOutput: [Double] = []
+        do {
+            try execute([1], into: &emptyDoubleOutput)
+            fatalError("Empty Float64 output unexpectedly succeeded")
+        } catch MojoInvocationError.emptyMutableBuffer {
+            print("f64-empty-output")
+        }
     }
 }
 SWIFT
@@ -121,6 +151,18 @@ def scale(
         return 7
     for index in range(Int(input_count)):
         output[unsafe_offset=index] = input[unsafe_offset=index] * 2
+    return 0
+
+def execute(
+    input: Pointer[Float64, ImmUntrackedOrigin],
+    input_count: UInt64,
+    output: Pointer[Float64, MutUntrackedOrigin],
+    output_count: UInt64,
+) -> Int32:
+    if output_count < input_count:
+        return 9
+    for index in range(Int(input_count)):
+        output[unsafe_offset=index] = input[unsafe_offset=index] * 0.5
     return 0
 MOJO
 
@@ -202,16 +244,16 @@ bin_path=$("$root/scripts/command-timeout.sh" 30 -- \
     --show-bin-path)
 executable="$bin_path/Application"
 output=$("$root/scripts/command-timeout.sh" 30 -- "$executable")
-if [[ $output != $'2.0,4.0,6.0\nstatus-7\nempty-input\nempty-output' ]]; then
+if [[ $output != $'2.0,4.0,6.0\nstatus-7\nempty-input\nempty-output\n0.625,-1.25,1.875\nf64-status-9\nf64-empty-input\nf64-empty-output' ]]; then
     print -u2 "error: mutable buffer consumer returned '$output'"
     exit 1
 fi
 
 symbol_count=$(/usr/bin/nm -gjU "$executable" \
     | /usr/bin/grep -E -c \
-        'swift_mojo_.*_(static_abi_version|input_graph_identifier|has_binding|call_f32_buffer_f32_buffer_i32)$')
-if [[ $symbol_count != 4 ]]; then
-    print -u2 "error: consumer defines $symbol_count bridge symbols, expected 4"
+        'swift_mojo_.*_(static_abi_version|input_graph_identifier|has_binding|call_f32_buffer_f32_buffer_i32|call_f64_buffer_f64_buffer_i32)$')
+if [[ $symbol_count != 5 ]]; then
+    print -u2 "error: consumer defines $symbol_count bridge symbols, expected 5"
     exit 1
 fi
 if /usr/bin/otool -L "$executable" | tail -n +2 \
@@ -220,4 +262,4 @@ if /usr/bin/otool -L "$executable" | tail -n +2 \
     exit 1
 fi
 
-print "PASS: real Mojo mutable buffer compile, static link, scoped mutation, typed status, and empty-buffer failures"
+print "PASS: real Mojo Float32/Float64 mutable buffer compile, static link, scoped mutation, typed status, and empty-buffer failures"
