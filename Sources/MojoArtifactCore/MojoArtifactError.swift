@@ -156,7 +156,7 @@ package enum MojoArtifactError: Error, Equatable, CustomStringConvertible {
         case .unmanagedOutputDirectory(let path):
             "Refusing to replace unmanaged output directory '\(path)'; choose an empty path or run '\(Self.initializeCommand)' first"
         case .unsupportedMojoRuntimeSymbols(let target, let symbols):
-            "Mojo object for target '\(target)' requires compiler runtime symbols that swift-mojo does not distribute: \(symbols.joined(separator: ", ")). Use a link-closed implementation backed by the target system libraries, or add an explicit versioned runtime adapter."
+            "Mojo object for target '\(target)' requires accelerator/compiler runtime symbols that swift-mojo does not distribute: \(symbols.joined(separator: ", ")). Use a link-closed implementation backed by the target system libraries, or add an explicit versioned runtime adapter."
         case .unsupportedTarget(let target):
             "The native artifact adapters support Apple and Linux arm64/aarch64/x86_64 targets; received '\(target)'"
         case .xcframeworkMetadataMismatch(let message):

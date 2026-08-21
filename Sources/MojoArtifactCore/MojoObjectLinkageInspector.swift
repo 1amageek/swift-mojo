@@ -2,7 +2,13 @@ import Foundation
 import MojoCompilerCore
 
 package struct MojoObjectLinkageInspector: Sendable {
-    package static let policyVersion = 1
+    package static let policyVersion = 2
+
+    private static let unsupportedRuntimeSymbolPrefixes = [
+        "AsyncRT_",
+        "KGEN_CompilerRT_",
+        "MGP_RT_",
+    ]
 
     private let processRunner: any MojoProcessRunning
 
@@ -32,7 +38,11 @@ package struct MojoObjectLinkageInspector: Sendable {
         let unsupportedSymbols = Set(
             result.output.split(whereSeparator: \Character.isNewline)
                 .compactMap(Self.symbol(from:))
-                .filter { $0.hasPrefix("KGEN_CompilerRT_") }
+                .filter { symbol in
+                    Self.unsupportedRuntimeSymbolPrefixes.contains { prefix in
+                        symbol.hasPrefix(prefix)
+                    }
+                }
         ).sorted()
         guard unsupportedSymbols.isEmpty else {
             throw MojoArtifactError.unsupportedMojoRuntimeSymbols(

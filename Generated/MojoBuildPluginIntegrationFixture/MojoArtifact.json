@@ -1,6 +1,6 @@
 {
   "abiVersion" : 1,
-  "artifactDigest" : "9c219029ab3285a64aa1051615ba0e4f29a3e12e7f7c43d9fa7fd4389d0eb730",
+  "artifactDigest" : "5c8648d9dd648708fdf744e9eb7a5fe58afa5556e887db9f14859324c6f89ab4",
   "artifactIdentity" : {
     "artifactName" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework",
     "libraryName" : "libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a",
@@ -11,7 +11,7 @@
   "artifacts" : [
     {
       "adapter" : "appleXCFramework",
-      "digest" : "7f3a6472e354dcb9681b2e30b6d670d124d3bdd27e1eb0705098019e7cd81359",
+      "digest" : "01c4e5813747cc89eab45e922b84059a88e84d21968a9eeaa613eb1ab0b38fca",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
     },
     {
@@ -33,7 +33,7 @@
 
   ],
   "generatedSourceDigest" : "bf9019e69af6d85c8485e323b420159a5ed5e62f48883235440de7215957aad5",
-  "generationPipelineDigest" : "94def48f56f5a1c8f2d70a11ad929945023a850e0b4408a9efa4a774a94d759f",
+  "generationPipelineDigest" : "1c58a7a955c9f417de9cbd4f0c57a35bf017f60d4c4c3664f790fcaf43c2b719",
   "inputGraphDigest" : "e766e90480c9311d90c7e79e7b66cdab858377dbf38e5427267055032a7b62cd",
   "inputGraphIdentifier" : 7450898839080874269,
   "schemaVersion" : 5,
@@ -47,7 +47,7 @@
       }
     },
     {
-      "archiveDigest" : "02e84073c8b784cc75618bd900d39985d29879b4efe057288aa70d3320bd770a",
+      "archiveDigest" : "c2e6465d3f1c1d0f06b07cb00d42d333765f3a87d59c7328daf63430bd14ab98",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "generic",
@@ -55,7 +55,7 @@
       }
     },
     {
-      "archiveDigest" : "02e84073c8b784cc75618bd900d39985d29879b4efe057288aa70d3320bd770a",
+      "archiveDigest" : "c2e6465d3f1c1d0f06b07cb00d42d333765f3a87d59c7328daf63430bd14ab98",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "x86-64",

@@ -34,7 +34,7 @@ schema-3 P1はarm64 macOS向けscalar経路、schema 4はApple単一artifactのh
 | F-015 | contiguous `Float` inputを同期borrowしてMojoへ渡す | Verified | macro、IR、generated C/Mojo ABI、typed Swift error、real Mojo compile、compiler-free runtime、empty-input failureが同じ `([Float]) throws -> Float` 契約を使う。zero-copy claimには別途allocation/copy measurementを要求する |
 | F-016 | Swift-owned `Float` outputを同期mutable borrowしてMojoに更新させる | Verified on local arm64 | `([Float], inout [Float]) throws -> Void` がscoped immutable/mutable borrow、generated status ABI、real Mojo mutation、nonzero status、empty-input/output failureを同じ契約で実行する。immutable-revision universal release acceptance、allocation/copy、sanitizerは別gateとする |
 | F-017 | Mojo-created runtime stateをtyped sessionとして所有する | Verified on local universal macOS | factory/use/shutdown macro、versioned flat C ABI、exact device/capability validation、factory-domain isolation、single synchronous lease、typed busy/shutdown failure、post-create cleanup、exactly-once destruction、real Mojo runtime、static link、no Mojo dynamic dependencyを同じ契約で実行する。GPU runtime、native Linux、asyncは別gateとする |
-| F-018 | static artifactのMojo runtime dependencyを明示する | Verified | prepareがobjectのundefined symbolをarchive前に検査し、同梱しない `KGEN_CompilerRT_*` をtargetとsymbol一覧を持つtyped errorで拒否する。将来runtimeはversioned adapterとして追加する |
+| F-018 | static artifactのMojo runtime dependencyを明示する | Verified | prepareがobjectのundefined symbolをarchive前に検査し、同梱しない `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` をtargetとsymbol一覧を持つtyped errorで拒否する。将来runtimeはversioned adapterとして追加する |
 | F-019 | session-owned Float32 bufferをtyped ownerとして保持する | Verified for host memory on local universal macOS | resource factory macro、paired create/destroy/host-copy/synchronize C ABI、capability/size/count validation、synchronous round-trip transfer、parent-before-child shutdown rejection、typed copy/synchronize/status/missing-handle failure、idempotent child shutdown、exactly-once child-before-parent destruction、Swift/Mojo両Address Sanitizer laneを実行する。MAX-backed Metal/CUDA allocation and native-device synchronization are separate gates |
 | F-020 | Linux ARM64 native artifactをcompiler-freeに配布する | Implemented; native acceptance pending | schema 5 manifest、SE-0482 static-library artifact bundle、platform-conditioned binary target wiring、real Mojo aarch64 ELF cross-compile、KGEN-free archiveを検証する。Jetson上のSwift link/runはrelease gateとして残す |
 
@@ -295,7 +295,7 @@ future ownership/device error
 - compiler/tool subprocessがdeadlineを超えた場合はprocess groupを終了・回収し、typed timeoutとして報告します。
 - prepare/initのoutput lock取得・scope mismatchはtyped transaction failureとして報告します。
 - successful processがobjectを生成しなければfailureです。
-- objectが同梱されない `KGEN_CompilerRT_*` を要求する場合はarchive前にtarget/symbolを保持したtyped failureとし、private runtimeを模倣またはdynamic fallbackしません。
+- objectが同梱されない `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` を要求する場合はarchive前にtarget/symbolを保持したtyped failureとし、private runtimeを模倣またはdynamic fallbackしません。
 - manifest missing/invalid、schema/ABI mismatch、source/binding mismatch、target mismatch、tree digest mismatchを区別します。
 - scalar public functionはnonthrowingです。prepare/buildで検証された静的artifactだけをlinkし、runtime mismatchはprogram invariant violationとしてtrapします。
 - buffer public functionは `throws` です。ABI version、input graph、binding membershipはRegistryの初回検証結果として保持し、empty bufferは呼び出しごとに `MojoInvocationError` として報告します。immutable direct-return ABIはMojo implementation error channelを持ちません。

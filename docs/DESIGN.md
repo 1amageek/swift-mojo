@@ -34,7 +34,7 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Opaque session lowering is external-only | factory/use metadata、versioned flat C ABI、factory-domain-bound owner、capability/lifecycle typed errors、real Mojo CPU runtime acceptance |
 | Session resource lowering is external-only | buffer factory/create/destroy/copy/synchronize metadata、generated post-copy synchronization、versioned C ABI、typed `MojoFloat32BufferOwner`、capability/size/count validation、child-before-parent lifecycle tests、real Mojo host-buffer round-trip acceptance |
 | Mojo 1.0 device API is a separate runtime capability | Official `DeviceContext`/`DeviceBuffer` APIs define enqueue/copy/synchronize semantics, but the installed standalone Mojo 1.0 package does not expose the host `DeviceContext` module; MAX-backed Metal/CUDA and native Jetson remain explicit adapter gates |
-| Static artifacts reject undeclared Mojo runtime dependencies | `MojoObjectLinkageInspector` normalizes `nm -u` output and rejects unresolved `KGEN_CompilerRT_*` before archiving |
+| Static artifacts reject undeclared Mojo runtime dependencies | `MojoObjectLinkageInspector` normalizes `nm -u` output and rejects unresolved `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` before archiving |
 | Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation and KGEN-free archive inspection pass, while native Jetson link/run remains pending |
 
 ## 3. Architecture and responsibilities
@@ -109,7 +109,7 @@ SwiftPM-resolved target source inventory
   -> render allowlisted inline source + external package imports + source map
   -> isolated declared-package import root
   -> mojo build --emit object -I <isolated-root> for every configured slice
-  -> inspect undefined symbols and reject undeclared Mojo compiler runtime
+  -> inspect undefined symbols and reject undeclared Mojo accelerator/compiler runtime
   -> archive each target object independently
   -> lipo architecture slices that share one Apple platform/variant into a universal archive
   -> wrap each group archive in a target-scoped static framework
@@ -372,7 +372,7 @@ scalar/borrowed-buffer runtimeに共有可変ownership stateはありません�
 |---|---|---|
 | macro | generated thunk | source-located macro diagnostic |
 | scanner | versioned graph | typed unsupported syntax/signature/duplicate/no-binding error |
-| compiler/object linkage | produced link-closed object + diagnostic | locate/launch/status/timeout/UTF-8/no-output error; unsupported `KGEN_CompilerRT_*` dependency; descendants reaped |
+| compiler/object linkage | produced link-closed object + diagnostic | locate/launch/status/timeout/UTF-8/no-output error; unsupported `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` dependency; descendants reaped |
 | transaction | complete managed directory | lock/scope/primary error; cleanup/restore failureも保持 |
 | verifier | generated Registry | missing/invalid/stale/target/digest error |
 | scalar runtime | `Int32` result | verified invariant mismatch traps |

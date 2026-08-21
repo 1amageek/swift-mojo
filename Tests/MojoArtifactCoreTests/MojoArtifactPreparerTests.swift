@@ -850,15 +850,17 @@ struct MojoArtifactPreparerTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func rejectsUnpackagedMojoCompilerRuntimeBeforeArchiving() throws {
+    func rejectsUnpackagedMojoAcceleratorRuntimeBeforeArchiving() throws {
         try withPreparerFixture { fixture in
             do {
                 _ = try MojoArtifactPreparer(
                     compiler: FixtureMojoCompiler(),
                     processRunner: FixturePackagingRunner(
                         undefinedSymbols: [
+                            "_AsyncRT_DeviceContext_create",
                             "_KGEN_CompilerRT_fprintf",
                             "_KGEN_CompilerRT_AlignedAlloc",
+                            "_MGP_RT_UnpackDeviceContext",
                         ]
                     )
                 ).prepare(options: fixture.options)
@@ -868,8 +870,10 @@ struct MojoArtifactPreparerTests {
                     error == .unsupportedMojoRuntimeSymbols(
                         target: "arm64-apple-macosx14.0|generic|none",
                         symbols: [
+                            "AsyncRT_DeviceContext_create",
                             "KGEN_CompilerRT_AlignedAlloc",
                             "KGEN_CompilerRT_fprintf",
+                            "MGP_RT_UnpackDeviceContext",
                         ]
                     )
                 )
@@ -940,7 +944,7 @@ struct MojoArtifactPreparerTests {
             )
             #expect(
                 MojoGenerationPipeline.digest
-                    == "94def48f56f5a1c8f2d70a11ad929945023a850e0b4408a9efa4a774a94d759f"
+                    == "1c58a7a955c9f417de9cbd4f0c57a35bf017f60d4c4c3664f790fcaf43c2b719"
             )
         }
     }

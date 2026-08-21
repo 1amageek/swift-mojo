@@ -75,7 +75,8 @@ The artifact bundle contains only:
 The preparer and verifier treat the bundle as a managed, canonical tree. They
 validate the exact `staticLibrary` JSON shape, artifact identifier, archive path,
 supported triple, header path, module-map path, archive digest, and complete tree
-digest. Symbol inspection continues to reject KGEN compiler-runtime dependencies.
+digest. Symbol inspection continues to reject undeclared AsyncRT, KGEN compiler-runtime,
+and MGPRT dependencies.
 On a macOS authoring host, Linux ELF objects are archived with `llvm-ar` rather
 than BSD `ar`: BSD `ranlib` can warn about a non-Mach-O member, return success,
 and emit an archive containing only its symbol table. Preparation also lists the
