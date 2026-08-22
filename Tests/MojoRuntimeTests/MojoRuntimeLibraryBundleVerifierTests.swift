@@ -22,6 +22,19 @@ struct MojoRuntimeLibraryBundleVerifierTests {
             inputGraphIdentifier: 42,
             generatedSourceDigest: String(repeating: "1", count: 64),
             sourceMapDigest: String(repeating: "2", count: 64),
+            bindings: [
+                .init(
+                    bindingID: 11,
+                    functionName: "createModelSession",
+                    signature: "runtimeSessionFactory"
+                ),
+                .init(
+                    bindingID: 12,
+                    functionName: "executeModelBatch",
+                    signature: "sessionBorrowedMutableFloat32Buffers",
+                    sessionFactoryFunctionName: "createModelSession"
+                ),
+            ],
             loaderSearchPath: "@loader_path",
             library: .init(
                 relativePath: "lib/libSwiftMojo_Model_ABI.dylib",
@@ -45,10 +58,10 @@ struct MojoRuntimeLibraryBundleVerifierTests {
             systemDependencies: ["/usr/lib/libSystem.B.dylib"]
         )
 
-        let verification = FileSystemMojoRuntimeLibraryBundleVerifier
+        let verification = try FileSystemMojoRuntimeLibraryBundleVerifier
             .verification(from: manifest)
 
-        #expect(verification.schemaVersion == 2)
+        #expect(verification.schemaVersion == 3)
         #expect(verification.bundleDigest == manifest.digest)
         #expect(verification.receiptDigest == manifest.receiptDigest)
         #expect(verification.target.identity == target.identity)
@@ -65,6 +78,21 @@ struct MojoRuntimeLibraryBundleVerifierTests {
                 == String(repeating: "2", count: 64)
         )
         #expect(verification.loaderSearchPath == "@loader_path")
+        #expect(
+            verification.bindings == [
+                MojoRuntimeLibraryBinding(
+                    bindingID: 11,
+                    functionName: "createModelSession",
+                    signature: .runtimeSessionFactory
+                ),
+                MojoRuntimeLibraryBinding(
+                    bindingID: 12,
+                    functionName: "executeModelBatch",
+                    signature: .sessionBorrowedMutableFloat32Buffers,
+                    sessionFactoryFunctionName: "createModelSession"
+                ),
+            ]
+        )
         #expect(verification.library.relativePath == manifest.library.relativePath)
         #expect(
             verification.runtimeLibraries[0].relativePath

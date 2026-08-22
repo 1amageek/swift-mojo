@@ -81,7 +81,16 @@ package struct MojoRuntimeLibraryBundleVerifier: Sendable {
                 digest: $0.digest
             )
         }
+        let validatedBindings: [MojoRuntimeLibraryBundleManifest.Binding]
+        do {
+            validatedBindings = try MojoRuntimeLibraryBindingTable.validated(
+                manifest.bindings
+            )
+        } catch let error as MojoRuntimeLibraryBindingTable.ValidationError {
+            throw MojoArtifactError.invalidRuntimeBundle(error.description)
+        }
         guard manifest.runtimeLibraries == expectedRuntimeLibraries,
+              manifest.bindings == validatedBindings,
               MojoRuntimeLoaderPolicy.isPortableCSymbol(
                 manifest.moduleName
               ),

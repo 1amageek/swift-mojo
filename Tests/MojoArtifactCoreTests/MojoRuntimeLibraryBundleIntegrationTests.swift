@@ -52,6 +52,13 @@ struct MojoRuntimeLibraryBundleIntegrationTests {
                 inputGraphIdentifier: 42,
                 generatedSourceDigest: String(repeating: "b", count: 64),
                 sourceMapDigest: String(repeating: "c", count: 64),
+                bindings: [
+                    .init(
+                        bindingID: 41,
+                        functionName: "fixtureCall",
+                        signature: "int32Binary"
+                    ),
+                ],
                 exportedSymbols: ["swift_mojo_fixture_call"],
                 header: header(moduleName: identity.moduleName),
                 moduleMap: moduleMap(moduleName: identity.moduleName),
@@ -66,6 +73,7 @@ struct MojoRuntimeLibraryBundleIntegrationTests {
 
             #expect(manifest.target == target)
             #expect(manifest.exportedSymbols == ["swift_mojo_fixture_call"])
+            #expect(manifest.bindings.map(\.bindingID) == [41])
             #expect(manifest.loaderSearchPath == "@loader_path")
             #expect(manifest.runtimeLibraries.count == 1)
             #expect(

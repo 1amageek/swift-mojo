@@ -11,6 +11,7 @@ public struct MojoRuntimeLibraryBundleVerification:
     public let inputGraphIdentifier: UInt64
     public let generatedSourceDigest: String
     public let sourceMapDigest: String
+    public let bindings: [MojoRuntimeLibraryBinding]
     public let loaderSearchPath: String
     public let library: MojoRuntimeBundleFile
     public let runtimeLibraries: [MojoRuntimeBundleFile]
@@ -30,6 +31,7 @@ public struct MojoRuntimeLibraryBundleVerification:
         inputGraphIdentifier: UInt64,
         generatedSourceDigest: String,
         sourceMapDigest: String,
+        bindings: [MojoRuntimeLibraryBinding],
         loaderSearchPath: String,
         library: MojoRuntimeBundleFile,
         runtimeLibraries: [MojoRuntimeBundleFile],
@@ -48,6 +50,7 @@ public struct MojoRuntimeLibraryBundleVerification:
         self.inputGraphIdentifier = inputGraphIdentifier
         self.generatedSourceDigest = generatedSourceDigest
         self.sourceMapDigest = sourceMapDigest
+        self.bindings = bindings
         self.loaderSearchPath = loaderSearchPath
         self.library = library
         self.runtimeLibraries = runtimeLibraries

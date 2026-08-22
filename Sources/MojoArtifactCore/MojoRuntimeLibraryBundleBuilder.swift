@@ -201,6 +201,7 @@ package struct MojoRuntimeLibraryBundleBuilder: Sendable {
             inputGraphIdentifier: options.inputGraphIdentifier,
             generatedSourceDigest: options.generatedSourceDigest,
             sourceMapDigest: options.sourceMapDigest,
+            bindings: options.bindings,
             loaderSearchPath: try MojoRuntimeLoaderPolicy
                 .expectedLibrarySearchPath(target: receipt.target),
             library: .init(

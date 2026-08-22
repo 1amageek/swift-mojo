@@ -292,15 +292,16 @@ For a generated ABI that must remain callable while using the verified
 accelerator closure, `runtime-library-prepare` renders the exact
 `MojoInputGraph`, compiles that generated source for one explicit accelerator
 target, creates its receipt, links one dylib or shared library, and atomically
-publishes the verified schema-2 bundle. The manifest binds the compiler version,
+publishes the verified schema-3 bundle. The manifest binds the compiler version,
 input-graph digest and identifier, generated-source digest, source-map digest,
-header, module map, exact ABI exports, and runtime closure. Apple uses only
+typed binding IDs, signatures and session-factory relationships, header, module
+map, exact ABI exports, and runtime closure. Apple uses only
 `@loader_path`; Linux uses only `$ORIGIN`. Verification re-derives the receipt
 closure and rejects changed files, extra entries, export drift, alternate loader
 roots, or undeclared dependencies. A macOS relocation fixture loads the result
 with an empty process environment and calls its exported function successfully.
 This is an isolated worker adapter, not a return to the removed application-level
-dynamic registry, and it does not yet prove a real Mojo Metal/CUDA session. See
+dynamic registry. See
 `docs/ADR-0013-CALLABLE-RUNTIME-LIBRARY-BUNDLES.md`.
 
 Downstream launchers import the read-only `MojoRuntime` product and call a

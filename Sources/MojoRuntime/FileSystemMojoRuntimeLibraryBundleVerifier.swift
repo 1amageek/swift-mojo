@@ -19,9 +19,11 @@ public struct FileSystemMojoRuntimeLibraryBundleVerifier:
             let manifest = try MojoRuntimeLibraryBundleVerifier(
                 environment: environment
             ).verify(bundleURL: bundleURL)
-            return Self.verification(from: manifest)
+            return try Self.verification(from: manifest)
         } catch let error as MojoArtifactError {
             throw MojoRuntimeBundleVerificationError.fromArtifactError(error)
+        } catch let error as MojoRuntimeBundleVerificationError {
+            throw error
         } catch {
             throw MojoRuntimeBundleVerificationError.inspectionFailed(
                 String(describing: error)
@@ -31,8 +33,24 @@ public struct FileSystemMojoRuntimeLibraryBundleVerifier:
 
     package static func verification(
         from manifest: MojoRuntimeLibraryBundleManifest
-    ) -> MojoRuntimeLibraryBundleVerification {
-        MojoRuntimeLibraryBundleVerification(
+    ) throws -> MojoRuntimeLibraryBundleVerification {
+        let bindings = try manifest.bindings.map { binding in
+            guard let signature = MojoRuntimeLibraryBindingSignature(
+                rawValue: binding.signature
+            ) else {
+                throw MojoRuntimeBundleVerificationError.invalidBundle(
+                    "unsupported runtime library binding signature '\(binding.signature)'"
+                )
+            }
+            return MojoRuntimeLibraryBinding(
+                bindingID: binding.bindingID,
+                functionName: binding.functionName,
+                signature: signature,
+                sessionFactoryFunctionName: binding
+                    .sessionFactoryFunctionName
+            )
+        }
+        return MojoRuntimeLibraryBundleVerification(
             schemaVersion: manifest.schemaVersion,
             bundleDigest: manifest.digest,
             receiptDigest: manifest.receiptDigest,
@@ -47,6 +65,7 @@ public struct FileSystemMojoRuntimeLibraryBundleVerifier:
             inputGraphIdentifier: manifest.inputGraphIdentifier,
             generatedSourceDigest: manifest.generatedSourceDigest,
             sourceMapDigest: manifest.sourceMapDigest,
+            bindings: bindings,
             loaderSearchPath: manifest.loaderSearchPath,
             library: MojoRuntimeBundleFile(
                 relativePath: manifest.library.relativePath,

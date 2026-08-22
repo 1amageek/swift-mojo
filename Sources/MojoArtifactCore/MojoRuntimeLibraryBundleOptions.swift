@@ -10,6 +10,7 @@ package struct MojoRuntimeLibraryBundleOptions: Equatable, Sendable {
     package let inputGraphIdentifier: UInt64
     package let generatedSourceDigest: String
     package let sourceMapDigest: String
+    package let bindings: [MojoRuntimeLibraryBundleManifest.Binding]
     package let exportedSymbols: Set<String>
     package let header: String
     package let moduleMap: String
@@ -54,6 +55,9 @@ package struct MojoRuntimeLibraryBundleOptions: Equatable, Sendable {
             sourceMapDigest: MojoCanonicalDigest.hex(
                 try rendered.sourceMap.encode()
             ),
+            bindings: inputGraph.bindingGraph.bindings.map(
+                MojoRuntimeLibraryBundleManifest.Binding.init
+            ),
             exportedSymbols: renderer.exportedSymbols(
                 identity: identity,
                 inputGraph: inputGraph
@@ -78,6 +82,7 @@ package struct MojoRuntimeLibraryBundleOptions: Equatable, Sendable {
         inputGraphIdentifier: UInt64,
         generatedSourceDigest: String,
         sourceMapDigest: String,
+        bindings: [MojoRuntimeLibraryBundleManifest.Binding],
         exportedSymbols: Set<String>,
         header: String,
         moduleMap: String,
@@ -100,6 +105,14 @@ package struct MojoRuntimeLibraryBundleOptions: Equatable, Sendable {
             throw MojoArtifactError.invalidArguments(
                 "A runtime library bundle requires at least one exported symbol"
             )
+        }
+        let validatedBindings: [MojoRuntimeLibraryBundleManifest.Binding]
+        do {
+            validatedBindings = try MojoRuntimeLibraryBindingTable.validated(
+                bindings
+            )
+        } catch let error as MojoRuntimeLibraryBindingTable.ValidationError {
+            throw MojoArtifactError.invalidArguments(error.description)
         }
         guard !header.isEmpty, !moduleMap.isEmpty else {
             throw MojoArtifactError.invalidArguments(
@@ -147,6 +160,7 @@ package struct MojoRuntimeLibraryBundleOptions: Equatable, Sendable {
         self.inputGraphIdentifier = inputGraphIdentifier
         self.generatedSourceDigest = generatedSourceDigest
         self.sourceMapDigest = sourceMapDigest
+        self.bindings = validatedBindings
         self.exportedSymbols = exportedSymbols
         self.header = header
         self.moduleMap = moduleMap

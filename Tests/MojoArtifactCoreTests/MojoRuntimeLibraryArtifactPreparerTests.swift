@@ -35,6 +35,12 @@ struct MojoRuntimeLibraryArtifactPreparerTests {
                         try rendered.sourceMap.encode()
                     )
             )
+            #expect(manifest.schemaVersion == 3)
+            #expect(manifest.bindings.count == 1)
+            #expect(manifest.bindings[0].bindingID == fixture.bindingID)
+            #expect(manifest.bindings[0].functionName == "add")
+            #expect(manifest.bindings[0].signature == "int32Binary")
+            #expect(manifest.bindings[0].sessionFactoryFunctionName == nil)
             #expect(
                 try MojoRuntimeLibraryBundleVerifier().verify(
                     bundleURL: fixture.bundleURL

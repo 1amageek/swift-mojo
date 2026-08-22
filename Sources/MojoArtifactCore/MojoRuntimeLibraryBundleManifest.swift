@@ -3,6 +3,38 @@ import MojoBindingCore
 import MojoCompilerCore
 
 package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
+    package struct Binding: Codable, Equatable, Sendable {
+        package let bindingID: UInt64
+        package let functionName: String
+        package let signature: String
+        package let sessionFactoryFunctionName: String?
+
+        package init(_ binding: MojoBinding) {
+            self.bindingID = binding.bindingID
+            self.functionName = binding.functionName
+            self.signature = binding.signature.rawValue
+            switch binding.implementation {
+            case .sessionExternal(_, _, let sessionFactory),
+                 .sessionResource(_, _, _, _, _, _, let sessionFactory):
+                self.sessionFactoryFunctionName = sessionFactory
+            case .inline, .external, .session:
+                self.sessionFactoryFunctionName = nil
+            }
+        }
+
+        package init(
+            bindingID: UInt64,
+            functionName: String,
+            signature: String,
+            sessionFactoryFunctionName: String? = nil
+        ) {
+            self.bindingID = bindingID
+            self.functionName = functionName
+            self.signature = signature
+            self.sessionFactoryFunctionName = sessionFactoryFunctionName
+        }
+    }
+
     package struct File: Codable, Equatable, Sendable {
         package let relativePath: String
         package let digest: String
@@ -13,7 +45,7 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
         }
     }
 
-    package static let currentSchemaVersion = 2
+    package static let currentSchemaVersion = 3
     package static let fileName = "RuntimeLibraryBundle.json"
     package static let receiptFileName = "RuntimeReceipt.json"
 
@@ -26,6 +58,7 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
     package let inputGraphIdentifier: UInt64
     package let generatedSourceDigest: String
     package let sourceMapDigest: String
+    package let bindings: [Binding]
     package let loaderSearchPath: String
     package let library: File
     package let runtimeLibraries: [File]
@@ -43,6 +76,7 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
         inputGraphIdentifier: UInt64,
         generatedSourceDigest: String,
         sourceMapDigest: String,
+        bindings: [Binding],
         loaderSearchPath: String,
         library: File,
         runtimeLibraries: [File],
@@ -60,6 +94,7 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
         self.inputGraphIdentifier = inputGraphIdentifier
         self.generatedSourceDigest = generatedSourceDigest
         self.sourceMapDigest = sourceMapDigest
+        self.bindings = bindings.sorted(by: Self.bindingPrecedes)
         self.loaderSearchPath = loaderSearchPath
         self.library = library
         self.runtimeLibraries = runtimeLibraries.sorted {
@@ -94,6 +129,14 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
             components.append("runtime=\(runtimeLibrary.relativePath)")
             components.append("runtime-digest=\(runtimeLibrary.digest)")
         }
+        for binding in bindings {
+            components.append("binding-id=\(binding.bindingID)")
+            components.append("binding-function=\(binding.functionName)")
+            components.append("binding-signature=\(binding.signature)")
+            components.append(
+                "binding-session-factory=\(binding.sessionFactoryFunctionName ?? "-")"
+            )
+        }
         components.append(contentsOf: exportedSymbols.map { "export=\($0)" })
         components.append(
             contentsOf: systemDependencies.map { "system=\($0)" }
@@ -125,5 +168,15 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
             )
         }
         return manifest
+    }
+
+    package static func bindingPrecedes(
+        _ lhs: Binding,
+        _ rhs: Binding
+    ) -> Bool {
+        if lhs.bindingID == rhs.bindingID {
+            return lhs.functionName < rhs.functionName
+        }
+        return lhs.bindingID < rhs.bindingID
     }
 }

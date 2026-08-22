@@ -33,11 +33,13 @@ and delegates linking and tree construction to
   lib/<exact runtime closure>
 ```
 
-The schema-2 manifest binds the compiler version, input-graph digest and numeric
-identifier, generated-source digest, and source-map digest. The primary library
-exports only the C symbols derived from the same `MojoInputGraph` and artifact
-identity that render the Mojo bridge and header. Manual extra exports are hidden
-at link time.
+The schema-3 manifest binds the compiler version, input-graph digest and numeric
+identifier, generated-source digest, source-map digest, and a typed binding table.
+Each binding record carries the generated binding ID, Swift function name,
+signature, and any session-factory relationship. The primary library exports
+only the C symbols derived from the same `MojoInputGraph` and artifact identity
+that render the Mojo bridge and header. Manual extra exports are hidden at link
+time.
 
 | Platform | Primary identity | Runtime search path |
 |---|---|---|
@@ -55,7 +57,7 @@ flowchart LR
     G["MojoInputGraph"] --> S["Rendered Bindings.mojo + source map"]
     S --> O["Accelerator object"]
     O --> R["Verified runtime receipt"]
-    G --> E["Exact export allowlist"]
+    G --> E["Exact export allowlist + typed binding table"]
     R --> L["Runtime library linker"]
     O --> L
     E --> L
@@ -73,6 +75,8 @@ flowchart LR
   publishing a partial bundle;
 - extra files, symlinks, export drift, alternate loader roots, install-name or
   SONAME drift, and undeclared dependencies fail;
+- missing, duplicated, malformed, or ambiguous binding records and unresolved
+  session-factory relationships fail;
 - verification does not load code or create a session;
 - the public `MojoRuntimeLibraryBundleVerifying` API returns immutable metadata
   only and does not expose authoring paths or mutation/loading authority.
@@ -103,7 +107,7 @@ or Jetson CUDA execution.
 ## Next gate
 
 1. Use `runtime-library-prepare` to build the real generated session ABI with
-   the Metal accelerator implementation and verify the schema-2 bundle.
+   the Metal accelerator implementation and verify the schema-3 bundle.
 2. Add a typed loader and exactly-once session lifecycle inside the isolated
    Kuyu attempt worker, keeping loading out of the application process.
 3. Differentially compare the Metal result with the CPU reference and current
