@@ -85,6 +85,12 @@ package struct MojoRuntimeLibraryBundleVerifier: Sendable {
               MojoRuntimeLoaderPolicy.isPortableCSymbol(
                 manifest.moduleName
               ),
+              !manifest.compilerVersion.trimmingCharacters(
+                in: .whitespacesAndNewlines
+              ).isEmpty,
+              Self.isSHA256Digest(manifest.inputGraphDigest),
+              Self.isSHA256Digest(manifest.generatedSourceDigest),
+              Self.isSHA256Digest(manifest.sourceMapDigest),
               manifest.interfaceHeader.relativePath
                 == "include/\(manifest.moduleName).h",
               manifest.moduleMap.relativePath == "include/module.modulemap",
@@ -258,6 +264,12 @@ package struct MojoRuntimeLibraryBundleVerifier: Sendable {
             throw MojoArtifactError.invalidRuntimeBundle(
                 "expected a non-symbolic-link directory at '\(url.path)'"
             )
+        }
+    }
+
+    private static func isSHA256Digest(_ value: String) -> Bool {
+        value.utf8.count == 64 && value.utf8.allSatisfy { byte in
+            (48...57).contains(byte) || (97...102).contains(byte)
         }
     }
 }

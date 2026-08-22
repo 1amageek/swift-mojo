@@ -25,6 +25,8 @@ struct MojoCommandRunnerTests {
         #expect(result.standardOutput.contains("runtime-verify"))
         #expect(result.standardOutput.contains("runtime-bundle-prepare"))
         #expect(result.standardOutput.contains("runtime-bundle-verify"))
+        #expect(result.standardOutput.contains("runtime-library-prepare"))
+        #expect(result.standardOutput.contains("runtime-library-verify"))
         #expect(!result.standardOutput.contains("mojo version"))
         #expect(!result.standardOutput.contains("swift-mojo prepare"))
         #expect(result.standardError.isEmpty)
@@ -85,6 +87,28 @@ struct MojoCommandRunnerTests {
         #expect(
             result.standardError.contains(
                 "Missing required option --executable-name"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runtimeLibraryCommandRequiresAnAccelerator() {
+        let result = runner.run(
+            arguments: [
+                "runtime-library-prepare",
+                "--source", "/tmp/Bindings.swift",
+                "--output", "/tmp/RuntimeLibrary.bundle",
+                "--runtime-library", "/tmp/libRuntime.dylib",
+                "--target-triple", "arm64-apple-macosx14.0",
+                "--target-cpu", "generic",
+                "--format", "json",
+            ]
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(
+            result.standardOutput.contains(
+                "runtime-library-prepare requires --target-accelerator"
             )
         )
     }

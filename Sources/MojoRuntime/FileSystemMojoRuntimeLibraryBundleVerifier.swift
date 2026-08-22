@@ -42,6 +42,11 @@ public struct FileSystemMojoRuntimeLibraryBundleVerifier:
                 accelerator: manifest.target.accelerator
             ),
             moduleName: manifest.moduleName,
+            compilerVersion: manifest.compilerVersion,
+            inputGraphDigest: manifest.inputGraphDigest,
+            inputGraphIdentifier: manifest.inputGraphIdentifier,
+            generatedSourceDigest: manifest.generatedSourceDigest,
+            sourceMapDigest: manifest.sourceMapDigest,
             loaderSearchPath: manifest.loaderSearchPath,
             library: MojoRuntimeBundleFile(
                 relativePath: manifest.library.relativePath,

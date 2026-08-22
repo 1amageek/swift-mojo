@@ -13,7 +13,7 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
         }
     }
 
-    package static let currentSchemaVersion = 1
+    package static let currentSchemaVersion = 2
     package static let fileName = "RuntimeLibraryBundle.json"
     package static let receiptFileName = "RuntimeReceipt.json"
 
@@ -21,6 +21,11 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
     package let receiptDigest: String
     package let target: MojoTargetConfiguration
     package let moduleName: String
+    package let compilerVersion: String
+    package let inputGraphDigest: String
+    package let inputGraphIdentifier: UInt64
+    package let generatedSourceDigest: String
+    package let sourceMapDigest: String
     package let loaderSearchPath: String
     package let library: File
     package let runtimeLibraries: [File]
@@ -33,6 +38,11 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
         receiptDigest: String,
         target: MojoTargetConfiguration,
         moduleName: String,
+        compilerVersion: String,
+        inputGraphDigest: String,
+        inputGraphIdentifier: UInt64,
+        generatedSourceDigest: String,
+        sourceMapDigest: String,
         loaderSearchPath: String,
         library: File,
         runtimeLibraries: [File],
@@ -45,6 +55,11 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
         self.receiptDigest = receiptDigest
         self.target = target
         self.moduleName = moduleName
+        self.compilerVersion = compilerVersion
+        self.inputGraphDigest = inputGraphDigest
+        self.inputGraphIdentifier = inputGraphIdentifier
+        self.generatedSourceDigest = generatedSourceDigest
+        self.sourceMapDigest = sourceMapDigest
         self.loaderSearchPath = loaderSearchPath
         self.library = library
         self.runtimeLibraries = runtimeLibraries.sorted {
@@ -62,6 +77,11 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
             "receipt=\(receiptDigest)",
             "target=\(target.identity)",
             "module=\(moduleName)",
+            "compiler=\(compilerVersion)",
+            "input-graph=\(inputGraphDigest)",
+            "input-graph-identifier=\(inputGraphIdentifier)",
+            "generated-source=\(generatedSourceDigest)",
+            "source-map=\(sourceMapDigest)",
             "loader=\(loaderSearchPath)",
             "library=\(library.relativePath)",
             "library-digest=\(library.digest)",

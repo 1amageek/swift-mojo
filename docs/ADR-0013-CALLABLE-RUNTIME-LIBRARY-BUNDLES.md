@@ -1,6 +1,6 @@
 # ADR-0013: Callable accelerator runtime library bundles
 
-- Status: macOS link, relocation, verification, and C invocation implemented
+- Status: generated-source transaction, macOS link, relocation, verification, and C invocation implemented
 - Date: 2026-08-22
 - Scope: generated C ABI objects that require an explicit accelerator runtime closure
 
@@ -16,8 +16,11 @@ loader guarantees.
 
 ## Decision
 
-`MojoRuntimeLibraryBundleBuilder` consumes a verified receipt and builds one
-managed callable library bundle:
+`MojoRuntimeLibraryArtifactPreparer` owns the complete source-to-bundle
+transaction. It renders the exact `MojoInputGraph`, compiles that generated
+source for exactly one explicit accelerator target, prepares a runtime receipt,
+and delegates linking and tree construction to
+`MojoRuntimeLibraryBundleBuilder`:
 
 ```text
 <bundle>/
@@ -30,9 +33,11 @@ managed callable library bundle:
   lib/<exact runtime closure>
 ```
 
-The primary library exports only the C symbols derived from the same
-`MojoInputGraph` and artifact identity that render the Mojo bridge and header.
-Manual extra exports are hidden at link time.
+The schema-2 manifest binds the compiler version, input-graph digest and numeric
+identifier, generated-source digest, and source-map digest. The primary library
+exports only the C symbols derived from the same `MojoInputGraph` and artifact
+identity that render the Mojo bridge and header. Manual extra exports are hidden
+at link time.
 
 | Platform | Primary identity | Runtime search path |
 |---|---|---|
@@ -47,9 +52,12 @@ than trusting the manifest.
 
 ```mermaid
 flowchart LR
-    G["MojoInputGraph"] --> E["Exact export allowlist"]
-    R["Verified runtime receipt"] --> L["Runtime library linker"]
-    O["Generated ABI object"] --> L
+    G["MojoInputGraph"] --> S["Rendered Bindings.mojo + source map"]
+    S --> O["Accelerator object"]
+    O --> R["Verified runtime receipt"]
+    G --> E["Exact export allowlist"]
+    R --> L["Runtime library linker"]
+    O --> L
     E --> L
     L --> V["Tree + digest + loader + closure verification"]
     V --> C["Atomic managed bundle"]
@@ -61,6 +69,8 @@ flowchart LR
 - output never replaces an unmanaged directory;
 - input object or runtime libraries may not reside inside output;
 - changed object, dependency, primary library, header, or module map fails;
+- a compiler-version mismatch or Swift-source change before commit fails without
+  publishing a partial bundle;
 - extra files, symlinks, export drift, alternate loader roots, install-name or
   SONAME drift, and undeclared dependencies fail;
 - verification does not load code or create a session;
@@ -73,10 +83,13 @@ consumer artifact.
 
 ## Evidence
 
-The focused `MojoArtifactCoreTests` lane links an arm64 macOS fixture object
-against a separately packaged runtime dylib, relocates the complete managed
-bundle, verifies it again, and executes the exported function through
+The focused `MojoArtifactCoreTests` lane feeds the preparer an input graph,
+observes the exact rendered source in the injected compiler, links its arm64
+macOS object against a separately packaged runtime dylib, relocates the complete
+managed bundle, verifies it again, and executes the exported function through
 `dlopen`/`dlsym` with an empty environment. The call transforms `41` to `42`.
+Another test mutates the Swift declaration during compilation and proves the
+transaction fails before any bundle is published.
 The same fixture rejects modifications to the primary library, runtime library,
 header, and unexpected tree entries. A separate renderer test proves that all
 14 currently supported generated ABI exports exactly equal the linker allowlist.
@@ -89,8 +102,8 @@ or Jetson CUDA execution.
 
 ## Next gate
 
-1. Build the real generated session ABI object with the Metal accelerator
-   implementation and produce this bundle from the normal prepare graph.
+1. Use `runtime-library-prepare` to build the real generated session ABI with
+   the Metal accelerator implementation and verify the schema-2 bundle.
 2. Add a typed loader and exactly-once session lifecycle inside the isolated
    Kuyu attempt worker, keeping loading out of the application process.
 3. Differentially compare the Metal result with the CPU reference and current

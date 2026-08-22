@@ -114,7 +114,7 @@ package struct MojoArtifactPreparer: Sendable {
                 at: buildURL,
                 withIntermediateDirectories: true
             )
-            let importRootURL = try Self.createImportRoot(
+            let importRootURL = try MojoExternalPackageImportRoot.create(
                 in: staging,
                 externalPackages: inputGraph.externalPackages
             )
@@ -444,33 +444,6 @@ package struct MojoArtifactPreparer: Sendable {
             result.append(frameworkURL)
         }
         return result
-    }
-
-    private static func createImportRoot(
-        in stagingURL: URL,
-        externalPackages: [MojoExternalPackage]
-    ) throws -> URL? {
-        guard !externalPackages.isEmpty else {
-            return nil
-        }
-        let importRootURL = stagingURL.appendingPathComponent(
-            ".imports",
-            isDirectory: true
-        )
-        try FileManager.default.createDirectory(
-            at: importRootURL,
-            withIntermediateDirectories: false
-        )
-        for package in externalPackages {
-            try FileManager.default.createSymbolicLink(
-                at: importRootURL.appendingPathComponent(
-                    package.name,
-                    isDirectory: true
-                ),
-                withDestinationURL: package.rootURL
-            )
-        }
-        return importRootURL
     }
 
     private static func validate(target: MojoTargetConfiguration) throws {

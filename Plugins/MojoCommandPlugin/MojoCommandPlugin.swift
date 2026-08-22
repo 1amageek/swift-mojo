@@ -88,11 +88,15 @@ struct MojoCommandPlugin: CommandPlugin {
         if ["init", "prepare", "inspect", "release"].contains(command) {
             return true
         }
+        if command == "runtime-library-prepare" {
+            return arguments.contains("--target")
+        }
         return command == "doctor" && arguments.contains("--target")
     }
 
     private static func requiresResolvedSwiftSources(command: String) -> Bool {
-        ["prepare", "inspect", "release"].contains(command)
+        ["prepare", "inspect", "release", "runtime-library-prepare"]
+            .contains(command)
     }
 
     private static func requiresSourceTarget(
@@ -100,6 +104,8 @@ struct MojoCommandPlugin: CommandPlugin {
         arguments: [String]
     ) -> Bool {
         ["init", "prepare", "inspect", "release"].contains(command)
+            || (command == "runtime-library-prepare"
+                && arguments.contains("--target"))
             || (command == "doctor" && arguments.contains("--target"))
     }
 

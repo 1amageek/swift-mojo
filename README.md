@@ -288,14 +288,16 @@ that differs from the manifest. Bundle creation is local deployment tooling; it
 does not grant redistribution rights for third-party runtime libraries. See
 `docs/ADR-0011-ISOLATED-RUNTIME-BUNDLES.md`.
 
-For a generated ABI object that must remain callable while using the verified
-accelerator closure, the authoring core can instead construct a managed runtime
-library bundle. It links one dylib or shared library, restricts its exported C
-symbols to the exact `MojoInputGraph` ABI, and packages the header, module map,
-receipt, and exact runtime libraries beside it. Apple uses only `@loader_path`;
-Linux uses only `$ORIGIN`. Verification re-derives the receipt closure and
-rejects changed files, extra entries, export drift, alternate loader roots, or
-undeclared dependencies. A macOS relocation fixture loads the resulting dylib
+For a generated ABI that must remain callable while using the verified
+accelerator closure, `runtime-library-prepare` renders the exact
+`MojoInputGraph`, compiles that generated source for one explicit accelerator
+target, creates its receipt, links one dylib or shared library, and atomically
+publishes the verified schema-2 bundle. The manifest binds the compiler version,
+input-graph digest and identifier, generated-source digest, source-map digest,
+header, module map, exact ABI exports, and runtime closure. Apple uses only
+`@loader_path`; Linux uses only `$ORIGIN`. Verification re-derives the receipt
+closure and rejects changed files, extra entries, export drift, alternate loader
+roots, or undeclared dependencies. A macOS relocation fixture loads the result
 with an empty process environment and calls its exported function successfully.
 This is an isolated worker adapter, not a return to the removed application-level
 dynamic registry, and it does not yet prove a real Mojo Metal/CUDA session. See

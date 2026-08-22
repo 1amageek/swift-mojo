@@ -47,6 +47,11 @@ struct MojoRuntimeLibraryBundleIntegrationTests {
             let options = try MojoRuntimeLibraryBundleOptions(
                 outputDirectoryURL: bundleURL,
                 identity: identity,
+                compilerVersion: "Fixture Mojo 1.0",
+                inputGraphDigest: String(repeating: "a", count: 64),
+                inputGraphIdentifier: 42,
+                generatedSourceDigest: String(repeating: "b", count: 64),
+                sourceMapDigest: String(repeating: "c", count: 64),
                 exportedSymbols: ["swift_mojo_fixture_call"],
                 header: header(moduleName: identity.moduleName),
                 moduleMap: moduleMap(moduleName: identity.moduleName),

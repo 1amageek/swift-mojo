@@ -17,6 +17,11 @@ struct MojoRuntimeLibraryBundleVerifierTests {
             receiptDigest: String(repeating: "a", count: 64),
             target: target,
             moduleName: "SwiftMojo_Model_ABI",
+            compilerVersion: "Mojo 1.0.0",
+            inputGraphDigest: String(repeating: "f", count: 64),
+            inputGraphIdentifier: 42,
+            generatedSourceDigest: String(repeating: "1", count: 64),
+            sourceMapDigest: String(repeating: "2", count: 64),
             loaderSearchPath: "@loader_path",
             library: .init(
                 relativePath: "lib/libSwiftMojo_Model_ABI.dylib",
@@ -43,11 +48,22 @@ struct MojoRuntimeLibraryBundleVerifierTests {
         let verification = FileSystemMojoRuntimeLibraryBundleVerifier
             .verification(from: manifest)
 
-        #expect(verification.schemaVersion == 1)
+        #expect(verification.schemaVersion == 2)
         #expect(verification.bundleDigest == manifest.digest)
         #expect(verification.receiptDigest == manifest.receiptDigest)
         #expect(verification.target.identity == target.identity)
         #expect(verification.moduleName == manifest.moduleName)
+        #expect(verification.compilerVersion == "Mojo 1.0.0")
+        #expect(verification.inputGraphDigest == String(repeating: "f", count: 64))
+        #expect(verification.inputGraphIdentifier == 42)
+        #expect(
+            verification.generatedSourceDigest
+                == String(repeating: "1", count: 64)
+        )
+        #expect(
+            verification.sourceMapDigest
+                == String(repeating: "2", count: 64)
+        )
         #expect(verification.loaderSearchPath == "@loader_path")
         #expect(verification.library.relativePath == manifest.library.relativePath)
         #expect(

@@ -49,11 +49,6 @@ package struct MojoRuntimeLibraryBundleBuilder: Sendable {
         receipt: MojoRuntimeDependencyReceipt,
         options: MojoRuntimeLibraryBundleOptions
     ) throws -> MojoRuntimeLibraryBundleManifest {
-        _ = try receiptVerifier.verify(
-            receipt: receipt,
-            options: options.runtimeReceiptOptions
-        )
-        try MojoRuntimeLoaderPolicy.validate(receipt: receipt)
         return try transaction.withExclusiveAccess(
             to: options.outputDirectoryURL
         ) { access in
@@ -61,7 +56,7 @@ package struct MojoRuntimeLibraryBundleBuilder: Sendable {
                 for: options.outputDirectoryURL
             )
             do {
-                let manifest = try prepare(
+                let manifest = try prepareContents(
                     receipt: receipt,
                     options: options,
                     staging: staging
@@ -98,11 +93,16 @@ package struct MojoRuntimeLibraryBundleBuilder: Sendable {
         }
     }
 
-    private func prepare(
+    package func prepareContents(
         receipt: MojoRuntimeDependencyReceipt,
         options: MojoRuntimeLibraryBundleOptions,
         staging: URL
     ) throws -> MojoRuntimeLibraryBundleManifest {
+        _ = try receiptVerifier.verify(
+            receipt: receipt,
+            options: options.runtimeReceiptOptions
+        )
+        try MojoRuntimeLoaderPolicy.validate(receipt: receipt)
         let fileManager = FileManager.default
         let include = staging.appendingPathComponent(
             "include",
@@ -196,6 +196,11 @@ package struct MojoRuntimeLibraryBundleBuilder: Sendable {
             receiptDigest: receipt.digest,
             target: receipt.target,
             moduleName: options.identity.moduleName,
+            compilerVersion: options.compilerVersion,
+            inputGraphDigest: options.inputGraphDigest,
+            inputGraphIdentifier: options.inputGraphIdentifier,
+            generatedSourceDigest: options.generatedSourceDigest,
+            sourceMapDigest: options.sourceMapDigest,
             loaderSearchPath: try MojoRuntimeLoaderPolicy
                 .expectedLibrarySearchPath(target: receipt.target),
             library: .init(
