@@ -10,6 +10,51 @@ package struct MojoStaticSourceRenderer: Sendable {
 
     package init() {}
 
+    package func exportedSymbols(
+        identity: MojoArtifactIdentity,
+        inputGraph: MojoInputGraph
+    ) -> Set<String> {
+        let prefix = identity.symbolPrefix
+        let signatures = Set(
+            inputGraph.bindingGraph.bindings.map(\.signature)
+        )
+        var suffixes: Set<String> = [
+            "static_abi_version",
+            "input_graph_identifier",
+            "has_binding",
+        ]
+        if signatures.contains(.int32Binary) {
+            suffixes.insert("call_i32_i32_i32")
+        }
+        if signatures.contains(.borrowedFloat32Buffer) {
+            suffixes.insert("call_f32_buffer_f32")
+        }
+        if signatures.contains(.borrowedMutableFloat32Buffers) {
+            suffixes.insert("call_f32_buffer_f32_buffer_i32")
+        }
+        if signatures.contains(.borrowedMutableFloat64Buffers) {
+            suffixes.insert("call_f64_buffer_f64_buffer_i32")
+        }
+        if signatures.contains(.runtimeSessionFactory) {
+            suffixes.formUnion([
+                "create_session_v1",
+                "shutdown_session_v1",
+            ])
+        }
+        if signatures.contains(.sessionFloat32BufferFactory) {
+            suffixes.formUnion([
+                "create_f32_buffer_v1",
+                "shutdown_f32_buffer_v1",
+                "copy_host_to_f32_buffer_v1",
+                "copy_f32_buffer_to_host_v1",
+            ])
+        }
+        if signatures.contains(.sessionBorrowedMutableFloat32Buffers) {
+            suffixes.insert("call_session_f32_buffer_f32_buffer_i32_v1")
+        }
+        return Set(suffixes.map { "\(prefix)_\($0)" })
+    }
+
     package func mojoSource(for graph: MojoSourceGraph) -> String {
         render(
             inputGraph: MojoInputGraph(bindingGraph: graph),

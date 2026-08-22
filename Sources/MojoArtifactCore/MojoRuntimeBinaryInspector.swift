@@ -149,10 +149,17 @@ package struct MojoRuntimeBinaryInspector: MojoRuntimeBinaryInspecting, Sendable
                 detail: "no Mach-O install name was reported"
             )
         }
+        let loadCommands = try execute(
+            executablePath: "/usr/bin/otool",
+            arguments: ["-arch", expectedArchitecture, "-l", libraryURL.path]
+        )
         return MojoRuntimeBinaryInspection(
             architecture: expectedArchitecture,
             installName: installName,
             dynamicDependencies: Array(installNames.dropFirst()),
+            runtimeSearchPaths: Self.appleRuntimeSearchPaths(
+                from: loadCommands
+            ),
             exportedSymbols: exportedSymbols
         )
     }
@@ -197,6 +204,13 @@ package struct MojoRuntimeBinaryInspector: MojoRuntimeBinaryInspecting, Sendable
             architecture: expectedArchitecture,
             installName: installName,
             dynamicDependencies: dependencies,
+            runtimeSearchPaths: Self.elfDynamicValues(
+                tag: "RUNPATH",
+                output: metadata
+            ) + Self.elfDynamicValues(
+                tag: "RPATH",
+                output: metadata
+            ),
             exportedSymbols: exportedSymbols
         )
     }

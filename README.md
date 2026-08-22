@@ -288,11 +288,27 @@ that differs from the manifest. Bundle creation is local deployment tooling; it
 does not grant redistribution rights for third-party runtime libraries. See
 `docs/ADR-0011-ISOLATED-RUNTIME-BUNDLES.md`.
 
+For a generated ABI object that must remain callable while using the verified
+accelerator closure, the authoring core can instead construct a managed runtime
+library bundle. It links one dylib or shared library, restricts its exported C
+symbols to the exact `MojoInputGraph` ABI, and packages the header, module map,
+receipt, and exact runtime libraries beside it. Apple uses only `@loader_path`;
+Linux uses only `$ORIGIN`. Verification re-derives the receipt closure and
+rejects changed files, extra entries, export drift, alternate loader roots, or
+undeclared dependencies. A macOS relocation fixture loads the resulting dylib
+with an empty process environment and calls its exported function successfully.
+This is an isolated worker adapter, not a return to the removed application-level
+dynamic registry, and it does not yet prove a real Mojo Metal/CUDA session. See
+`docs/ADR-0013-CALLABLE-RUNTIME-LIBRARY-BUNDLES.md`.
+
 Downstream launchers import the read-only `MojoRuntime` product and call a
 `MojoRuntimeBundleVerifying` implementation before accepting or spawning a
 relocated bundle. `FileSystemMojoRuntimeBundleVerifier` returns only immutable
 verified identity, target, executable, library, and loader metadata; it does
-not expose source paths, mutate the bundle, or launch accelerator code. See
+not expose source paths, mutate the bundle, or launch accelerator code. Callable
+library bundles have a separate `MojoRuntimeLibraryBundleVerifying` contract and
+`FileSystemMojoRuntimeLibraryBundleVerifier`, so launchers cannot confuse an
+executable worker with a loadable ABI library. See
 `docs/ADR-0012-PUBLIC-RUNTIME-VERIFICATION.md`.
 
 ## Author and consumer experience

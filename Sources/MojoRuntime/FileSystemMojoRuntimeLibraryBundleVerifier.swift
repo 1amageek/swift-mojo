@@ -1,8 +1,8 @@
 import Foundation
 import MojoArtifactCore
 
-public struct FileSystemMojoRuntimeBundleVerifier:
-    MojoRuntimeBundleVerifying, Sendable
+public struct FileSystemMojoRuntimeLibraryBundleVerifier:
+    MojoRuntimeLibraryBundleVerifying, Sendable
 {
     private let environment: [String: String]
 
@@ -12,11 +12,11 @@ public struct FileSystemMojoRuntimeBundleVerifier:
         self.environment = environment
     }
 
-    public func verifyBundle(
+    public func verifyLibraryBundle(
         at bundleURL: URL
-    ) throws -> MojoRuntimeBundleVerification {
+    ) throws -> MojoRuntimeLibraryBundleVerification {
         do {
-            let manifest = try MojoArtifactCore.MojoRuntimeBundleVerifier(
+            let manifest = try MojoRuntimeLibraryBundleVerifier(
                 environment: environment
             ).verify(bundleURL: bundleURL)
             return Self.verification(from: manifest)
@@ -30,9 +30,9 @@ public struct FileSystemMojoRuntimeBundleVerifier:
     }
 
     package static func verification(
-        from manifest: MojoRuntimeBundleManifest
-    ) -> MojoRuntimeBundleVerification {
-        MojoRuntimeBundleVerification(
+        from manifest: MojoRuntimeLibraryBundleManifest
+    ) -> MojoRuntimeLibraryBundleVerification {
+        MojoRuntimeLibraryBundleVerification(
             schemaVersion: manifest.schemaVersion,
             bundleDigest: manifest.digest,
             receiptDigest: manifest.receiptDigest,
@@ -41,20 +41,28 @@ public struct FileSystemMojoRuntimeBundleVerifier:
                 cpu: manifest.target.cpu,
                 accelerator: manifest.target.accelerator
             ),
+            moduleName: manifest.moduleName,
             loaderSearchPath: manifest.loaderSearchPath,
-            programInterpreter: manifest.programInterpreter,
-            executable: MojoRuntimeBundleFile(
-                relativePath: manifest.executable.relativePath,
-                sha256Digest: manifest.executable.digest
+            library: MojoRuntimeBundleFile(
+                relativePath: manifest.library.relativePath,
+                sha256Digest: manifest.library.digest
             ),
-            libraries: manifest.libraries.map {
+            runtimeLibraries: manifest.runtimeLibraries.map {
                 MojoRuntimeBundleFile(
                     relativePath: $0.relativePath,
                     sha256Digest: $0.digest
                 )
             },
+            interfaceHeader: MojoRuntimeBundleFile(
+                relativePath: manifest.interfaceHeader.relativePath,
+                sha256Digest: manifest.interfaceHeader.digest
+            ),
+            moduleMap: MojoRuntimeBundleFile(
+                relativePath: manifest.moduleMap.relativePath,
+                sha256Digest: manifest.moduleMap.digest
+            ),
+            exportedSymbols: manifest.exportedSymbols,
             systemDependencies: manifest.systemDependencies
         )
     }
-
 }

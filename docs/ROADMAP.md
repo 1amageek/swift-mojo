@@ -12,7 +12,7 @@
 | 3 — Types and ownership | buffers、strings、records、error envelope | Immutable/mutable borrows、opaque session、session-owned Float32 buffer verified through real local runtime; the session/resource path also passed separate Swift/Mojo ASan lanes; Metal/CUDA execution、allocation/copy、standalone-buffer sanitizer gates remain |
 | 4 — Async and callbacks | cancellation、completion、shutdown、reverse bridge | Research/Planned |
 | 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean consumer、and two-target linking verified; model/distribution work remains |
-| 6 — GPU compute | device/buffer/event/transfer contracts | Runtime receipt and exact worker bundle implemented; device kernel/session remains Research |
+| 6 — GPU compute | device/buffer/event/transfer contracts | Runtime receipt、exact worker bundle、and callable ABI library bundle implemented; real Mojo device kernel/session remains Research |
 | 7 — Full inline Mojo syntax decision | custom input/preprocessor/compiler integration | Research |
 
 ```mermaid
@@ -268,12 +268,13 @@ flowchart LR
     D -->|Yes| N["Opaque session owner verified on CPU"]
     D -->|No| K["Use scoped host borrow"]
     N --> B["Session-owned Float32 buffer + sync host copy verified"]
-    B --> G{"Need accelerator execution?"}
+    B --> L["Exact runtime-linked ABI bundle verified"]
+    L --> G{"Need accelerator execution?"}
     G -->|Yes| P["Implement Metal/CUDA allocation + sync adapter"]
     G -->|No| C["Use synchronous session ABI"]
 ```
 
-The immutable-input functional slice is release-runtime verified. The mutable-output slice is local-runtime verified with mutation, status `7`, distinct empty failures, four bridge symbols, and no Mojo dynamic dependency. The session/resource slice is local-runtime verified with session and host-buffer create/copy/use/shutdown, post-create cleanup, exact-count and copy/synchronization-status failures, capability/schema/status/missing-handle/active-resource failures, concurrent/reentrant busy behavior, ten bridge symbols, no Mojo/KGEN dynamic dependency, and separate Swift/Mojo Address Sanitizer execution. A zero-copy claim remains blocked until copy/allocation counts are measured; standalone borrowed/mutable buffer families retain their own sanitizer gate. The typed owner can represent host/device/pinned-host memory, but the installed standalone Mojo 1.0 package does not expose the host `DeviceContext` module; no current acceptance therefore establishes MAX-backed Metal/CUDA allocation, DMA, device synchronization, GPU availability, or async completion.
+The immutable-input functional slice is release-runtime verified. The mutable-output slice is local-runtime verified with mutation, status `7`, distinct empty failures, four bridge symbols, and no Mojo dynamic dependency. The session/resource slice is local-runtime verified with session and host-buffer create/copy/use/shutdown, post-create cleanup, exact-count and copy/synchronization-status failures, capability/schema/status/missing-handle/active-resource failures, concurrent/reentrant busy behavior, ten bridge symbols, no Mojo/KGEN dynamic dependency, and separate Swift/Mojo Address Sanitizer execution. The runtime-linked ABI bundle now proves exact exports、closure、relative loading、relocation、tamper rejection、and one real C function invocation without ambient loader paths. It is not yet produced from the real Mojo session graph and does not establish Metal/CUDA allocation、kernel dispatch、DMA、device synchronization、GPU availability、or async completion. A zero-copy claim remains blocked until copy/allocation counts are measured; standalone borrowed/mutable buffer families retain their own sanitizer gate.
 
 ## 6. Phase 4 — Async and callbacks
 
@@ -346,6 +347,8 @@ Deliverables:
 - transfer observability。
 - accelerator-aware artifact cache。
 - CPU reference path for correctness comparison。
+- receipt-bound executable worker bundle（implemented）。
+- receipt-bound callable ABI library bundle with exact exports and relative loader root（implemented with relocation/tamper/invocation fixture; real Mojo device session pending）。
 
 SwiftUI shader modifiers、view rendering、scene lifecycleはこのPhaseにも含みません。
 

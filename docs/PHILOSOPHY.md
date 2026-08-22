@@ -8,7 +8,7 @@
 flowchart TB
     API["Swift<br/>API and product semantics"]
     IR["Generated semantic bridge"]
-    ABI["Private static ABI"]
+    ABI["Private generated ABI<br/>static default or isolated runtime adapter"]
     IMPL["Mojo<br/>compute and systems implementation"]
     API --> IR --> ABI --> IMPL
     IMPL --> ABI --> API
@@ -49,6 +49,8 @@ Generated layers see:
 ```
 
 P1では固定C dispatcherを持つ静的XCFrameworkへ閉じ込めます。application targetはlinkのためgenerated binary moduleへ依存しますが、そのmoduleはstable public APIではありません。人がheaderやsymbolを編集して機能を追加する設計にはしません。
+
+accelerator runtimeが静的artifactへ閉じない場合も、application-level registryへ戻しません。runtime-linked ABIはexact receipt、generated export allowlist、relative loader rootを持つmanaged library bundleとして構築し、isolated worker境界でのみ利用します。worker側のloaderとsession lifecycleが実装されるまでは、bundleの存在をGPU実行成功として扱いません。
 
 ## 4. One source of semantics
 

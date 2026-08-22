@@ -26,7 +26,7 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Runtime uses static linking | generated Apple XCFramework / Linux static-library artifact bundle and final Mach-O/archive inspection |
 | Plugin does not compile Mojo | plugin invokes only `swift-mojo verify` |
 | Build verifier covers stale/missing/corrupt/config/source-map/slice state | verifier/release failure tests and the committed plugin integration target pass under `xcodebuild test` |
-| No dynamic legacy path remains | package graph has no loader/shared-library target |
+| No application-level dynamic legacy path remains | public product has no symbol registry or invocation loader; accelerator shared libraries are explicit receipt-bound worker artifacts |
 | External Mojo package files are current author inputs | `MojoExternalPackage`、`MojoInputGraph`、generated package imports、compiler `-I`、plugin tree inputs |
 | Release configuration is explicit | `SwiftMojo.json` pins compiler、external packages、all required slices |
 | Borrowed Float lowering is additive and external-only | signature-aware `MojoBinding`、buffer dispatcher、generated Registry、`MojoInvocationError`、real compile/link/runtime acceptance。allocation/copy and sanitizer evidenceはpending |
@@ -37,7 +37,8 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Static artifacts reject undeclared Mojo runtime dependencies | `MojoObjectLinkageInspector` normalizes `nm -u` output and rejects unresolved `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` before archiving |
 | Accelerator dependencies have a separate verified identity | schema-1 runtime receipts bind object/library digests、target architecture、exact symbol providers、Mach-O/ELF transitive dependencies、and observed system dependencies without weakening the static adapter |
 | Accelerator deployment is an exact managed bundle | schema-1 bundle manifests bind the linked executable、receipt、copied closure、relative loader root、direct system dependencies、and Linux interpreter; final imports are re-derived before atomic commit |
-| Runtime preflight is consumable without the authoring CLI | the public read-only `MojoRuntime` product returns immutable verified metadata through `MojoRuntimeBundleVerifying`; construction, mutation, and execution remain outside that API |
+| Runtime-linked generated ABI is a separate exact bundle | schema-1 runtime-library manifests bind the primary dylib/shared library、generated header/module map、exact exports、receipt closure、`@loader_path`/`$ORIGIN`、and all file digests; relocation and invocation pass with an empty environment fixture |
+| Runtime preflight is consumable without the authoring CLI | the public read-only `MojoRuntime` product distinguishes executable and callable-library bundles through `MojoRuntimeBundleVerifying` and `MojoRuntimeLibraryBundleVerifying`; construction, mutation, loading, and execution remain outside those APIs |
 | Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation and KGEN-free archive inspection pass, while native Jetson link/run remains pending |
 
 ## 3. Architecture and responsibilities
@@ -338,7 +339,7 @@ schema 5のmanifestはcompiler sliceとartifact recordを独立して保持し�
 
 tree digestは全archiveだけでなく、header、module map、Info.plist/info.jsonも対象にします。absolute path、mtime、filesystem enumeration orderは含めません。pluginは全artifact rootと既存の全regular file/directoryをbuild inputへ登録するため、内容の上書きとtree entryの増減の双方がverify commandをinvalidateします。
 
-### 8.3 Static linking choice
+### 8.3 Default static linking choice
 
 P1はdynamic loadingを使いません。理由は次です。
 
@@ -348,6 +349,17 @@ P1はdynamic loadingを使いません。理由は次です。
 - build verification後のnonthrowing Swift functionを可能にする。
 
 代償として、artifactをprepareしてcommitするworkflow、platform sliceごとの生成、binary target module名管理が必要です。
+
+### 8.4 Isolated runtime-linked ABI choice
+
+Mojo/MAX accelerator objectが`AsyncRT_*`、`KGEN_CompilerRT_*`、または`MGP_RT_*`を必要とする場合、static artifactへ暗黙に混入させません。verified runtime receiptから、exact C exportsだけを公開するprimary dylib/shared libraryと、そのdependency closureを同一managed rootへ構築します。
+
+| Platform | Primary identity | Search root |
+|---|---|---|
+| Apple | `@rpath/<module>.dylib` | `@loader_path` only |
+| Linux | bare `<module>.so` SONAME | `$ORIGIN` only |
+
+export allowlist、header、module mapは同じ`MojoInputGraph`とartifact identityから生成します。verifierはtree、digest、receipt reproduction、architecture、install name/SONAME、RPATH/RUNPATH、direct imports、system boundary、export setを再確認します。このadapterはisolated worker内でpersistent sessionを保持するためのdeployment primitiveです。public runtime productはverifyだけを提供し、`dlopen`、symbol cast、session生成はまだ提供しません。
 
 ## 9. State, ownership, lifetime, and isolation
 

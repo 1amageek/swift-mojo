@@ -15,6 +15,48 @@ package enum MojoRuntimeLoaderPolicy {
         throw MojoArtifactError.unsupportedTarget(target.triple)
     }
 
+    package static func expectedLibrarySearchPath(
+        target: MojoTargetConfiguration
+    ) throws -> String {
+        let triple = target.triple.lowercased()
+        if triple.contains("-apple-") {
+            return "@loader_path"
+        }
+        if triple.contains("-linux-") {
+            return "$ORIGIN"
+        }
+        throw MojoArtifactError.unsupportedTarget(target.triple)
+    }
+
+    package static func expectedLibraryInstallName(
+        libraryName: String,
+        target: MojoTargetConfiguration
+    ) throws -> String {
+        let triple = target.triple.lowercased()
+        if triple.contains("-apple-") {
+            return "@rpath/\(libraryName)"
+        }
+        if triple.contains("-linux-") {
+            return libraryName
+        }
+        throw MojoArtifactError.unsupportedTarget(target.triple)
+    }
+
+    package static func isPortableCSymbol(_ value: String) -> Bool {
+        guard let first = value.utf8.first,
+              first == 95
+                || (first >= 65 && first <= 90)
+                || (first >= 97 && first <= 122) else {
+            return false
+        }
+        return value.utf8.dropFirst().allSatisfy { codeUnit in
+            codeUnit == 95
+                || (codeUnit >= 48 && codeUnit <= 57)
+                || (codeUnit >= 65 && codeUnit <= 90)
+                || (codeUnit >= 97 && codeUnit <= 122)
+        }
+    }
+
     package static func expectedProgramInterpreter(
         target: MojoTargetConfiguration
     ) throws -> String? {
@@ -152,6 +194,74 @@ package enum MojoRuntimeLoaderPolicy {
             throw MojoArtifactError.invalidRuntimeBundle(
                 "executable has undeclared dynamic dependencies: "
                     + unexpected.sorted().joined(separator: ", ")
+            )
+        }
+    }
+
+    package static func validate(
+        linkedLibrary: MojoRuntimeBinaryInspection,
+        receipt: MojoRuntimeDependencyReceipt,
+        libraryName: String,
+        exportedSymbols: Set<String>
+    ) throws {
+        guard !libraryName.isEmpty,
+              libraryName != ".",
+              libraryName != "..",
+              !libraryName.contains("\\"),
+              URL(fileURLWithPath: libraryName).lastPathComponent
+                == libraryName,
+              !exportedSymbols.isEmpty,
+              exportedSymbols.allSatisfy(isPortableCSymbol) else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "linked library filename or exported C symbols are invalid"
+            )
+        }
+        let expectedInstallName = try expectedLibraryInstallName(
+            libraryName: libraryName,
+            target: receipt.target
+        )
+        guard linkedLibrary.installName == expectedInstallName else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "linked library install name is '\(linkedLibrary.installName)', expected '\(expectedInstallName)'"
+            )
+        }
+        let expectedSearchPath = try expectedLibrarySearchPath(
+            target: receipt.target
+        )
+        guard linkedLibrary.runtimeSearchPaths == [expectedSearchPath] else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "linked library runtime search paths are [\(linkedLibrary.runtimeSearchPaths.joined(separator: ", "))], expected [\(expectedSearchPath)]"
+            )
+        }
+        guard linkedLibrary.exportedSymbols == exportedSymbols else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "linked library exported symbols do not match the declared ABI"
+            )
+        }
+        let expectedRuntimeDependencies = Set(
+            receipt.libraries.map(\.installName)
+        )
+        let actualRuntimeDependencies = Set(
+            linkedLibrary.dynamicDependencies.filter {
+                expectedRuntimeDependencies.contains($0)
+            }
+        )
+        guard actualRuntimeDependencies == expectedRuntimeDependencies else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "linked library runtime dependencies are [\(actualRuntimeDependencies.sorted().joined(separator: ", "))], expected [\(expectedRuntimeDependencies.sorted().joined(separator: ", "))]"
+            )
+        }
+        let unexpected = linkedLibrary.dynamicDependencies.filter {
+            !expectedRuntimeDependencies.contains($0)
+                && !receipt.systemDependencies.contains($0)
+                && !MojoRuntimeReceiptPreparer.isDefaultSystemDependency(
+                    $0,
+                    target: receipt.target
+                )
+        }
+        guard unexpected.isEmpty else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "linked library has undeclared dynamic dependencies: \(unexpected.sorted().joined(separator: ", "))"
             )
         }
     }
