@@ -2,6 +2,11 @@
 
 `swift-mojo` is an experimental bridge for implementing a Swift function in Mojo and shipping the compiled implementation as part of a Swift package. Swift owns the public API and application structure; Mojo owns the compute implementation. Generated C symbols, headers, binding IDs, and artifact paths stay private.
 
+Application and framework code selects only a CPU or accelerator execution
+class. It does not select Metal, CUDA, HIP, or another vendor backend. The Mojo
+compiler target and the prepared artifact own that platform decision, while the
+same Swift session contract is used on every accelerator platform.
+
 > **Current status:** the macOS scalar, borrowed-buffer, mutable-output, synchronous session, and session-owned Float32-buffer paths are verified through real Mojo compile, static link, and runtime execution. The session path includes typed capability negotiation, factory-domain isolation, child-before-parent ownership, exactly-once shutdown, concurrent-use rejection, and separate Swift-side and Mojo-side Address Sanitizer runs. Schema 5 also generates and verifies a SwiftPM `staticLibrary` artifact bundle from a real Mojo `aarch64-unknown-linux-gnu` cross-compile. Native Jetson link/run, Metal/CUDA buffer implementations, async execution, tensors, model inference, allocation/copy measurement, and dedicated sanitizer coverage for the standalone borrowed-buffer families remain pending.
 
 ## Start with a Swift function
