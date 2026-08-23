@@ -2,95 +2,172 @@ import CryptoKit
 import Foundation
 
 package enum MojoCanonicalDigestError: Error, Equatable, CustomStringConvertible {
-    case symbolicLink(String)
+  case symbolicLink(String)
+  case symbolicLinkDestination(path: String, expected: String, actual: String)
+  case symbolicLinkEscapesRoot(String)
+  case symbolicLinkMissing(String)
 
-    package var description: String {
-        switch self {
-        case .symbolicLink(let path):
-            "Canonical trees cannot contain symbolic links: '\(path)'"
-        }
+  package var description: String {
+    switch self {
+    case .symbolicLink(let path):
+      "Canonical trees cannot contain symbolic links: '\(path)'"
+    case .symbolicLinkDestination(let path, let expected, let actual):
+      "Canonical tree symbolic link '\(path)' targets '\(actual)' instead of '\(expected)'"
+    case .symbolicLinkEscapesRoot(let path):
+      "Canonical tree symbolic link escapes its root: '\(path)'"
+    case .symbolicLinkMissing(let path):
+      "Canonical tree expected a symbolic link at '\(path)'"
     }
+  }
 }
 
 package enum MojoCanonicalDigest {
-    package static func hex(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-    }
+  package static func hex(_ value: String) -> String {
+    SHA256.hash(data: Data(value.utf8))
+      .map { String(format: "%02x", $0) }
+      .joined()
+  }
 
-    package static func hex(_ data: Data) -> String {
-        digestHex(data)
-    }
+  package static func hex(_ data: Data) -> String {
+    digestHex(data)
+  }
 
-    package static func identifier(_ value: String) -> UInt64 {
-        let identifier = SHA256.hash(data: Data(value.utf8))
-            .prefix(MemoryLayout<UInt64>.size)
-            .reduce(UInt64.zero) { partial, byte in
-                (partial << 8) | UInt64(byte)
-            }
-        return identifier & 0x7fff_ffff_ffff_ffff
-    }
+  package static func identifier(_ value: String) -> UInt64 {
+    let identifier = SHA256.hash(data: Data(value.utf8))
+      .prefix(MemoryLayout<UInt64>.size)
+      .reduce(UInt64.zero) { partial, byte in
+        (partial << 8) | UInt64(byte)
+      }
+    return identifier & 0x7fff_ffff_ffff_ffff
+  }
 
-    package static func file(at url: URL) throws -> String {
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        return digestHex(data)
-    }
+  package static func file(at url: URL) throws -> String {
+    let data = try Data(contentsOf: url, options: .mappedIfSafe)
+    return digestHex(data)
+  }
 
-    package static func tree(at rootURL: URL) throws -> String {
-        let fileManager = FileManager.default
-        let rootValues = try rootURL.resourceValues(
-            forKeys: [.isSymbolicLinkKey]
+  package static func tree(
+    at rootURL: URL,
+    allowedSymbolicLinks: [String: String] = [:]
+  ) throws -> String {
+    let fileManager = FileManager.default
+    let canonicalRoot = rootURL.standardizedFileURL
+    let rootAttributes = try fileManager.attributesOfItem(
+      atPath: rootURL.path
+    )
+    guard
+      rootAttributes[.type] as? FileAttributeType
+        != .typeSymbolicLink
+    else {
+      throw MojoCanonicalDigestError.symbolicLink(rootURL.path)
+    }
+    guard let enumerator = fileManager.enumerator(atPath: rootURL.path) else {
+      throw CocoaError(.fileReadNoSuchFile)
+    }
+    var entries: [(path: String, symbolicLinkDestination: String?)] = []
+    for (relativePath, expected) in allowedSymbolicLinks {
+      let url = rootURL.appendingPathComponent(relativePath)
+        .standardizedFileURL
+      let rootPath =
+        canonicalRoot.path.hasSuffix("/")
+        ? canonicalRoot.path
+        : canonicalRoot.path + "/"
+      guard url.path.hasPrefix(rootPath) else {
+        throw MojoCanonicalDigestError.symbolicLinkEscapesRoot(
+          url.path
         )
-        guard rootValues.isSymbolicLink != true else {
-            throw MojoCanonicalDigestError.symbolicLink(rootURL.path)
-        }
-        guard let enumerator = fileManager.enumerator(atPath: rootURL.path) else {
-            throw CocoaError(.fileReadNoSuchFile)
-        }
-        var relativePaths: [String] = []
-        for case let relativePath as String in enumerator {
-            let url = rootURL.appendingPathComponent(relativePath)
-            let values = try url.resourceValues(
-                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
-            )
-            guard values.isSymbolicLink != true else {
-                throw MojoCanonicalDigestError.symbolicLink(url.path)
-            }
-            if values.isRegularFile == true {
-                relativePaths.append(relativePath)
-            }
-        }
-        relativePaths.sort()
-
-        var hasher = SHA256()
-        for relativePath in relativePaths {
-            let fileURL = rootURL.appendingPathComponent(relativePath)
-            let pathData = Data(relativePath.utf8)
-            let contents = try Data(
-                contentsOf: fileURL,
-                options: .mappedIfSafe
-            )
-            hasher.update(data: lengthBytes(pathData.count))
-            hasher.update(data: pathData)
-            hasher.update(data: lengthBytes(contents.count))
-            hasher.update(data: contents)
-        }
-        return hasher.finalize()
-            .map { String(format: "%02x", $0) }
-            .joined()
+      }
+      let attributes: [FileAttributeKey: Any]
+      do {
+        attributes = try fileManager.attributesOfItem(
+          atPath: url.path
+        )
+      } catch {
+        throw MojoCanonicalDigestError.symbolicLinkMissing(relativePath)
+      }
+      guard
+        attributes[.type] as? FileAttributeType
+          == .typeSymbolicLink
+      else {
+        throw MojoCanonicalDigestError.symbolicLinkMissing(relativePath)
+      }
+      let actual = try fileManager.destinationOfSymbolicLink(
+        atPath: url.path
+      )
+      guard actual == expected else {
+        throw MojoCanonicalDigestError.symbolicLinkDestination(
+          path: url.path,
+          expected: expected,
+          actual: actual
+        )
+      }
+      guard !NSString(string: actual).isAbsolutePath else {
+        throw MojoCanonicalDigestError.symbolicLinkEscapesRoot(url.path)
+      }
+      let resolvedTarget = url.deletingLastPathComponent()
+        .appendingPathComponent(actual)
+        .standardizedFileURL
+      guard resolvedTarget.path.hasPrefix(rootPath),
+        fileManager.fileExists(atPath: resolvedTarget.path)
+      else {
+        throw MojoCanonicalDigestError.symbolicLinkEscapesRoot(url.path)
+      }
+      entries.append((relativePath, actual))
     }
-
-    private static func digestHex(_ data: Data) -> String {
-        SHA256.hash(data: data)
-            .map { String(format: "%02x", $0) }
-            .joined()
+    for case let relativePath as String in enumerator {
+      let url = rootURL.appendingPathComponent(relativePath)
+      let attributes = try fileManager.attributesOfItem(
+        atPath: url.path
+      )
+      let type = attributes[.type] as? FileAttributeType
+      if type == .typeSymbolicLink {
+        guard allowedSymbolicLinks[relativePath] != nil else {
+          throw MojoCanonicalDigestError.symbolicLink(url.path)
+        }
+        enumerator.skipDescendants()
+        continue
+      }
+      if type == .typeRegular {
+        entries.append((relativePath, nil))
+      }
     }
+    entries.sort { $0.path < $1.path }
 
-    private static func lengthBytes(_ count: Int) -> Data {
-        let value = UInt64(count)
-        return Data((0..<MemoryLayout<UInt64>.size).reversed().map { index in
-            UInt8(truncatingIfNeeded: value >> UInt64(index * 8))
-        })
+    var hasher = SHA256()
+    for entry in entries {
+      let pathData: Data
+      let contents: Data
+      if let destination = entry.symbolicLinkDestination {
+        pathData = Data("\0symlink:\(entry.path)".utf8)
+        contents = Data(destination.utf8)
+      } else {
+        pathData = Data(entry.path.utf8)
+        contents = try Data(
+          contentsOf: rootURL.appendingPathComponent(entry.path),
+          options: .mappedIfSafe
+        )
+      }
+      hasher.update(data: lengthBytes(pathData.count))
+      hasher.update(data: pathData)
+      hasher.update(data: lengthBytes(contents.count))
+      hasher.update(data: contents)
     }
+    return hasher.finalize()
+      .map { String(format: "%02x", $0) }
+      .joined()
+  }
+
+  private static func digestHex(_ data: Data) -> String {
+    SHA256.hash(data: data)
+      .map { String(format: "%02x", $0) }
+      .joined()
+  }
+
+  private static func lengthBytes(_ count: Int) -> Data {
+    let value = UInt64(count)
+    return Data(
+      (0..<MemoryLayout<UInt64>.size).reversed().map { index in
+        UInt8(truncatingIfNeeded: value >> UInt64(index * 8))
+      })
+  }
 }

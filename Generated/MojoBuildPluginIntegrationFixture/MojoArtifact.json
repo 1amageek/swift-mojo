@@ -1,6 +1,6 @@
 {
   "abiVersion" : 1,
-  "artifactDigest" : "5c8648d9dd648708fdf744e9eb7a5fe58afa5556e887db9f14859324c6f89ab4",
+  "artifactDigest" : "a5d82ced39ed83ea1c0ce90a6d63216abc64682eb1783e9431898961c2a4f87c",
   "artifactIdentity" : {
     "artifactName" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework",
     "libraryName" : "libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a",
@@ -11,7 +11,7 @@
   "artifacts" : [
     {
       "adapter" : "appleXCFramework",
-      "digest" : "01c4e5813747cc89eab45e922b84059a88e84d21968a9eeaa613eb1ab0b38fca",
+      "digest" : "56ad0209d55335633f189d5f20c41cb96137d13f9ab166755f65763bbcee5191",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
     },
     {
@@ -47,7 +47,7 @@
       }
     },
     {
-      "archiveDigest" : "c2e6465d3f1c1d0f06b07cb00d42d333765f3a87d59c7328daf63430bd14ab98",
+      "archiveDigest" : "7ca1fae0f278701cb062b1530c06e2d1a09e29b041f57440b1b25bdcbfcb9878",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "generic",
@@ -55,7 +55,7 @@
       }
     },
     {
-      "archiveDigest" : "c2e6465d3f1c1d0f06b07cb00d42d333765f3a87d59c7328daf63430bd14ab98",
+      "archiveDigest" : "7ca1fae0f278701cb062b1530c06e2d1a09e29b041f57440b1b25bdcbfcb9878",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "x86-64",

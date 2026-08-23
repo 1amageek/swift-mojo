@@ -6,7 +6,7 @@
 	<array>
 		<dict>
 			<key>BinaryPath</key>
-			<string>SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.framework/SwiftMojo_MojoBuildPluginIntegrationFixture_ABI</string>
+			<string>SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.framework/Versions/A/SwiftMojo_MojoBuildPluginIntegrationFixture_ABI</string>
 			<key>LibraryIdentifier</key>
 			<string>macos-arm64_x86_64</string>
 			<key>LibraryPath</key>
