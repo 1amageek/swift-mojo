@@ -7,7 +7,7 @@
 ## Context
 
 ADR-0011 implements exact bundle construction and fresh CLI verification. A
-Kuyu attempt launcher must repeat that verification after staging and before
+downstream launcher must repeat that verification after staging and before
 `spawn`. Calling a package command as a subprocess would weaken typed error
 handling and couple runtime supervision to authoring tooling. Exposing the
 internal manifest or builder would instead give downstream code unnecessary
@@ -39,7 +39,7 @@ process-staging boundary.
 
 ```mermaid
 flowchart LR
-    E["Expected deployment identity"] --> K["Kuyu preflight"]
+    E["Expected deployment identity"] --> K["Downstream preflight"]
     B["Staged runtime bundle"] --> V["MojoRuntime verifier"]
     V --> K
     K -->|exact match| S["Attempt-owned spawn"]
@@ -60,7 +60,7 @@ runtime fallback is selected.
 ## Evidence
 
 The public product was built and its focused tests passed. Its concrete verifier
-then inspected the real relocated MAX bundle
+then inspected a real relocated accelerator-runtime bundle
 `38075467012f877bb5ea23daf3d4639aa175b478bfaca898706bd33e1ff72e77`
 through the public API. The opt-in test completed fresh verification in 1.48
 seconds and returned the expected executable and four-library closure.
@@ -69,9 +69,9 @@ This proves downstream-readable macOS preflight. It does not prove staging
 race resistance by a downstream launcher, worker protocol behavior, compute,
 cancellation, signing, redistribution permission, or native Linux behavior.
 
-## Next gate
+## Downstream contract
 
-`kuyu-training` must stage an executable bundle as one immutable root while
-preserving its relative executable/library layout. Kuyu must invoke this public
-verifier on both the source and staged roots and require an exact expected
-identity before spawning the attempt-owned worker.
+A consuming launcher must stage an executable bundle as one immutable root,
+preserve its relative executable/library layout, verify both source and staged
+roots, and require an exact expected identity before spawning. Launcher policy,
+attempt lifecycle, and product behavior are not `swift-mojo` acceptance gates.

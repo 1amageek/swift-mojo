@@ -19,7 +19,7 @@ struct MojoRuntimeBundleVerifierTests {
             loaderSearchPath: "@executable_path/../lib",
             programInterpreter: nil,
             executable: MojoRuntimeBundleManifest.File(
-                relativePath: "bin/kuyu-mojo-worker",
+                relativePath: "bin/fixture-worker",
                 digest: String(repeating: "b", count: 64)
             ),
             libraries: [
@@ -39,7 +39,7 @@ struct MojoRuntimeBundleVerifierTests {
         #expect(verification.bundleDigest == manifest.digest)
         #expect(verification.receiptDigest == manifest.receiptDigest)
         #expect(verification.target.identity == target.identity)
-        #expect(verification.executable.relativePath == "bin/kuyu-mojo-worker")
+        #expect(verification.executable.relativePath == "bin/fixture-worker")
         #expect(
             verification.executable.sha256Digest
                 == String(repeating: "b", count: 64)

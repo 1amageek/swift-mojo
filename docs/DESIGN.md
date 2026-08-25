@@ -33,13 +33,13 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Mutable Float output lowering is additive and external-only | input/output signature IR、nested scoped borrows、generated status dispatcher、typed nonzero/empty failures、real Mojo 1.0 universal compile/static-link/runtime and immutable-revision acceptance。allocation/copy and standalone-buffer sanitizer evidenceはpending |
 | Opaque session lowering is external-only | factory/use metadata、versioned flat C ABI、factory-domain-bound owner、capability/lifecycle typed errors、real Mojo CPU runtime acceptance |
 | Session resource lowering is external-only | buffer factory/create/destroy/copy/synchronize metadata、generated post-copy synchronization、versioned C ABI、typed `MojoFloat32BufferOwner`、capability/size/count validation、child-before-parent lifecycle tests、real Mojo host-buffer round-trip acceptance |
-| Mojo 1.0 device API is a separate runtime capability | Official `DeviceContext`/`DeviceBuffer` APIs define enqueue/copy/synchronize semantics, but the installed standalone Mojo 1.0 package does not expose the host `DeviceContext` module; MAX-backed Metal/CUDA and native Jetson remain explicit adapter gates |
+| Device execution is a separate runtime capability | Compiler target support does not establish a usable device runtime; concrete device implementations and hardware qualification belong to consuming packages |
 | Static artifacts reject undeclared Mojo runtime dependencies | `MojoObjectLinkageInspector` normalizes `nm -u` output and rejects unresolved `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` before archiving |
 | Accelerator dependencies have a separate verified identity | schema-1 runtime receipts bind object/library digests、target architecture、exact symbol providers、Mach-O/ELF transitive dependencies、and observed system dependencies without weakening the static adapter |
 | Accelerator deployment is an exact managed bundle | schema-1 bundle manifests bind the linked executable、receipt、copied closure、relative loader root、direct system dependencies、and Linux interpreter; final imports are re-derived before atomic commit |
 | Runtime-linked generated ABI is a separate exact bundle | schema-3 runtime-library manifests bind compiler/input-graph/generated-source/source-map provenance、typed binding IDs/signatures/session-factory relationships、the primary dylib/shared library、generated header/module map、exact exports、receipt closure、`@loader_path`/`$ORIGIN`、and all file digests; relocation and invocation pass with an empty environment fixture |
 | Runtime preflight is consumable without the authoring CLI | the public read-only `MojoRuntime` product distinguishes executable and callable-library bundles through `MojoRuntimeBundleVerifying` and `MojoRuntimeLibraryBundleVerifying`; construction, mutation, loading, and execution remain outside those APIs |
-| Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation and KGEN-free archive inspection pass, while native Jetson link/run remains pending |
+| Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation and KGEN-free archive inspection pass, while native Linux ARM64 consumer link/run remains pending |
 
 ## 3. Architecture and responsibilities
 
@@ -204,7 +204,7 @@ try scale(input, into: &output)
   -> status nonzero: both borrows end and throw invocationFailed
 ```
 
-Swiftがinput/outputのownerで、nested closureが共通borrow lifetimeです。Mojoはoutputを範囲内で変更できますが、pointerの保存、返却、非同期利用、freeはできません。nonzero statusはrollbackを保証せず、failure時のoutput内容は未規定です。このsliceはKuyuのhost-side canonical buffer更新に必要な最小境界ですが、device allocation、tensor owner、session、GPU executionの代替ではありません。
+Swiftがinput/outputのownerで、nested closureが共通borrow lifetimeです。Mojoはoutputを範囲内で変更できますが、pointerの保存、返却、非同期利用、freeはできません。nonzero statusはrollbackを保証せず、failure時のoutput内容は未規定です。このsliceはhost-side buffer更新に必要な最小境界ですが、device allocation、tensor owner、session、accelerator executionの代替ではありません。
 
 opaque runtime sessionは別のsignature familyです。
 
@@ -252,8 +252,8 @@ session/resourceのcreator/destructorはMojo package、lifecycle ownerはSwift�
 Registryだけです。同時・再入useまたはborrow中shutdownは待機やfallbackを行わず
 typed `busy`で失敗し、active childより先のparent shutdownは`activeResources`で
 失敗します。host buffer ownershipと同期round-trip transferはreal runtimeで検証済み
-ですが、capability enumやhost `malloc` fixtureだけからMetal/CUDA allocation、DMA、
-synchronization、native Jetson executionを推測しません。`.hostPinned` はMojo
+ですが、capability enumやhost `malloc` fixtureだけからdevice allocation、DMA、
+synchronization、native hardware executionを推測しません。`.hostPinned` はMojo
 `DeviceContext.enqueue_create_host_buffer` が表すpage-locked host memoryの契約であり、
 vendor固有のmanaged/unified memoryをcross-platform共通機能として公開しません。
 
@@ -352,7 +352,7 @@ P1はdynamic loadingを使いません。理由は次です。
 
 ### 8.4 Isolated runtime-linked ABI choice
 
-Mojo/MAX accelerator objectが`AsyncRT_*`、`KGEN_CompilerRT_*`、または`MGP_RT_*`を必要とする場合、static artifactへ暗黙に混入させません。verified runtime receiptから、exact C exportsだけを公開するprimary dylib/shared libraryと、そのdependency closureを同一managed rootへ構築します。
+accelerator objectが`AsyncRT_*`、`KGEN_CompilerRT_*`、または`MGP_RT_*`を必要とする場合、static artifactへ暗黙に混入させません。verified runtime receiptから、exact C exportsだけを公開するprimary dylib/shared libraryと、そのdependency closureを同一managed rootへ構築します。
 
 | Platform | Primary identity | Search root |
 |---|---|---|
@@ -396,7 +396,7 @@ scalar/borrowed-buffer runtimeに共有可変ownership stateはありません�
 | opaque-session runtime | typed capabilities + factory-domain-bound `MojoSessionOwner` | create/status/schema/capability errors; busy、shutdown、domain mismatch; paired cleanup after rejected creation |
 | session-owned Float32 buffer | typed `MojoFloat32BufferOwner` | missing capability、byte-count overflow、status/missing handle、busy/resource shutdown/active-resource errors; paired cleanup after rejected creation |
 
-scalar runtimeで `throws` にしないのは、toolchain/artifact failureをprepare/build gateへ移した静的設計だからです。immutable borrowed-buffer sliceはdirect-return ABIとtyped Swift validation errorの最小形です。mutable-output sliceはrecoverable Mojo-side statusを追加しましたが、owned diagnostic payloadやtransactional output rollbackは持ちません。opaque session/resource sliceはMojo-created stateのlifetimeを跨ぎますが、operationは同期かつsingle-leaseです。GPU availability、device execution、async completionはcapability spellingから推測せず、実adapterとacceptanceを要求します。
+scalar runtimeで `throws` にしないのは、toolchain/artifact failureをprepare/build gateへ移した静的設計だからです。immutable borrowed-buffer sliceはdirect-return ABIとtyped Swift validation errorの最小形です。mutable-output sliceはrecoverable Mojo-side statusを追加しましたが、owned diagnostic payloadやtransactional output rollbackは持ちません。opaque session/resource sliceはMojo-created stateのlifetimeを跨ぎますが、operationは同期かつsingle-leaseです。Accelerator availability、device execution、async completionはcapability spellingから推測せず、downstream adapterの実行証拠を要求します。
 
 ## 11. Public API, implementation, and tests
 
@@ -407,7 +407,7 @@ scalar runtimeで `throws` にしないのは、toolchain/artifact failureをpre
 | `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare` | source graph + pipeline identity + renderer + compiler + packager | cache invalidation/lock tests、gated real Mojo acceptance |
 | borrowed `[Float]` | buffer signature IR + macro + generated Mojo/C/Registry | unit/artifact tests、real Mojo compile、compiler-free link/run、typed empty failure、Mach-O inspection verified; allocation/copy and sanitizers pending |
 | mutable `inout [Float]` output | mutable signature IR + macro + nested borrow Registry + generated status ABI | unit/artifact tests、real Mojo 1.0 universal compile/static link/runtime mutation、typed status、empty input/output、immutable-revision release、Mach-O/no-dylib inspection verified; allocation/copy and standalone-buffer sanitizers pending |
-| `MojoSessionOwner` / `MojoFloat32BufferOwner` | session/resource factory IR + macro + generated versioned create/use/copy/synchronize/shutdown ABI + `Mutex<State>` owner | unit/artifact tests、real Mojo 1.0 universal macOS session/host-buffer lifecycle and round-trip copy、cleanup、typed copy/synchronize failures、reentrant/concurrent busy、ten-symbol/no-dylib inspection、Swift Address Sanitizer、Mojo Address Sanitizer verified locally; native Jetson/MAX-backed GPU pending |
+| `MojoSessionOwner` / `MojoFloat32BufferOwner` | session/resource factory IR + macro + generated versioned create/use/copy/synchronize/shutdown ABI + `Mutex<State>` owner | unit/artifact tests、real Mojo 1.0 universal macOS session/host-buffer lifecycle and round-trip copy、cleanup、typed copy/synchronize failures、reentrant/concurrent busy、ten-symbol/no-dylib inspection、Swift Address Sanitizer、Mojo Address Sanitizer verified locally; native Linux and downstream device execution remain separate gates |
 | build plugin | leaf/directory inputs + `verify` | committed schema-5 mixed fixture verifies, Apple-links, and returns `42`; verifier/release suites cover wrong target、stale、missing/corrupt nested inputs |
 | static artifact | Apple XCFramework + Linux static-library artifact bundle + generated Registry | corrupt archive/header/metadata tests、Mach-O and ELF archive inspection |
 | relocation | static executable | artifact copy outside build location returns scalar `42` and buffer `10.0` without Mojo installed |
@@ -517,7 +517,7 @@ schema-5 sourceはtarget-scoped identity、Swift + external Mojo input graph、g
 2. remote artifact distribution、checksum、signing、release/tag policy。
 3. model/session API、weights compatibility、実推論、shutdown/error/cancellation acceptance。
 
-Apple platformはXCFramework、LinuxはSwiftPM SE-0482 `staticLibrary` artifact bundleをnative artifact adapterとして使います。両者を同じlayoutとして偽装せず、schema 5のadapter recordとplatform-conditioned binary dependencyで分離します。Linuxのcross artifactは検証済みですが、supported native deploymentを名乗るにはJetson上のSwift link/run gateが必要です。
+Apple platformはXCFramework、LinuxはSwiftPM SE-0482 `staticLibrary` artifact bundleをnative artifact adapterとして使います。両者を同じlayoutとして偽装せず、schema 5のadapter recordとplatform-conditioned binary dependencyで分離します。Linuxのcross artifactは検証済みですが、native Linux対応を名乗るにはLinux ARM64上のSwift consumer link/run gateが必要です。具体的なhardware qualificationはconsumerが所有します。
 
 ## 14. `@c`, callbacks, and platform frameworks
 
@@ -530,7 +530,7 @@ Future callback: Mojo -> generated C ABI -> Swift export
 
 callbackを追加するときは、その時点のSwift compiler capability、generated header、context ownership、actor hop、shutdown、reentryを別gateで検証します。
 
-MetalやSwiftUIのAPI形状は、Swift-facing wrapperと低レイヤー実装を分離する参考になります。ただし、このpackageはSwiftUI view modifier、render loop、Metal resource lifecycleを所有しません。GPU対応時も公開するのはcompute invocation、buffer ownership、capability、synchronizationまでです。
+Platform frameworkのAPI形状は、Swift-facing wrapperと低レイヤー実装を分離する参考になります。ただし、このpackageはUI、render loop、またはvendor resource lifecycleを所有しません。Accelerator対応時も公開するのはcompute invocation、buffer ownership、capability、synchronizationまでです。
 
 ## 15. Invariants
 

@@ -2,7 +2,7 @@
 
 ## 1. Scope and status
 
-この文書は、`swift-mojo` が担う言語bridge、生成tooling、artifact検証の要件を定義します。SwiftUI、画面描画、Metal view lifecycleはscope外です。
+この文書は、`swift-mojo` が担う言語bridge、生成tooling、artifact検証の要件を定義します。UI、画面描画、vendor framework lifecycleはscope外です。
 
 | State | Meaning |
 |---|---|
@@ -11,7 +11,7 @@
 | Planned | 次段階の設計対象。呼び出し可能なAPIは公開しない |
 | Research | upstream capabilityまたは方式選定の実証が必要 |
 
-schema-3 P1はarm64 macOS向けscalar経路、schema 4はApple単一artifactのhistorical baselineです。current schema 5 bridgeはdirect inline body、external Mojo package、source map、arm64/x86_64 universal XCFramework、Linux `staticLibrary` artifact bundle、release/build verification、compiler-free relocated Apple consumerまで実装しています。external-only `([Float]) throws -> Float`、`([Float], inout [Float]) throws -> Void`、Mojo-created stateを跨ぐsynchronous opaque session、およびsession-owned `MojoFloat32BufferOwner` のcreate/copy/shutdownをreal Mojo compile、static link、runtime behaviorまで検証しました。session/resource/host-transfer経路はSwift側とMojo側を分離したAddress Sanitizerでも実行済みです。Linux ARM64はreal Mojo cross-compile、ELF archive、SwiftPM package graph、artifact verification、undefined-symbol inspectionまで検証済みです。native Jetson link/run、allocation/copy count、standalone borrowed-buffer familyの専用sanitizer、MAX-backed Metal/CUDA buffer implementation、tensor、async、GPU runtime、model inferenceは未完了です。
+schema-3 P1はarm64 macOS向けscalar経路、schema 4はApple単一artifactのhistorical baselineです。current schema 5 bridgeはdirect inline body、external Mojo package、source map、arm64/x86_64 universal XCFramework、Linux `staticLibrary` artifact bundle、release/build verification、compiler-free relocated Apple consumerまで実装しています。external-only `([Float]) throws -> Float`、`([Float], inout [Float]) throws -> Void`、Mojo-created stateを跨ぐsynchronous opaque session、およびsession-owned `MojoFloat32BufferOwner` のcreate/copy/shutdownをreal Mojo compile、static link、runtime behaviorまで検証しました。session/resource/host-transfer経路はSwift側とMojo側を分離したAddress Sanitizerでも実行済みです。Linux ARM64はreal Mojo cross-compile、ELF archive、SwiftPM package graph、artifact verification、undefined-symbol inspectionまで検証済みです。native Linux consumer execution、allocation/copy count、standalone borrowed-buffer familyの専用sanitizer、tensor、asyncは未完了です。Concrete device implementations、model inference、and hardware qualification are downstream responsibilities.
 
 ## 2. Functional requirements
 
@@ -33,13 +33,13 @@ schema-3 P1はarm64 macOS向けscalar経路、schema 4はApple単一artifactのh
 | F-014 | release package integrationを検証する | Verified | release gateがtarget-scoped binary target path、source-target dependency、build plugin、local dependency absenceをSwiftSyntaxから確認する |
 | F-015 | contiguous `Float` inputを同期borrowしてMojoへ渡す | Verified | macro、IR、generated C/Mojo ABI、typed Swift error、real Mojo compile、compiler-free runtime、empty-input failureが同じ `([Float]) throws -> Float` 契約を使う。zero-copy claimには別途allocation/copy measurementを要求する |
 | F-016 | Swift-owned `Float` outputを同期mutable borrowしてMojoに更新させる | Verified on local arm64 | `([Float], inout [Float]) throws -> Void` がscoped immutable/mutable borrow、generated status ABI、real Mojo mutation、nonzero status、empty-input/output failureを同じ契約で実行する。immutable-revision universal release acceptance、allocation/copy、sanitizerは別gateとする |
-| F-017 | Mojo-created runtime stateをtyped sessionとして所有する | Verified on local universal macOS | factory/use/shutdown macro、versioned flat C ABI、exact device/capability validation、factory-domain isolation、single synchronous lease、typed busy/shutdown failure、post-create cleanup、exactly-once destruction、real Mojo runtime、static link、no Mojo dynamic dependencyを同じ契約で実行する。GPU runtime、native Linux、asyncは別gateとする |
+| F-017 | Mojo-created runtime stateをtyped sessionとして所有する | Verified on local universal macOS | factory/use/shutdown macro、versioned flat C ABI、exact device/capability validation、factory-domain isolation、single synchronous lease、typed busy/shutdown failure、post-create cleanup、exactly-once destruction、real Mojo runtime、static link、no Mojo dynamic dependencyを同じ契約で実行する。native Linuxとasyncは別gateとし、concrete device runtimeはdownstreamが所有する |
 | F-018 | static artifactのMojo runtime dependencyを明示する | Verified | prepareがobjectのundefined symbolをarchive前に検査し、同梱しない `AsyncRT_*`、`KGEN_CompilerRT_*`、`MGP_RT_*` をtargetとsymbol一覧を持つtyped errorで拒否する。将来runtimeはversioned adapterとして追加する |
-| F-019 | session-owned Float32 bufferをtyped ownerとして保持する | Verified for host memory on local universal macOS | resource factory macro、paired create/destroy/host-copy/synchronize C ABI、capability/size/count validation、synchronous round-trip transfer、parent-before-child shutdown rejection、typed copy/synchronize/status/missing-handle failure、idempotent child shutdown、exactly-once child-before-parent destruction、Swift/Mojo両Address Sanitizer laneを実行する。MAX-backed Metal/CUDA allocation and native-device synchronization are separate gates |
-| F-020 | Linux ARM64 native artifactをcompiler-freeに配布する | Implemented; native acceptance pending | schema 5 manifest、SE-0482 static-library artifact bundle、platform-conditioned binary target wiring、real Mojo aarch64 ELF cross-compile、KGEN-free archiveを検証する。Jetson上のSwift link/runはrelease gateとして残す |
+| F-019 | session-owned Float32 bufferをtyped ownerとして保持する | Verified for host memory on local universal macOS | resource factory macro、paired create/destroy/host-copy/synchronize C ABI、capability/size/count validation、synchronous round-trip transfer、parent-before-child shutdown rejection、typed copy/synchronize/status/missing-handle failure、idempotent child shutdown、exactly-once child-before-parent destruction、Swift/Mojo両Address Sanitizer laneを実行する。Concrete allocation and native-device synchronization belong to downstream adapters |
+| F-020 | Linux ARM64 native artifactをcompiler-freeに配布する | Implemented; native acceptance pending | schema 5 manifest、SE-0482 static-library artifact bundle、platform-conditioned binary target wiring、real Mojo aarch64 ELF cross-compile、KGEN-free archiveを検証する。native Linux ARM64 Swift consumer link/runをrelease gateとして残す |
 | F-021 | accelerator runtime dependencyをworker用receiptとして固定する | Implemented on macOS; native Linux acceptance pending | object/library SHA-256、target、architecture、install name/SONAME、exact symbol provider、Mach-O/ELF dynamic closure、system dependencyをschema 1へ記録し、全入力を再inspectionして一致を検証する。static artifactのreject policyは維持する |
 | F-022 | receiptからambient searchのないworker bundleを構築する | Implemented on macOS; native Linux acceptance pending | managed transactionでexact `bin/` + `lib/` treeを作り、object digestをlink前後に確認し、Apple `@executable_path/../lib` / Linux `$ORIGIN/../lib`、ELF interpreter、executable bit、final imports、全file digestを再検証する |
-| F-023 | downstream launcherがbundleをspawn前にfresh verificationできる | Implemented; downstream staging integration pending | public `MojoRuntimeBundleVerifying` はread-only verificationを行い、bundle/receipt digest、target、relative executable、library closure、loader metadataのみをimmutable valueとして返す。検証APIはbundleを変更または実行しない |
+| F-023 | downstream launcherがbundleをspawn前にfresh verificationできる | Implemented and verified on macOS | public `MojoRuntimeBundleVerifying` はread-only verificationを行い、bundle/receipt digest、target、relative executable、library closure、loader metadataのみをimmutable valueとして返す。検証APIはbundleを変更または実行せず、downstream stagingはbridge acceptanceに含めない |
 
 ## 3. Current scalar contract
 
@@ -154,7 +154,7 @@ func scale(
 | Isolation | one `Mutex<State>` guards the session, child-resource registry, and one synchronous lease; external calls and destruction occur outside the lock |
 | Identity | target identity + full input graph + factory binding ID form the session domain; mismatched sessions fail before C dispatch |
 | Failure | invalid response, missing session/resource handle, requirement or element-count mismatch, nonzero create/use/transfer status, active child resources, busy, shutdown, and domain mismatch are typed errors |
-| Verification state | real Mojo 1.0 universal macOS create/use/buffer-create/round-trip-copy/buffer-shutdown/session-shutdown、cleanup、typed copy/synchronize/count failures、concurrent/reentrant busy、static link、Mach-O no-Mojo-dylib、Swift Address Sanitizer、Mojo Address Sanitizer verified locally; native Jetson、MAX-backed GPU runtime、device allocation/synchronization pending |
+| Verification state | real Mojo 1.0 universal macOS create/use/buffer-create/round-trip-copy/buffer-shutdown/session-shutdown、cleanup、typed copy/synchronize/count failures、concurrent/reentrant busy、static link、Mach-O no-Mojo-dylib、Swift Address Sanitizer、Mojo Address Sanitizer verified locally; native Linux remains pending and concrete device execution belongs downstream |
 
 ## 4. Non-functional requirements
 
@@ -271,7 +271,7 @@ manifestは次を保持します。
 | `String` | UTF-8 pointer + byte count | borrowed view | Planned |
 | non-empty `[Float]` input, `Float` result | `const float *` + `uint64_t` -> `float` | `Pointer[Float32, ImmUntrackedOrigin]` + count -> `Float32` | Real compile/link/runtime verified; allocation/copy and sanitizer proof pending |
 | non-empty `[Float]` input, mutable `inout [Float]` output, `Void` result | immutable pointer/count + mutable pointer/count -> `int32_t` status | `ImmUntrackedOrigin` input + `MutUntrackedOrigin` output -> `Int32` | Real universal compile/link/runtime/status/failure and immutable-revision release verified; allocation/copy and standalone-buffer sanitizer proof pending |
-| `MojoFloat32BufferOwner` | session + element count + memory kind -> owned `void *`; paired destroy and synchronous host-copy/synchronize functions | session-owned opaque Float32 storage | Host allocation、exact-count round-trip copy、copy/synchronize failure、Swift/Mojo Address Sanitizer verified; device/pinned-host capability representation implemented; MAX-backed Metal/CUDA allocation and synchronization pending |
+| `MojoFloat32BufferOwner` | session + element count + memory kind -> owned `void *`; paired destroy and synchronous host-copy/synchronize functions | session-owned opaque Float32 storage | Host allocation、exact-count round-trip copy、copy/synchronize failure、Swift/Mojo Address Sanitizer verified; device/pinned-host capability representation implemented; concrete allocation and synchronization belong downstream |
 | other contiguous/device-owned buffer | pointer + count or owner record | borrowed/owned span | Planned |
 | optional scalar | tag + payload | explicit optional record | Planned |
 | Swift struct | generated versioned C record | generated ABI record | Research |
@@ -377,7 +377,7 @@ current session contract:
 - lifecycle mutationは全targetで同じ`Mutex<State>`を使う。lock内でMojo呼び出し、destroy、I/O、`await`を実行しない。
 - 同一sessionの同時または再入useとborrow中shutdownはblockせずtyped `busy`として失敗する。active childがあるparent shutdownは`activeResources`で失敗する。childをexactly onceで破棄してからparent ownershipをclearし、parentをexactly onceでdestroyする。
 - `deinit` destructionは明示shutdown漏れへのfallbackであり、application/model packageは決定的なresource releaseのため明示shutdownする。
-- current capability recordはavailabilityの主張ではなくcreate responseである。Metal/CUDA compile targetの存在をruntime device capabilityとして扱わない。
+- current capability recordはavailabilityの主張ではなくcreate responseである。accelerator compile targetの存在をruntime device capabilityとして扱わない。
 
 steady-state borrowed-buffer bridgeのperformance budget:
 
@@ -411,7 +411,7 @@ runtime performance budgetの計測は `Benchmarks/RuntimeBridge` のRelease har
 - `AsyncStream` を公開するownerは `shutdown()` でcontinuationをfinishする。
 - Native/WASM/Embeddedで同じ論理状態のisolation契約を弱めない。
 
-## 11. GPU requirements
+## 11. Accelerator bridge requirements
 
 | Concern | Requirement |
 |---|---|
@@ -421,9 +421,9 @@ runtime performance budgetの計測は `Benchmarks/RuntimeBridge` のRelease har
 | Synchronization | stream/queue/event dependencyを明示し、暗黙同期しない |
 | Transfer | upload/download copyを観測可能にする |
 | Error | unsupported backend、compile failure、device lossをtyped failureにする |
-| Validation | CPU referenceとのdifferential testとtarget device testを行う |
+| Validation | generic conformance fixtureをCPU referenceと比較する |
 
-GPU bridgeはこのlibraryの将来scopeですが、SwiftUI shader modifierやview lifecycleはscope外です。
+Generic accelerator ownership and synchronization contracts are future bridge scope. Concrete backend implementation, target-device performance, UI integration, and hardware qualification are downstream scope.
 
 ## 12. Model package requirements
 
@@ -451,7 +451,7 @@ Swift model package
 - Mojo package directoryは `__init__.mojo` を持つ。
 - `.mojo` はprepare inputであり、runtime resourceとしてbundleへコピーしない。
 - `.mojoc` はexact compiler versionに依存する中間/cache形式として扱い、SwiftPM native binary targetやstable release artifactとは扱わない。
-- production weightsはrepository、XCFramework、SwiftPM resourceから分離する。Hugging Face由来のhost cacheは `~/.cache/huggingface/hub/` を使用する。
+- production weightsのstorage、cache、identity policyはmodel packageが所有し、bridge requirementにしない。
 - 小さなtest fixtureだけはbounded resourceとして許可し、production model acceptanceと区別する。
 - model/session execution、tokenizer contract、KV cacheはmodel packageの責務であり、`swift-mojo` coreへmodel固有APIを追加しない。sampling、停止条件、prompt flowなどのgeneration policyはapplicationが所有する。
 - Apple platformではXCFrameworkを使う。非Apple platformはSwiftPMの実在するlink/package capabilityに対応する別adapterを要求し、XCFramework互換を仮定しない。
@@ -490,6 +490,6 @@ MP-002、MP-003、MP-005はreal Mojo external packageとcompiler-free clean cons
 
 - arbitrary Mojo grammar in a `.swift` file。
 - WASM、Embedded native artifact adapters。
-- generic owned buffer、owned diagnostic payload、async、callback、String、tensor、GPU execution APIs。
+- generic owned buffer、owned diagnostic payload、async、callback、String、tensor、accelerator execution APIs。
 - remote artifact upload、signing、registry publication。
-- SwiftUI、Metal rendering、application lifecycle integration。
+- UI、rendering-framework、application lifecycle integration。

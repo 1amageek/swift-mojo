@@ -6,7 +6,7 @@
 
 ## Context
 
-The immutable borrowed-buffer ABI can reduce Swift-owned input into one scalar, but Kuyu-style canonical dynamics also require compute code to update caller-provided state, derivative, action, and observation buffers. Introducing a device allocator, tensor owner, or long-lived session before their lifetime and shutdown contracts exist would conflate two different responsibilities.
+The immutable borrowed-buffer ABI can reduce Swift-owned input into one scalar, but general compute code also needs to update caller-provided buffers. Introducing a device allocator, tensor owner, or long-lived session before their lifetime and shutdown contracts exist would conflate two different responsibilities.
 
 This slice therefore proves mutation without ownership transfer. Swift owns both arrays, Mojo receives scoped pointers for one synchronous call, and an explicit status value carries recoverable algorithm failure back across the C ABI.
 
@@ -106,8 +106,8 @@ The following gates remain separate and must not be inferred from this decision:
 
 - allocation and copy counts;
 - standalone borrowed/mutable-buffer sanitizer runs;
-- Linux/Jetson compilation and runtime;
-- MAX-backed device-buffer execution.
+- native Linux compilation and runtime;
+- downstream device-buffer execution.
 
 ## References
 

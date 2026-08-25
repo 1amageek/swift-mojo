@@ -49,7 +49,7 @@ private struct Fixture {
         let target = try MojoTargetConfiguration(
             triple: "arm64-apple-macosx14.0",
             cpu: "apple-m4",
-            accelerator: "metal:4"
+            accelerator: "test-accelerator:4"
         )
         receipt = MojoRuntimeDependencyReceipt(
             target: target,

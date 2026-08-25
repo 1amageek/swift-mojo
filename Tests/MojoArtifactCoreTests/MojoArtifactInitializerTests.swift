@@ -9,7 +9,7 @@ struct MojoArtifactInitializerTests {
   func createsLinuxBootstrapForPackageResolution() throws {
     let root = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
-    let identity = try MojoArtifactIdentity(targetName: "JetsonModel")
+    let identity = try MojoArtifactIdentity(targetName: "LinuxModel")
     let target = try MojoTargetConfiguration(
       triple: "aarch64-unknown-linux-gnu",
       cpu: "generic"

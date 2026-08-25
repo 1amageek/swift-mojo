@@ -1,6 +1,6 @@
 # ADR-0008: Non-Apple static-library artifacts
 
-- Status: Implemented and cross-package verified; native Jetson acceptance pending
+- Status: Implemented and cross-package verified; native Linux acceptance pending
 - Date: 2026-08-21
 - Scope: Linux ARM64 distribution of the generated C ABI
 
@@ -22,7 +22,7 @@ The pinned Mojo 1.0 compiler was probed with
 `aarch64-unknown-linux-gnu`. It emitted an ARM64 ELF relocatable object for the
 opaque CPU session fixture. Its only undefined symbols were `malloc` and `free`;
 no `KGEN_CompilerRT_*` symbol was present. This proves cross-compilation, not
-native Jetson linking or execution.
+native Linux linking or execution.
 
 ## Decision
 
@@ -58,8 +58,8 @@ a substitute for validating every tree.
 Linux variants use the exact configured target triple as `supportedTriples`.
 Two Linux compiler slices that collapse to the same target triple are rejected,
 because SwiftPM cannot select them by CPU or accelerator string. A deployment
-requiring CUDA therefore prepares one Linux slice whose Mojo object contains the
-CPU host entry points and the selected accelerator code for that deployment.
+with accelerator code therefore prepares one Linux slice containing the host
+entry points and the selected downstream implementation for that deployment.
 
 The artifact bundle contains only:
 
@@ -131,9 +131,9 @@ runtime devices inside either artifact.
    artifact while SwiftPM accepts the Linux artifact-bundle target.**
 4. A Linux ARM64 Swift 6.2+ consumer imports the generated module, statically
    links the archive, and runs create/use/shutdown without the Mojo compiler.
-5. Native Jetson acceptance records OS, Swift, Mojo, CUDA, GPU, artifact digest,
-   runtime capabilities, symbols, dynamic dependencies, success paths, and typed
-   failure paths. Cross-compilation on macOS is not gate 4 or 5 evidence.
+5. Hardware qualification, device runtime behavior, performance, and product
+   acceptance belong to the consuming package and are not `swift-mojo` release
+   gates. Cross-compilation on macOS is not gate 4 evidence.
 
 ## References
 

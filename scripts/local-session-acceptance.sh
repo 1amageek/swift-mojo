@@ -283,7 +283,7 @@ enum Application {
         print("idempotent")
 
         do {
-            _ = try openSession(MojoSessionRequirements(device: .metal))
+            _ = try openSession(MojoSessionRequirements(device: .accelerator))
             fatalError("Unsupported device unexpectedly succeeded")
         } catch MojoInvocationError.sessionRequirementsUnsatisfied {
             print("unsupported-device")
@@ -472,7 +472,7 @@ cat > "$acceptance_root/SwiftMojo.json" <<JSON
 }
 JSON
 
-"$root/scripts/command-timeout.sh" 180 -- \
+"$root/scripts/command-timeout.sh" 300 -- \
     env -u TOOLCHAINS /usr/bin/xcrun swift package \
     --package-path "$acceptance_root" \
     --scratch-path "$plugin_scratch_root" \
@@ -521,7 +521,7 @@ SWIFT_MOJO_EXECUTABLE=$prepare_compiler \
 framework_binary=$(find \
     "$acceptance_root/Generated/Application/SwiftMojo_Application_ABI.xcframework" \
     -type f \
-    -path '*/SwiftMojo_Application_ABI.framework/SwiftMojo_Application_ABI' \
+    -path '*/SwiftMojo_Application_ABI.framework/Versions/A/SwiftMojo_Application_ABI' \
     -print)
 if [[ $(print -r -- "$framework_binary" | sed '/^$/d' | wc -l | tr -d ' ') != 1 ]]; then
     print -u2 "error: session artifact must contain one universal static framework binary"

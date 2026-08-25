@@ -3,11 +3,13 @@
 `swift-mojo` is an experimental bridge for implementing a Swift function in Mojo and shipping the compiled implementation as part of a Swift package. Swift owns the public API and application structure; Mojo owns the compute implementation. Generated C symbols, headers, binding IDs, and artifact paths stay private.
 
 Application and framework code selects only a CPU or accelerator execution
-class. It does not select Metal, CUDA, HIP, or another vendor backend. The Mojo
+class. It does not select a vendor backend. The Mojo
 compiler target and the prepared artifact own that platform decision, while the
-same Swift session contract is used on every accelerator platform.
+same Swift session contract is used on every accelerator platform. Concrete
+backend implementation, hardware qualification, and deployment policy belong to
+the consuming package, not to `swift-mojo`.
 
-> **Current status:** the macOS scalar, borrowed-buffer, mutable-output, synchronous session, and session-owned Float32-buffer paths are verified through real Mojo compile, static link, and runtime execution. The session path includes typed capability negotiation, factory-domain isolation, child-before-parent ownership, exactly-once shutdown, concurrent-use rejection, and separate Swift-side and Mojo-side Address Sanitizer runs. Schema 5 also generates and verifies a SwiftPM `staticLibrary` artifact bundle from a real Mojo `aarch64-unknown-linux-gnu` cross-compile. Native Jetson link/run, Metal/CUDA buffer implementations, async execution, tensors, model inference, allocation/copy measurement, and dedicated sanitizer coverage for the standalone borrowed-buffer families remain pending.
+> **Current status:** the macOS scalar, borrowed-buffer, mutable-output, synchronous session, and session-owned Float32-buffer paths are verified through real Mojo compile, static link, and runtime execution. The session path includes typed capability negotiation, factory-domain isolation, child-before-parent ownership, exactly-once shutdown, concurrent-use rejection, and separate Swift-side and Mojo-side Address Sanitizer runs. Schema 5 also generates and verifies a SwiftPM `staticLibrary` artifact bundle from a real Mojo `aarch64-unknown-linux-gnu` cross-compile. Native Linux consumer execution, async execution, tensors, allocation/copy measurement, and dedicated sanitizer coverage for the standalone borrowed-buffer families remain pending bridge work. Model behavior and hardware acceptance are downstream responsibilities.
 
 ## Start with a Swift function
 
@@ -48,7 +50,7 @@ Mojo compiler required                 Mojo compiler not required
 
 The inline body above is intentionally small today: it accepts the validated scalar expression supported by the current `(Int32, Int32) -> Int32` bridge. The body is not executed as Swift. The macro replaces it with a call to the prepared Mojo artifact, and unsupported bodies fail instead of falling back to Swift.
 
-For full Mojo source, multiple files, or package-level organization, keep the implementation in an external Mojo package as shown below. Immutable input, caller-owned mutable-output `Float`, synchronous opaque sessions, and session-owned Float32 buffers with synchronous host transfers are available for that external form. MAX-backed Metal/CUDA allocation and device synchronization, tensors, async execution, GPU runtime adapters, and LLM inference remain future work.
+For full Mojo source, multiple files, or package-level organization, keep the implementation in an external Mojo package as shown below. Immutable input, caller-owned mutable-output `Float`, synchronous opaque sessions, and session-owned Float32 buffers with synchronous host transfers are available for that external form. Tensors and async execution remain future bridge work. Concrete device allocation, kernels, and inference remain in consuming packages.
 
 ## A complete example
 
@@ -271,7 +273,7 @@ try session.shutdown()
 
 The generated C ABI creates an opaque session and session-owned buffer handles, passes them only inside scoped synchronous invocations, and routes destruction to each factory's paired shutdown function. Each buffer factory also declares `copyFromHost`, `copyToHost`, and `synchronize` operations. Generated Mojo calls `synchronize` after every successful transfer and before returning, so a Swift array pointer never escapes its borrow scope even when the device copy itself is enqueued asynchronously. Swift never exposes raw pointers to application code. The owner enforces exact element counts, factory-domain isolation, one active invocation at a time, typed use-after-shutdown/busy/active-resource failures, idempotent explicit shutdown, and exactly-once child-before-parent deallocation with a `deinit` fallback.
 
-This is a generic CPU-capable ownership bridge, not an LLM API by itself. The model package still defines the Mojo session layout, model loading, weights, tokenization, and inference methods. Current static artifacts must be link-closed against target system libraries; `prepare` rejects unresolved `AsyncRT_*`, `KGEN_CompilerRT_*`, and `MGP_RT_*` dependencies instead of allowing a later consumer link failure. A future MAX, GPU, or async runtime must be introduced as an explicit versioned adapter rather than an implicit dynamic dependency.
+This is a generic ownership bridge, not a domain API. A consuming package still defines its Mojo session layout, data formats, resources, and operations. Current static artifacts must be link-closed against target system libraries; `prepare` rejects unresolved `AsyncRT_*`, `KGEN_CompilerRT_*`, and `MGP_RT_*` dependencies instead of allowing a later consumer link failure. A dynamically linked accelerator or async runtime must be introduced through an explicit versioned adapter rather than an implicit dependency.
 
 For an isolated accelerator worker, `runtime-prepare` creates a separate schema-1
 dependency receipt from a compiled object and explicitly supplied dynamic
@@ -347,22 +349,22 @@ flowchart LR
 | CI/release verifier | Committed sources, manifest, native artifact set, package wiring | No | `swift package --allow-writing-to-package-directory mojo release --target <Target>` |
 | Application developer | Public Swift API and a normal Swift package dependency | No | Build in Xcode or with SwiftPM |
 
-## Where an LLM package fits
+## Where a compute package fits
 
-The intended production use case is a separate package such as `LlamaMojo`, not model code built into `swift-mojo` itself:
+Production compute implementations live in a separate package, not in `swift-mojo` itself:
 
 ```text
-LlamaMojo package
-├── Sources/LlamaMojo/        Swift Model and Session API
-├── Mojo/LlamaMojoModel/      model and kernel implementation
-├── Generated/LlamaMojo/      prepared native slices
+ComputeProduct package
+├── Sources/ComputeProduct/   Swift API and session contract
+├── Mojo/ComputeRuntime/      compute implementation
+├── Generated/ComputeProduct/ prepared native slices
 ├── SwiftMojo.json            compiler and target contract
-└── Tests/                    model-specific acceptance
+└── Tests/                    product-specific acceptance
 ```
 
-`swift-mojo` provides the language and artifact bridge plus a generic synchronous session owner. The model package owns tensor/model semantics, weight compatibility, tokenizer behavior, inference tests, and its Mojo create/use/shutdown implementations. The application owns model selection, weight location, generation policy, and UI.
+`swift-mojo` provides the language and artifact bridge plus a generic synchronous session owner. The consuming package owns domain semantics, data compatibility, behavior tests, hardware qualification, and its Mojo create/use/shutdown implementations. The application owns product selection, external resource location, policy, and UI.
 
-That model architecture is not yet implemented end to end. The borrowed `Float` slices prove synchronous non-owning data paths, while the opaque session slice proves Mojo-created state surviving across calls with exactly-once destruction. Model weights, KV caches, logits, owned device tensors, async execution, and GPU runtime adapters still require later ABI families.
+The borrowed `Float` slices prove synchronous non-owning data paths, while the opaque session slice proves Mojo-created state surviving across calls with exactly-once destruction. Owned device tensors and async execution still require later generic ABI families; concrete product operations remain downstream.
 
 ## How it works internally
 
@@ -602,14 +604,14 @@ Responsibilities are separated as follows:
 | Layer | Responsibility |
 |---|---|
 | `swift-mojo` | Source graphs, ABI lowering, compiler orchestration, artifact preparation, build verification, and the runtime bridge |
-| Model Swift package | Public Swift API, model/session lifecycle, Mojo source package, model-specific tests, and prepared artifacts |
-| Application | Model selection, weight location, generation policy, UI, and product state |
+| Consuming Swift package | Public Swift API, domain/session lifecycle, Mojo source package, product-specific tests, and prepared artifacts |
+| Application | Product selection, external resources, policy, UI, and product state |
 
 `.mojo` source is an authoring input, not a runtime resource copied into the application bundle. A precompiled Mojo `.mojoc` file is tied to the exact compiler version and is not a native artifact that Swift can link directly, so it is not the public distribution boundary. Apple consumers receive an XCFramework; Linux consumers receive an SE-0482 static-library artifact bundle. Both are governed by one compatibility manifest.
 
-Model weights remain separate from code artifacts. Production weights are not stored as SwiftPM resources or committed to the Git repository. The model package's Swift API resolves them from external storage and cache using an immutable revision or digest. Small test fixtures are the only exception.
+Product data remains separate from code artifacts. The consuming package owns its storage, identity, compatibility, and test-fixture policy.
 
-The current source tree implements external source discovery, package imports, deterministic package digests, target-scoped ABI identities, universal Apple artifacts, Linux static-library artifact bundles, configuration-aware build verification, the release gate, immutable/mutable borrowed `Float` ABI slices, a synchronous opaque-session ABI, and a session-owned Float32-buffer ABI with exact-count synchronous host copies. Model weights, tensor semantics, MAX-backed Metal/CUDA allocation and synchronization, model-specific APIs, inference acceptance, and remote artifact distribution remain outside the current bridge or are still planned.
+The current source tree implements external source discovery, package imports, deterministic package digests, target-scoped ABI identities, universal Apple artifacts, Linux static-library artifact bundles, configuration-aware build verification, the release gate, immutable/mutable borrowed `Float` ABI slices, a synchronous opaque-session ABI, and a session-owned Float32-buffer ABI with exact-count synchronous host copies. Domain data, concrete device implementations, product APIs, behavior acceptance, hardware qualification, and product distribution remain downstream.
 
 ## Syntax boundary
 
@@ -670,8 +672,8 @@ The following state was observed on this machine on 2026-08-21:
 | Legacy compatibility | The committed schema-3 example passed current plugin verification, Xcode build/link, and runtime `42` |
 | Borrowed buffer change | Source, generated ABI, macro lowering, typed errors, real compile/link/runtime, and failure behavior are verified; allocation/copy counts and sanitizers remain pending |
 | Mutable output change | IR, macro, generated Mojo/C/Registry, real Mojo 1.0 universal compile, static link, runtime mutation, typed status, both empty-buffer failures, immutable-revision release acceptance, symbol inspection, and no-Mojo-dylib inspection passed; allocation/copy measurement and standalone-buffer sanitizers remain pending |
-| Runtime session change | IR, macro, generated Mojo/C/Registry, session/resource lifecycle tests, real Mojo 1.0 CPU session and host-buffer create/copy/use/shutdown, copy and synchronization status propagation, typed failures, ten-symbol static link, no-Mojo-dylib inspection, Swift Address Sanitizer, and Mojo Address Sanitizer passed locally; installed standalone Mojo lacks the `DeviceContext` host module, so MAX-backed Metal/CUDA and native Jetson acceptance remain pending |
-| Linux artifact change | Real Mojo cross-compiled `aarch64-unknown-linux-gnu`; schema-5 artifact-bundle layout/digest/package wiring and a KGEN-free archive passed locally. Native Jetson Swift link/run remains pending |
+| Runtime session change | IR, macro, generated Mojo/C/Registry, session/resource lifecycle tests, real Mojo 1.0 CPU session and host-buffer create/copy/use/shutdown, copy and synchronization status propagation, typed failures, ten-symbol static link, no-Mojo-dylib inspection, Swift Address Sanitizer, and Mojo Address Sanitizer passed locally; concrete device implementation and hardware acceptance remain downstream |
+| Linux artifact change | Real Mojo cross-compiled `aarch64-unknown-linux-gnu`; schema-5 artifact-bundle layout/digest/package wiring and a KGEN-free archive passed locally. Native Linux ARM64 consumer link/run remains pending |
 | Multi-target change | An immutable pushed revision prepared, linked, and executed two independent Mojo-enabled targets in one consumer; both returned `42` without module or symbol collision, and the release process repeats this on the final tag commit |
 | Wrapper latency | The prior `9.148 µs` versus `9.067 µs` p50 result is retained as historical evidence only. `Benchmarks/RuntimeBridge` now provides the reproducible explicit harness; it has not been rerun for the current changes |
 | Historical cold build | A prior compiler-free fresh-scratch Release consumer build completed in `165` seconds; it is not current correctness or performance evidence |
@@ -748,13 +750,13 @@ Historical cold Release attempts did not complete within a 120-second bound beca
 
 ## Non-goals
 
-- Providing SwiftUI or Metal view integration or owning the rendering lifecycle.
+- Providing UI or rendering-framework integration or owning the rendering lifecycle.
 - Translating all Swift code into Mojo.
 - Passing arbitrary, unvalidated Mojo text into generated source.
 - Exposing the C ABI, raw pointers, or artifact paths as ordinary Swift APIs.
 - Installing or downloading the Mojo toolchain during a build.
 - Treating unsupported types, errors, async behavior, ownership, or GPU behavior as successful by copying data, returning zero, or falling back to Swift.
-- Publishing remote binary artifacts or signing releases on behalf of model packages.
+- Publishing remote binary artifacts or signing releases on behalf of consuming packages.
 
 ## Documentation
 

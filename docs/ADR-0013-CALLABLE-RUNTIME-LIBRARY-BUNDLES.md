@@ -7,7 +7,7 @@
 ## Context
 
 The default `swift-mojo` artifact is statically linked and rejects unresolved
-Mojo/MAX runtime symbols. ADR-0010 records an exact runtime dependency closure,
+optional runtime symbols. ADR-0010 records an exact runtime dependency closure,
 while ADR-0011 packages that closure with an executable worker. A persistent
 Mojo device session additionally needs a callable generated ABI inside the
 isolated worker. A receipt alone is insufficient, and restoring the removed
@@ -100,17 +100,19 @@ header, and unexpected tree entries. A separate renderer test proves that all
 The public runtime projection and typed missing-bundle failure also pass.
 
 This proves the packaging and local macOS loader contract. It does not prove a
-real Mojo object with MAX dependencies, Metal compute, device buffers,
-synchronization, cancellation, signing, redistribution rights, Linux runtime,
-or Jetson CUDA execution.
+real Mojo accelerator implementation, device buffers, synchronization,
+cancellation, signing, redistribution rights, or native Linux runtime.
 
 ## Next gate
 
-1. Use `runtime-library-prepare` to build the real generated session ABI with
-   the Metal accelerator implementation and verify the schema-3 bundle.
-2. Add a typed loader and exactly-once session lifecycle inside the isolated
-   Kuyu attempt worker, keeping loading out of the application process.
-3. Differentially compare the Metal result with the CPU reference and current
-   MLX execution path, including failure and shutdown races.
-4. Reproduce link, verification, relocation, and execution on Jetson AGX Orin
-   before qualifying CUDA.
+1. Use `runtime-library-prepare` to build a real generated session ABI with a
+   generic accelerator fixture and verify the schema-3 bundle.
+2. Add a typed loader and exactly-once session lifecycle inside an isolated
+   fixture worker, keeping loading out of the application process.
+3. Differentially compare the accelerator fixture with the CPU reference,
+   including failure and shutdown races.
+4. Reproduce link, verification, relocation, and execution on native Linux
+   ARM64.
+
+Concrete product workers, kernels, device policy, and hardware qualification
+belong to consuming packages.

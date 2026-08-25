@@ -372,19 +372,19 @@ struct MojoRuntimeReceiptTests {
         try withRuntimeFixture { fixture in
             let target = try MojoTargetConfiguration(
                 triple: "aarch64-unknown-linux-gnu",
-                cpu: "cortex-a78ae",
-                accelerator: "sm_87"
+                cpu: "generic",
+                accelerator: "test-accelerator"
             )
             let options = try MojoRuntimeReceiptOptions(
                 objectURL: fixture.objectURL,
                 libraryURLs: fixture.libraryURLs,
                 target: target,
-                allowedSystemDependencies: ["libcuda.so.1"]
+                allowedSystemDependencies: ["libdevice-runtime.so.1"]
             )
             let inspections = fixture.inspections.merging([
                 "libAsyncRT.dylib": fixture.inspection(
                     installName: "libAsyncRT.so",
-                    dependencies: ["/tmp/libcuda.so.1"],
+                    dependencies: ["/tmp/libdevice-runtime.so.1"],
                     exports: ["AsyncRT_DeviceContext_create"]
                 ),
             ]) { _, replacement in replacement }
@@ -392,7 +392,7 @@ struct MojoRuntimeReceiptTests {
             #expect(
                 throws: MojoArtifactError.runtimeDependencyUnresolved(
                     library: "libAsyncRT.dylib",
-                    dependency: "/tmp/libcuda.so.1"
+                    dependency: "/tmp/libdevice-runtime.so.1"
                 )
             ) {
                 _ = try fixture.preparer(inspections: inspections).prepare(
@@ -450,7 +450,7 @@ struct MojoRuntimeReceiptTests {
         let target = try MojoTargetConfiguration(
             triple: "aarch64-unknown-linux-gnu",
             cpu: "cortex-a78ae",
-            accelerator: "sm_87"
+            accelerator: "test-accelerator"
         )
         let inspection = try MojoRuntimeBinaryInspector(
             processRunner: FixtureRuntimeMetadataRunner(),
@@ -506,7 +506,7 @@ struct MojoRuntimeReceiptTests {
         let target = try MojoTargetConfiguration(
             triple: "aarch64-unknown-linux-gnu",
             cpu: "cortex-a78ae",
-            accelerator: "sm_87"
+            accelerator: "test-accelerator"
         )
         let inspection = try MojoRuntimeBinaryInspector(
             processRunner: FixtureRuntimeMetadataRunner(),

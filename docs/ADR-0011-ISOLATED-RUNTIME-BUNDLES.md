@@ -3,7 +3,7 @@
 - Status: macOS bundle link, verification, and device-context execution
   implemented; native Linux and compute-kernel acceptance pending
 - Date: 2026-08-21
-- Scope: receipt-bound executable deployment for MAX-backed workers
+- Scope: receipt-bound executable deployment for accelerator workers
 
 ## Context
 
@@ -77,14 +77,14 @@ worker.
 - bundle verification never launches accelerator code.
 
 The bundle is a local deployment artifact. This implementation does not assert
-redistribution permission for MAX or any other third-party runtime, does not
+redistribution permission for any third-party runtime, does not
 sign/notarize a worker, and does not establish artifact authenticity against a
 malicious publisher. Release policy must add the applicable licensing,
 signature, and provenance gates.
 
 ## Current evidence
 
-A real MAX 26.5.0 arm64 object and the four-library receipt from ADR-0010 were
+A real arm64 accelerator-runtime object and the four-library receipt from ADR-0010 were
 linked into bundle identity
 `38075467012f877bb5ea23daf3d4639aa175b478bfaca898706bd33e1ff72e77`.
 The final executable digest is
@@ -92,20 +92,22 @@ The final executable digest is
 Fresh verification found only the four declared `@rpath` libraries and the
 single `@executable_path/../lib` search root. With the process environment
 reduced to system paths and temporary home settings, the relocated worker
-reported `Accelerator: Apple M4 Max`.
+reported a usable local accelerator.
 
 This proves local macOS link, exact-loader preflight, dynamic runtime loading,
-and real device-context creation. It does not prove a Metal compute kernel,
+and real device-context creation. It does not prove accelerator compute,
 device-buffer transfer/synchronization, cancellation, worker protocol behavior,
-signing, redistribution, CUDA, or native Jetson behavior.
+signing, redistribution, or native Linux behavior.
 
 ## Next gates
 
-1. Define the Kuyu worker request/result protocol and one-attempt process
-   lifecycle without loading MAX into the application process.
+1. Add a generic worker request/result and one-attempt lifecycle fixture without
+   loading the accelerator runtime into the application process.
 2. Add device-owned buffer, synchronization, cancellation, and ordered shutdown
-   semantics to the worker ABI.
-3. Install the optional Xcode Metal Toolchain and execute the qualified Float32
-   canonical kernel in the bundle.
+   semantics only through a versioned generic worker ABI.
+3. Execute a target-neutral accelerator fixture in the bundle.
 4. Reproduce receipt, bundle, ELF interpreter/RUNPATH, link, and execution on
-   Jetson AGX Orin before CUDA qualification.
+   native Linux ARM64.
+
+Product worker protocols, concrete kernels, and hardware qualification remain
+downstream responsibilities.

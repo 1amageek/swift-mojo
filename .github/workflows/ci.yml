@@ -127,6 +127,7 @@ jobs:
 
       - name: Run static test-safety guards
         run: |
+          scripts/check-generic-boundary.sh
           scripts/check-sync-shutdown-in-deinit.sh Sources Tests
 
       - name: Rehearse exact-version consumer in an isolated Git remote

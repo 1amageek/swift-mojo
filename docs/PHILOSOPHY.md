@@ -153,11 +153,11 @@ In scope:
   types, ownership, errors, async, compute-device synchronization
 
 Out of scope:
-  SwiftUI views, shader modifiers, render loops, scene lifecycle,
+  UI views, rendering-framework modifiers, render loops, scene lifecycle,
   application navigation and product state
 ```
 
-Metal/SwiftUIは「低レイヤー実装をSwift APIへ自然に見せる」先例として参考にしますが、そのframework surfaceをこのpackageへ持ち込みません。
+Platform frameworkのAPIは「低レイヤー実装をSwift APIへ自然に見せる」先例として参考にしますが、そのframework surfaceをこのpackageへ持ち込みません。
 
 ## 11. Model implementations are Swift products, not runtime internals
 

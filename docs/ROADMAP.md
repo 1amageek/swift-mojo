@@ -9,10 +9,10 @@
 | 0 — Foundation | 要件、責務境界、package skeleton | Complete |
 | 1 — Exact-syntax scalar PoC | direct `@mojo func ... { return ... }` から実Mojo静的実行 | Complete for the macOS scalar contract |
 | 2 — DSL and diagnostics | scalar DSL拡張、source-located diagnostics、inspection | Inspection verified; real diagnostic mapping and DSL expansion planned |
-| 3 — Types and ownership | buffers、strings、records、error envelope | Immutable/mutable borrows、opaque session、session-owned Float32 buffer verified through real local runtime; the session/resource path also passed separate Swift/Mojo ASan lanes; Metal/CUDA execution、allocation/copy、standalone-buffer sanitizer gates remain |
+| 3 — Types and ownership | buffers、strings、records、error envelope | Immutable/mutable borrows、opaque session、session-owned Float32 buffer verified through real local runtime; allocation/copy and standalone-buffer sanitizer gates remain; concrete device execution is downstream |
 | 4 — Async and callbacks | cancellation、completion、shutdown、reverse bridge | Research/Planned |
 | 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean consumer、and two-target linking verified; model/distribution work remains |
-| 6 — GPU compute | device/buffer/event/transfer contracts | Runtime receipt、exact worker bundle、and callable ABI library bundle implemented; real Mojo device kernel/session remains Research |
+| 6 — Accelerator bridge | device/buffer/event/transfer contracts | Runtime receipt、exact worker bundle、and callable ABI library bundle implemented; generic device conformance remains Research |
 | 7 — Full inline Mojo syntax decision | custom input/preprocessor/compiler integration | Research |
 
 ```mermaid
@@ -22,7 +22,7 @@ flowchart LR
     P1 --> P3["Phase 3<br/>Types + ownership"]
     P3 --> P4["Phase 4<br/>Async + callbacks"]
     P3 --> P5["Phase 5<br/>Model packages + distribution"]
-    P4 --> P6["Phase 6<br/>GPU compute"]
+    P4 --> P6["Phase 6<br/>Accelerator bridge"]
     P5 --> P6
     P2 --> D{"Need arbitrary<br/>Mojo grammar?"}
     D -->|No| K["Keep Swift-parseable<br/>DSL subset"]
@@ -233,7 +233,7 @@ flowchart LR
 
 **Depends on:** Phase 1 ABI/artifact pipeline. It can progress in parallel with Phase 2 because external Mojo packages do not require inline DSL expansion.
 
-**Status:** `([Float]) throws -> Float`、caller-owned mutable output、synchronous opaque session、and session-owned Float32-buffer create/synchronous host copy/shutdown are immutable-revision release-acceptance verified across IR、macro、generated Mojo/C ABI、Registry、real Mojo 1.0 universal macOS compile、static link、runtime behavior、typed failures、and Mach-O inspection. The owner model includes typed capability negotiation、exact transfer count、factory-domain isolation、one session/resource lease、active-child exclusion、and exactly-once child-before-parent destruction. The session/resource/host-transfer path also passes separate Swift-side and Mojo-side Address Sanitizer lanes. Schema-5 Linux ARM64 cross packaging is verified, while native Jetson execution、MAX-backed Metal/CUDA allocation/synchronization、allocation/copy measurement、and standalone borrowed-buffer sanitizer coverage remain pending.
+**Status:** `([Float]) throws -> Float`、caller-owned mutable output、synchronous opaque session、and session-owned Float32-buffer create/synchronous host copy/shutdown are immutable-revision release-acceptance verified across IR、macro、generated Mojo/C ABI、Registry、real Mojo 1.0 universal macOS compile、static link、runtime behavior、typed failures、and Mach-O inspection. The owner model includes typed capability negotiation、exact transfer count、factory-domain isolation、one session/resource lease、active-child exclusion、and exactly-once child-before-parent destruction. The session/resource/host-transfer path also passes separate Swift-side and Mojo-side Address Sanitizer lanes. Schema-5 Linux ARM64 cross packaging is verified, while native Linux consumer execution、allocation/copy measurement、and standalone borrowed-buffer sanitizer coverage remain pending. Concrete device execution is downstream.
 
 Deliverables:
 
@@ -246,7 +246,7 @@ Deliverables:
 - signature familyごとに、direct value returnまたは明示的なowned diagnostic error envelopeを設計。
 - synchronous opaque owner/lease/shutdown APIとexactly-once deallocation（CPU reference verified）。
 - session-owned Float32 buffer factory/owner/synchronous host-copy/synchronize/shutdown API（host real-runtime and separate Swift/Mojo Address Sanitizer lanes verified; device/pinned-host capability representation implemented）。
-- Metal/CUDA buffer allocation、view、transfer、synchronization execution（pending）。
+- generic accelerator buffer ownership、view、transfer、synchronization contracts（pending）。
 
 Verification:
 
@@ -270,11 +270,11 @@ flowchart LR
     N --> B["Session-owned Float32 buffer + sync host copy verified"]
     B --> L["Exact runtime-linked ABI bundle verified"]
     L --> G{"Need accelerator execution?"}
-    G -->|Yes| P["Implement Metal/CUDA allocation + sync adapter"]
+    G -->|Yes| P["Use downstream device adapter"]
     G -->|No| C["Use synchronous session ABI"]
 ```
 
-The immutable-input functional slice is release-runtime verified. The mutable-output slice is local-runtime verified with mutation, status `7`, distinct empty failures, four bridge symbols, and no Mojo dynamic dependency. The session/resource slice is local-runtime verified with session and host-buffer create/copy/use/shutdown, post-create cleanup, exact-count and copy/synchronization-status failures, capability/schema/status/missing-handle/active-resource failures, concurrent/reentrant busy behavior, ten bridge symbols, no Mojo/KGEN dynamic dependency, and separate Swift/Mojo Address Sanitizer execution. The runtime-linked ABI bundle now proves exact exports、closure、relative loading、relocation、tamper rejection、and one real C function invocation without ambient loader paths. It is not yet produced from the real Mojo session graph and does not establish Metal/CUDA allocation、kernel dispatch、DMA、device synchronization、GPU availability、or async completion. A zero-copy claim remains blocked until copy/allocation counts are measured; standalone borrowed/mutable buffer families retain their own sanitizer gate.
+The immutable-input functional slice is release-runtime verified. The mutable-output slice is local-runtime verified with mutation, status `7`, distinct empty failures, four bridge symbols, and no Mojo dynamic dependency. The session/resource slice is local-runtime verified with session and host-buffer create/copy/use/shutdown, post-create cleanup, exact-count and copy/synchronization-status failures, capability/schema/status/missing-handle/active-resource failures, concurrent/reentrant busy behavior, ten bridge symbols, no Mojo/KGEN dynamic dependency, and separate Swift/Mojo Address Sanitizer execution. The runtime-linked ABI bundle now proves exact exports、closure、relative loading、relocation、tamper rejection、and one real C function invocation without ambient loader paths. It does not establish downstream allocation、kernel dispatch、DMA、device synchronization、hardware availability、or async completion. A zero-copy claim remains blocked until copy/allocation counts are measured; standalone borrowed/mutable buffer families retain their own sanitizer gate.
 
 ## 6. Phase 4 — Async and callbacks
 
@@ -314,7 +314,7 @@ Deliverables:
 - model-specific Swift APIとMojo sourceとartifactを結ぶcompatibility manifest。
 - multiple Mojo-enabled targets向けtarget-derived static framework/module/archive/C symbol identityとtwo-target acceptance workflow（verified）。
 - arm64/x86_64 Apple and aarch64 Linux slice-aware schema-5 manifest、universal archive、XCFramework/artifact-bundle metadata gates（verified）。
-- Apple XCFramework adapterとLinux SE-0482 static-library artifact-bundle adapterの分離（cross packaging verified; native Jetson pending）。
+- Apple XCFramework adapterとLinux SE-0482 static-library artifact-bundle adapterの分離（cross packaging verified; native Linux ARM64 consumer pending）。
 - release/cache identity including target accelerator（implemented; arbitrary target feature setはplanned）。
 - remote artifact bundle or package distribution workflow。
 - signed/reproducible generated artifact policy。
@@ -333,15 +333,15 @@ Verification:
 - artifact/source/compiler compatibility matrix。
 - small deterministic model fixtureでload/inference successとwrong weight revision/digest failureを確認する。
 
-## 8. Phase 6 — GPU compute
+## 8. Phase 6 — Accelerator bridge
 
 **Estimate:** 6–12+ weeks
 
-**Depends on:** Phase 3; async portions depend on Phase 4; packaged model acceptance depends on Phase 5
+**Depends on:** Phase 3; async portions depend on Phase 4; packaged consumer acceptance depends on Phase 5
 
 Deliverables:
 
-- backend/device/accelerator capability model。
+- backend-neutral device/accelerator capability model。
 - explicit host/device/shared buffer ownership。
 - queue/stream/event dependency model。
 - transfer observability。
@@ -350,7 +350,7 @@ Deliverables:
 - receipt-bound executable worker bundle（implemented）。
 - receipt-bound callable ABI library bundle with exact exports and relative loader root（implemented with relocation/tamper/invocation fixture; real Mojo device session pending）。
 
-SwiftUI shader modifiers、view rendering、scene lifecycleはこのPhaseにも含みません。
+Concrete backend kernels、hardware qualification、UI rendering、scene lifecycleはこのPhaseに含みません。
 
 ## 9. Phase 7 — Full inline Mojo syntax decision
 
@@ -381,9 +381,9 @@ Phase 5のexternal `.mojo` packageで十分なら、inlineはSwift-parseable DSL
 flowchart LR
     P1["P1 proven"] --> P2["DSL semantics"]
     P1 --> P3["Ownership ABI"]
-    P3 --> P4["Async/callback"] --> P6["GPU"]
+    P3 --> P4["Async/callback"] --> P6["Accelerator bridge"]
     P3 --> P5["Model packages + distribution"] --> P6
     P2 --> Decision["Full inline syntax demand proof"] --> P7["Integration decision"]
 ```
 
-主critical pathは `ownership ABI -> model package distribution -> GPU-capable model runtime` です。external Mojo packageを主surfaceにする限り、DSL expansionはownership ABIの前提ではなく並行laneです。最大のbottleneckは構文生成ではなく、ownership/error/device semanticsと、model packageでの実推論・remote distributionです。scalar compiler-free consumer artifactは実証済みで、borrowed `Float` sliceは最初の実装済みproof targetです。async/callbackとdistributionはownership ABIが安定した後に並行化できます。GPU Phaseは両方の成果を統合します。arbitrary inline syntax integrationは需要の立証前にcritical pathへ入れません。
+主critical pathは `ownership ABI -> package distribution -> accelerator bridge contracts` です。external Mojo packageを主surfaceにする限り、DSL expansionはownership ABIの前提ではなく並行laneです。最大のbottleneckは構文生成ではなく、ownership/error/device semanticsとremote artifact distributionです。scalar compiler-free consumer artifactは実証済みで、borrowed `Float` sliceは最初の実装済みproof targetです。async/callbackとdistributionはownership ABIが安定した後に並行化できます。Accelerator Phaseはgeneric bridge contractsだけを統合し、concrete device runtimeとhardware acceptanceはdownstreamに残します。arbitrary inline syntax integrationは需要の立証前にcritical pathへ入れません。

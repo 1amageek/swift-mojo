@@ -1,9 +1,9 @@
 # ADR-0010: Accelerator runtime dependency receipts
 
-- Status: Receipt preparation and verification implemented; worker linking and
-  native Jetson acceptance pending
+- Status: Receipt preparation and verification implemented; native Linux
+  acceptance pending
 - Date: 2026-08-21
-- Scope: MAX-backed Metal/CUDA object dependencies for isolated workers
+- Scope: Explicit dynamic runtime dependencies for isolated accelerator workers
 
 ## Context
 
@@ -13,7 +13,7 @@ Weakening that policy would move a deterministic prepare error into a later
 consumer link or launch failure. It would also make the result depend on ambient
 library search paths.
 
-MAX-backed objects intentionally require dynamic runtime libraries. SwiftPM's
+Some accelerator objects intentionally require dynamic runtime libraries. SwiftPM's
 portable static-library artifact format does not describe a dynamic runtime
 closure or its loader policy. Accelerator execution therefore belongs in an
 isolated worker adapter with a separate versioned dependency receipt.
@@ -72,9 +72,9 @@ artifact.
 
 Cross-inspecting Linux libraries from macOS may pin absolute
 `SWIFT_MOJO_LLVM_NM` and `SWIFT_MOJO_LLVM_READELF` tool paths. Native Linux uses
-the target's `nm` and `readelf` defaults. CUDA driver libraries are not silently
-classified as operating-system dependencies; a deployment must declare an exact
-system-library name and validate device/driver capability separately.
+the target's `nm` and `readelf` defaults. Vendor driver libraries are not
+silently classified as operating-system dependencies; a deployment must declare
+an exact system-library name and validate device/driver capability separately.
 Apple system dependencies must be canonical absolute paths under the platform
 system roots. Linux system dependencies must be bare SONAMEs; path-based names
 are treated as undeclared runtime libraries even when their basename is allowed.
@@ -83,7 +83,7 @@ are treated as undeclared runtime libraries even when their basename is allowed.
 
 The implementation and package tests cover Apple and Linux metadata parsing,
 exact closure success, missing and duplicate providers, undeclared transitive
-dependencies, and mutation rejection. A real MAX 26.5.0 arm64 Metal object was
+dependencies, and mutation rejection. A real arm64 accelerator-runtime object was
 inspected against four declared libraries:
 
 - `libAsyncRTMojoBindings.dylib`;
@@ -93,9 +93,9 @@ inspected against four declared libraries:
 
 The resulting receipt resolved 15 direct runtime symbols and verified after a
 fresh re-inspection. Omitting a transitive library failed before worker linking.
-This evidence proves the receipt layer. It does not prove Metal kernel execution,
-runtime redistribution rights, worker-relative loading, CUDA execution, or
-native Jetson behavior.
+This evidence proves the receipt layer. It does not prove accelerator kernel
+execution, runtime redistribution rights, worker-relative loading, or native
+Linux behavior.
 
 ## Next gates
 
@@ -103,8 +103,10 @@ The bundle layout, relative loader contract, macOS link, final Mach-O
 inspection, and clean-environment device-context execution are implemented by
 ADR-0011. Remaining gates are:
 
-1. Execute a Metal Float32 canonical kernel after the optional Xcode Metal
-   Toolchain is available.
-2. Prepare and verify the Linux receipt natively on Jetson AGX Orin, link the
-   worker, inspect ELF dependencies/RPATH, and execute CUDA success and failure
-   paths.
+1. Execute a generic accelerator fixture through the verified runtime closure
+   on a supported host.
+2. Prepare and verify the receipt natively on Linux ARM64, link the worker,
+   inspect ELF dependencies/RPATH, and execute success and failure paths.
+
+Concrete kernels, device performance, and hardware qualification belong to the
+consuming package.

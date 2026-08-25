@@ -24,9 +24,9 @@ destruction ownership without adding a Mojo/KGEN dynamic dependency. This is an
 artifact portability choice, not permission to expose integer handles across the
 Swift/C boundary.
 
-The base Mojo installation does not provide the host `DeviceContext` API used by
-the separate MAX runtime. This ADR therefore establishes the generic ownership
-ABI first and does not claim GPU runtime readiness.
+The base Mojo installation does not provide every optional host device runtime.
+This ADR therefore establishes the generic ownership ABI first and does not
+claim accelerator-runtime readiness.
 
 ## Confirmed current facts
 
@@ -37,7 +37,7 @@ ABI first and does not claim GPU runtime readiness.
 | Artifact identity | Target name and full input graph are stable, separately available identities. |
 | Mojo ownership | The pinned compiler accepts opaque-pointer use and destruction; the CPU fixture validates libc allocation failure as an address before creating the non-null pointer, while the public C ABI remains `void *`. |
 | Static runtime closure | Preparation inspects each object and rejects unresolved `KGEN_CompilerRT_*` symbols because no compatible compiler runtime is distributed by this package. |
-| GPU runtime | Accelerator compilation targets exist, but a base Mojo installation alone does not prove a usable Metal or CUDA runtime context. |
+| Accelerator runtime | Accelerator compilation targets exist, but a base Mojo installation alone does not prove a usable device runtime context. |
 
 ## Decision
 
@@ -157,7 +157,7 @@ when:
 - the returned ordinal equals the requested ordinal;
 - the available capability set is a superset of the required set.
 
-There is no implicit CPU, Metal, CUDA, or HIP fallback. Unknown available bits are
+There is no implicit CPU/accelerator or vendor-runtime fallback. Unknown available bits are
 preserved for forward inspection, but cannot satisfy a known required bit unless
 that bit is present.
 
@@ -250,8 +250,8 @@ The project does not emulate compiler-runtime allocation, diagnostics, async, or
 device behavior. Supporting such symbols requires an explicit runtime adapter
 with its own version, target slices, ownership contract, licensing review, and
 runtime acceptance. The absence of a known prefix is not evidence that arbitrary
-MAX/GPU code is supported; consumer link/run and dependency inspection remain
-release gates.
+runtime-linked device code is supported; consumer link/run and dependency
+inspection remain release gates.
 
 ## Responsibility and lifetime matrix
 
@@ -273,7 +273,7 @@ release gates.
 | Hold the mutex across compute or destroy | External code could block, re-enter, or deadlock while lifecycle state is locked. |
 | Close while calls are active | Requires blocking coordination or use-after-free risk; this synchronous family reports busy instead. |
 | Infer GPU availability from `--target-accelerator` | Compiler target support does not establish an installed host runtime or a usable physical device. |
-| Put Kuyu/Manas policy in the session owner | Violates the generic bridge and conscious/unconscious responsibility boundaries. |
+| Put downstream product policy in the session owner | Violates the generic bridge responsibility boundary. |
 
 ## Verification gates
 
@@ -289,9 +289,9 @@ Implementation is complete only after all of these pass:
    at least one later call, round-trips an owned buffer through the generated copy
    ABI, destroys it once, rejects use after shutdown in Swift, and leaves no Mojo
    dynamic-library dependency in the final executable.
-5. GPU capability is reported only by a separately verified MAX/device adapter on
-   the exact Apple Silicon or Jetson deployment. The CPU reference fixture is not
-   evidence of Metal or CUDA execution.
+5. Accelerator capability is reported only by a separately verified downstream
+   device adapter on the exact deployment target. The CPU reference fixture is
+   not evidence of accelerator execution.
 
 ## Verification result
 
@@ -307,5 +307,5 @@ same real-Mojo lifecycle and transfer fixture passed once with the Swift consume
 instrumented by Apple's Swift Address Sanitizer and once with Mojo objects
 instrumented by Mojo's upstream LLVM Address Sanitizer contract. The Mojo lane
 verifies the exact `__asan_version_mismatch_check_*` runtime symbol before linking.
-Linux ARM64 native execution, MAX-backed Metal/CUDA device buffers, and DMA
-synchronization remain outside this acceptance result.
+Linux ARM64 native execution and downstream device-buffer implementations
+remain outside this acceptance result.

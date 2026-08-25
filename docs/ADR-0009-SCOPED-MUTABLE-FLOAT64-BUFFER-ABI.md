@@ -75,5 +75,5 @@ failures, inspects all expected bridge symbols, and rejects a Mojo dynamic
 dependency.
 
 This decision verifies the synchronous macOS CPU bridge. It does not establish
-session-owned Float64 buffers, async execution, Metal, CUDA, native Jetson
+session-owned Float64 buffers, async execution, downstream accelerator
 execution, or allocation/copy performance.

@@ -142,7 +142,7 @@ private struct Fixture {
         let target = try MojoTargetConfiguration(
             triple: "arm64-apple-macosx14.0",
             cpu: "generic",
-            accelerator: "metal:4"
+            accelerator: "test-accelerator:4"
         )
         bundleURL = root.appendingPathComponent(
             "GeneratedRuntime.bundle",

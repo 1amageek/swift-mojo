@@ -45,7 +45,7 @@ SWIFT_MOJO_EXECUTABLE=/absolute/path/to/mojo \
 scripts/local-mutable-buffer-acceptance.sh
 ```
 
-It compiles a real arm64 Mojo object, prepares and verifies the static artifact, builds a separate temporary Swift consumer, executes mutation and typed failure paths, and inspects the final Mach-O. It does not prove an immutable remote revision, the x86_64 slice, performance, sanitizers, Linux, Jetson, or device ownership. Those remain separate release and platform gates.
+It compiles a real arm64 Mojo object, prepares and verifies the static artifact, builds a separate temporary Swift consumer, executes mutation and typed failure paths, and inspects the final Mach-O. It does not prove an immutable remote revision, the x86_64 slice, performance, sanitizers, native Linux, or device ownership. Those remain separate release and platform gates.
 
 ## Local owned-session development gate
 
@@ -68,7 +68,7 @@ SWIFT_MOJO_SANITIZE=mojo-address \
 scripts/local-session-acceptance.sh
 ```
 
-`swift-address` instruments the Swift consumer with Apple's matching Swift toolchain runtime while keeping the normal Mojo object. `mojo-address` instruments the Mojo objects and links an upstream LLVM ASan dylib only after verifying the object's required `__asan_version_mismatch_check_*` symbol is exported by that runtime. The two compiler-runtime families are not mixed implicitly. These lanes do not claim GPU, async, native Linux/Jetson, or model-inference support, and they do not replace allocation/copy benchmarks for the standalone borrowed-buffer families.
+`swift-address` instruments the Swift consumer with Apple's matching Swift toolchain runtime while keeping the normal Mojo object. `mojo-address` instruments the Mojo objects and links an upstream LLVM ASan dylib only after verifying the object's required `__asan_version_mismatch_check_*` symbol is exported by that runtime. The two compiler-runtime families are not mixed implicitly. These lanes do not claim accelerator execution, async, native Linux, or downstream product behavior, and they do not replace allocation/copy benchmarks for the standalone borrowed-buffer families.
 
 ## Updating the baseline
 
