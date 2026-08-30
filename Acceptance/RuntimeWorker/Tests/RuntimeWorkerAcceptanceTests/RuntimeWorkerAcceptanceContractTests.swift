@@ -113,7 +113,7 @@ struct RuntimeWorkerAcceptanceContractTests {
         )
 
         expectContractFailure(withUnknownKey)
-        expectContractFailure(withoutFailure)
+        expectMissingKeyFailure(withoutFailure, context: "top-level failure")
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -169,7 +169,7 @@ struct RuntimeWorkerAcceptanceContractTests {
                 ),
                 mutation(
                     text,
-                    replacing: "\"workerABIVersion\":1",
+                    replacing: ",\"workerABIVersion\":1",
                     with: ""
                 )
             ),
@@ -268,7 +268,7 @@ struct RuntimeWorkerAcceptanceContractTests {
 
         for (category, unknown, missing) in mutations {
             expectContractFailure(unknown, context: "\(category) unknown key")
-            expectContractFailure(missing, context: "\(category) missing key")
+            expectMissingKeyFailure(missing, context: "\(category) missing key")
         }
 
         let deepMutations: [(String, Data, Data)] = [
@@ -307,7 +307,7 @@ struct RuntimeWorkerAcceptanceContractTests {
                 ),
                 mutation(
                     text,
-                    replacing: "\"targetName\":\"ManasRuntime\"",
+                    replacing: ",\"targetName\":\"ManasRuntime\"",
                     with: ""
                 )
             ),
@@ -328,7 +328,7 @@ struct RuntimeWorkerAcceptanceContractTests {
 
         for (category, unknown, missing) in deepMutations {
             expectContractFailure(unknown, context: "\(category) unknown key")
-            expectContractFailure(missing, context: "\(category) missing key")
+            expectMissingKeyFailure(missing, context: "\(category) missing key")
         }
 
         let failedText = String(
@@ -342,11 +342,11 @@ struct RuntimeWorkerAcceptanceContractTests {
         )
         let failureMissing = mutation(
             failedText,
-            replacing: "\"message\":\"protocol exchange did not complete\"",
+            replacing: ",\"message\":\"protocol exchange did not complete\"",
             with: ""
         )
         expectContractFailure(failureUnknown, context: "failure unknown key")
-        expectContractFailure(failureMissing, context: "failure missing key")
+        expectMissingKeyFailure(failureMissing, context: "failure missing key")
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -873,6 +873,31 @@ private func expectContractFailure(
         sourceLocation: sourceLocation
     ) {
         try RuntimeWorkerAcceptanceContract.decodeCanonical(data)
+    }
+}
+
+private func expectMissingKeyFailure(
+    _ data: Data,
+    context: String,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        _ = try RuntimeWorkerAcceptanceContract.decodeCanonical(data)
+        Issue.record(
+            "Expected closed-record missing-key failure (\(context))",
+            sourceLocation: sourceLocation
+        )
+    } catch let error as RuntimeWorkerAcceptanceError {
+        #expect(
+            error.description.contains("closed record key mismatch"),
+            "Unexpected missing-key failure for \(context): \(error)",
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(
+            "Unexpected error for \(context): \(error)",
+            sourceLocation: sourceLocation
+        )
     }
 }
 
