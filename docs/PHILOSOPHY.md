@@ -50,7 +50,7 @@ Generated layers see:
 
 P1では固定C dispatcherを持つ静的XCFrameworkへ閉じ込めます。application targetはlinkのためgenerated binary moduleへ依存しますが、そのmoduleはstable public APIではありません。人がheaderやsymbolを編集して機能を追加する設計にはしません。
 
-accelerator runtimeが静的artifactへ閉じない場合も、application-level registryへ戻しません。runtime-linked ABIはexact receipt、generated export allowlist、relative loader rootを持つmanaged library bundleとして構築し、isolated worker境界でのみ利用します。worker側のloaderとsession lifecycleが実装されるまでは、bundleの存在をGPU実行成功として扱いません。
+accelerator runtimeが静的artifactへ閉じない場合も、application-level registryへ戻しません。callable runtime-linked ABI bundleは独立したpackaging adapterとして保持しますが、persistent workerはそれをloadしません。same input graphからgenerated Mojo objectとC worker objectを作り、exact receipt closureとdirect linkしたADR-0015 executableをattempt-owned processで使います。worker protocol/lifecycleがactual targetで実行されるまでは、bundleの存在をGPU実行成功として扱いません。
 
 ## 4. One source of semantics
 

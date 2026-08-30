@@ -8,11 +8,16 @@
 
 The default `swift-mojo` artifact is statically linked and rejects unresolved
 optional runtime symbols. ADR-0010 records an exact runtime dependency closure,
-while ADR-0011 packages that closure with an executable worker. A persistent
-Mojo device session additionally needs a callable generated ABI inside the
-isolated worker. A receipt alone is insufficient, and restoring the removed
-application-level dynamic symbol registry would weaken ownership, target, and
-loader guarantees.
+while ADR-0011 packages that closure with an executable worker. Some isolated
+tools additionally need a separately callable generated ABI. A receipt alone is
+insufficient, and restoring the removed application-level dynamic symbol
+registry would weaken ownership, target, and loader guarantees.
+
+ADR-0015 subsequently selected a smaller persistent-worker design: generate its
+C dispatch/main from the same `MojoInputGraph` and directly link it with the Mojo
+object into the executable. Therefore this callable bundle remains an
+independently verified packaging adapter and is not loaded by the persistent
+worker.
 
 ## Decision
 
@@ -63,7 +68,7 @@ flowchart LR
     E --> L
     L --> V["Tree + digest + loader + closure verification"]
     V --> C["Atomic managed bundle"]
-    C --> W["Future attempt-owned worker loader"]
+    C --> A["Separate callable-library consumer"]
 ```
 
 ## Failure and ownership contract
@@ -81,9 +86,10 @@ flowchart LR
 - the public `MojoRuntimeLibraryBundleVerifying` API returns immutable metadata
   only and does not expose authoring paths or mutation/loading authority.
 
-This adapter is intended for an isolated attempt-owned worker. It does not make
-dynamic loading part of application code and does not alter the default static
-consumer artifact.
+This adapter may be used only by a separately designed isolated callable-library
+consumer. It does not make dynamic loading part of application code, does not
+alter the default static consumer artifact, and is not the ADR-0015 persistent
+worker path.
 
 ## Evidence
 
@@ -105,14 +111,15 @@ cancellation, signing, redistribution rights, or native Linux runtime.
 
 ## Next gate
 
-1. Use `runtime-library-prepare` to build a real generated session ABI with a
-   generic accelerator fixture and verify the schema-3 bundle.
-2. Add a typed loader and exactly-once session lifecycle inside an isolated
-   fixture worker, keeping loading out of the application process.
-3. Differentially compare the accelerator fixture with the CPU reference,
-   including failure and shutdown races.
-4. Reproduce link, verification, relocation, and execution on native Linux
-   ARM64.
+1. Use `runtime-library-prepare` to build a real generated session ABI for a
+   consumer that specifically requires the callable adapter and verify its
+   schema-3 bundle.
+2. Reproduce link, verification, relocation, and callable invocation on native
+   Linux ARM64.
+
+Persistent session lifecycle, bounded IPC, graceful/hard shutdown, and
+Apple/NVIDIA worker parity are exclusively ADR-0015 gates and do not extend this
+adapter.
 
 Concrete product workers, kernels, device policy, and hardware qualification
 belong to consuming packages.

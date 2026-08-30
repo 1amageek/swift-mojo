@@ -46,6 +46,9 @@ selected target/slice/archive identity, and exact binding records.
 The attestation is provenance evidence only. It does not claim device
 availability, actual accelerator selection, session creation, kernel execution,
 performance, or safety. Consuming packages must establish those independently.
+It also does not attest ADR-0015 worker bundles. Runtime-dependent persistent
+execution uses a separate executable process and read-only worker-bundle
+verification; it never turns this static attestation into a loader authority.
 
 ## Rejected alternatives
 

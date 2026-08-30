@@ -23,6 +23,7 @@ Those decisions remain in their semantic owners.
 |---|---|---|---|---|
 | [`DESIGN.md`](../../DESIGN.md) | parent | Cross-platform authoring and consumer boundary | Defines which package paths consume this adapter. | Linux authoring remains unsupported. |
 | [`CMojoPOSIXSupport`](../CMojoPOSIXSupport/DESIGN.md) | depends on | Fixed C ABI and errno output | Supplies the platform-specific operations. | Never expose borrowed C pointers beyond one call. |
+| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | coordinates with | Attempt-owned fd-3 boundary | Defines a later client transport separate from authoring-tool processes. | This adapter exposes no worker launcher and its current spawn closes fd 3. |
 
 ## Architecture
 
@@ -47,6 +48,9 @@ MojoCompilerCore / MojoArtifactCore / swift-mojo executable
   platform failure.
 - Spawn distinguishes adapter/setup failures from an executable launch failure
   so the process owner can preserve its public error contract.
+- Current spawn is only the compiler/linker/inspector tool-process contract. It
+  does not create a socketpair or map a child protocol endpoint to fd 3 and must
+  not be presented as ADR-0015 worker launch support.
 - Exit status decoding maps normal exit to its exact code and signal termination
   to `128 + signal`.
 - The adapter does not silently substitute Foundation `Process`, a no-op lock,
@@ -88,3 +92,6 @@ decoding. `MojoCompilerCoreTests` verifies the real process lifecycle. The build
 plugin integration test verifies that the adapter remains usable in the full
 package graph on both macOS and clean Linux/aarch64. Changes require rechecking
 the C design, all direct callers, and both platform paths.
+The later worker-client sprint owns any distinct fd-3 spawn adapter, full-duplex
+I/O, deadlines, and attempt lifecycle; adding it requires a separate contract and
+must not broaden `MojoRuntime` into a public launcher.

@@ -69,9 +69,18 @@ This proves downstream-readable macOS preflight. It does not prove staging
 race resistance by a downstream launcher, worker protocol behavior, compute,
 cancellation, signing, redistribution permission, or native Linux behavior.
 
+ADR-0015 adds a distinct read-only worker verifier and immutable
+`RuntimeWorkerBundle.json` projection. It composes this executable verification
+but cannot be confused with either the generic executable result or ADR-0013's
+callable-library result. It adds no public launcher, transport, loader, or raw
+handle authority.
+
 ## Downstream contract
 
 A consuming launcher must stage an executable bundle as one immutable root,
 preserve its relative executable/library layout, verify both source and staged
 roots, and require an exact expected identity before spawning. Launcher policy,
 attempt lifecycle, and product behavior are not `swift-mojo` acceptance gates.
+For ADR-0015 the private staged root also contains the worker manifest, whose
+digest binds this runtime bundle and receipt; the compiled `ready` identity must
+match the worker verification before `createSession` is sent.

@@ -28,6 +28,7 @@ reused the descriptor.
 |---|---|---|---|---|
 | [`DESIGN.md`](../../DESIGN.md) | parent | Cross-platform authoring and consumer boundary | Defines the package-level portability and evidence boundary. | Device and product policy remain downstream. |
 | [`MojoPOSIXSupport`](../MojoPOSIXSupport/DESIGN.md) | used by | Fixed C functions and error codes | Converts this ABI into package-scoped Swift operations. | C pointers never escape the synchronous call. |
+| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | coordinates with | Process/descriptor ownership boundary | Reserves fd 3 for the later consumer-owned persistent-worker transport. | The current compiler-tool spawn closes fd 3 and is not a worker launcher. |
 
 ## Architecture
 
@@ -46,6 +47,10 @@ Swift package-scoped adapter
 - A successful spawn returns one child PID in a new session/process group,
   redirects stdout and stderr to the supplied descriptor, and prevents other
   descriptors from leaking into the child.
+- This spawn ABI deliberately does not preserve a protocol descriptor. It cannot
+  launch an ADR-0015 worker whose full-duplex endpoint must be mapped to fd 3.
+  That socketpair/mapping and attempt lifetime belong to the later client sprint,
+  not W1/W2 or this current tool-process ABI.
 - Spawn returns distinct setup/control and executable-launch failure sentinels;
   the errno-compatible diagnostic remains in the error output.
 - Spawn setup objects do not own the child. Destroying those objects cannot turn
@@ -98,3 +103,5 @@ referencing an unavailable symbol.
 descendant termination, and reap behavior on Darwin and Linux. Changes to this
 ABI require rechecking `MojoPOSIXSupport`, `MojoCompilerCore`, output locking,
 the command executable, and the clean Linux/aarch64 consumer fixture.
+Adding a worker descriptor map would be a new ABI and requires ADR-0015 client
+lifecycle tests; it must not silently change current compiler child inheritance.

@@ -307,9 +307,36 @@ map, exact ABI exports, and runtime closure. Apple uses only
 closure and rejects changed files, extra entries, export drift, alternate loader
 roots, or undeclared dependencies. A macOS relocation fixture loads the result
 with an empty process environment and calls its exported function successfully.
-This is an isolated worker adapter, not a return to the removed application-level
-dynamic registry. See
+This is a separate callable-library packaging adapter, not the persistent-worker
+implementation and not a return to the removed application-level dynamic
+registry. See
 `docs/ADR-0013-CALLABLE-RUNTIME-LIBRARY-BUNDLES.md`.
+
+The selected persistent accelerator worker does not load that callable bundle.
+One canonical `MojoInputGraph` generates both the Mojo ABI object and a C worker
+dispatch/main object; `swift-mojo` links both directly into the receipt-bound
+ADR-0011 executable. Internal `MojoRuntimeProtocolCore` owns the shared wire
+constants, C renderer, and Swift codec/types; it is not a public product and W1
+generates only the C endpoint. The worker uses
+`RuntimeWorkerBundle.json` schema 1 and protocol v1 over a bounded binary
+request/response stream on file descriptor 3. Its first `ready` frame is checked
+for protocol, ABI,
+input-graph identity, and every binding before its single session can be
+created. `ready` reports a non-circular pre-render
+`executionContractDigest` over protocol/ABI/graph/bindings, target/compiler,
+digest-free Mojo generated source/object, and receipt closure. It excludes the C
+worker source/object, executable, and manifests; the worker manifest separately
+binds those post-render/link identities. No worker path uses `dlopen`, `dlsym`,
+or `dlclose`.
+
+Apple and NVIDIA worker artifacts share semantic source/input-graph, ABI,
+protocol, and binding identity while retaining independent compiler/object,
+target, executable, and runtime-library closures. A reported MAX backend name
+is target execution evidence only, not artifact identity. Graceful shutdown
+destroys live session/device handles exactly once; a hard in-flight deadline or
+crash relies on OS process reclamation, rejects partial output, and requires a
+clean next attempt rather than claiming a destructor ran. This ADR-0015 path is
+designed but not yet implemented.
 
 Downstream launchers import the read-only `MojoRuntime` product and call a
 `MojoRuntimeBundleVerifying` implementation before accepting or spawning a
@@ -320,6 +347,14 @@ library bundles have a separate `MojoRuntimeLibraryBundleVerifying` contract and
 `FileSystemMojoRuntimeLibraryBundleVerifier`, so launchers cannot confuse an
 executable worker with a loadable ABI library. See
 `docs/ADR-0012-PUBLIC-RUNTIME-VERIFICATION.md`.
+
+ADR-0015 will add a third, worker-specific read-only verifier. Artifact
+generation is W1 (`MojoArtifactCore`) and immutable verification is W2
+(`MojoRuntime`); neither exposes a public launcher, transport, raw handle, or
+application operation. The consuming package owns private attempt staging,
+spawn, typed fd-3 transport, cancellation/kill, budgets, telemetry, and
+checkpoint admission. See
+`docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md`.
 
 ## Author and consumer experience
 
@@ -560,6 +595,8 @@ The committed [`Examples/ExternalMojo`](Examples/ExternalMojo) fixture intention
 | `MojoBindingCore` | SwiftSyntax scanning, P1 DSL semantics, and canonical binding/source graphs |
 | `MojoCompilerCore` | Mojo executable discovery, version inspection, and target-aware object generation |
 | `MojoArtifactCore` | Input graphs, source maps, artifact sets, preparation, inspection, doctor checks, build verification, and release gates |
+| `MojoRuntimeProtocolCore` | Planned package-internal authority for protocol-v1 constants, payload schemas, validation, generated C endpoint rendering, and Swift codec/types; no public product or launcher |
+| `MojoRuntime` | Public read-only verification and immutable projections for executable and callable bundles; planned worker verification adds no launcher or loading authority |
 | `MojoCommandCore` | Testable command parsing, text/JSON output, and Core orchestration |
 | internal `swift-mojo` target | Private process adapter used by both plugins; it is not an executable product users install |
 | `MojoCommandPlugin` | Exposes authoring commands as `swift package --allow-writing-to-package-directory mojo ...` |
@@ -773,6 +810,12 @@ Historical cold Release attempts did not complete within a 120-second bound beca
 - [ADR-0005: Target-scoped static frameworks](docs/ADR-0005-TARGET-SCOPED-STATIC-FRAMEWORKS.md)
 - [ADR-0007: Opaque runtime session ABI](docs/ADR-0007-OPAQUE-RUNTIME-SESSION-ABI.md)
 - [ADR-0008: Non-Apple static-library artifacts](docs/ADR-0008-NON-APPLE-STATIC-LIBRARY-ARTIFACTS.md)
+- [ADR-0010: Accelerator runtime dependency receipts](docs/ADR-0010-ACCELERATOR-RUNTIME-RECEIPTS.md)
+- [ADR-0011: Isolated accelerator runtime bundles](docs/ADR-0011-ISOLATED-RUNTIME-BUNDLES.md)
+- [ADR-0012: Public read-only runtime verification](docs/ADR-0012-PUBLIC-RUNTIME-VERIFICATION.md)
+- [ADR-0013: Callable accelerator runtime library bundles](docs/ADR-0013-CALLABLE-RUNTIME-LIBRARY-BUNDLES.md)
+- [ADR-0014: Static artifact attestation](docs/ADR-0014-STATIC-ARTIFACT-ATTESTATION.md)
+- [ADR-0015: Direct-linked persistent accelerator workers](docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md)
 - [Release process](docs/RELEASING.md)
 - [MIT License](LICENSE)
 

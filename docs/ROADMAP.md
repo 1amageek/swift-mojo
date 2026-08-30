@@ -12,7 +12,7 @@
 | 3 — Types and ownership | buffers、strings、records、error envelope | Immutable/mutable borrows、opaque session、session-owned Float32 buffer verified through real local runtime; allocation/copy and standalone-buffer sanitizer gates remain; concrete device execution is downstream |
 | 4 — Async and callbacks | cancellation、completion、shutdown、reverse bridge | Research/Planned |
 | 5 — Model packages and distribution | external Mojo packages、multiple slices/targets、remote artifacts、CI matrix | External package、universal slices、clean consumer、and two-target linking verified; model/distribution work remains |
-| 6 — Accelerator bridge | device/buffer/event/transfer contracts | Runtime receipt、exact worker bundle、and callable ABI library bundle implemented; generic device conformance remains Research |
+| 6 — Accelerator bridge | direct-linked persistent worker、device/buffer/event/transfer contracts | Runtime receipt、generic executable bundle、and callable ABI library bundle implemented; ADR-0015 direct-linked protocol-v1 worker and generic device conformance are Planned |
 | 7 — Full inline Mojo syntax decision | custom input/preprocessor/compiler integration | Research |
 
 ```mermaid
@@ -269,13 +269,13 @@ flowchart LR
     D -->|Yes| N["Opaque session owner verified on CPU"]
     D -->|No| K["Use scoped host borrow"]
     N --> B["Session-owned Float32 buffer + sync host copy verified"]
-    B --> L["Exact runtime-linked ABI bundle verified"]
-    L --> G{"Need accelerator execution?"}
-    G -->|Yes| P["Use downstream device adapter"]
+    B --> L["Exact callable runtime-library bundle verified"]
+    L --> G{"Need persistent accelerator execution?"}
+    G -->|Yes| P["Build ADR-0015 direct-linked worker<br/>Planned"]
     G -->|No| C["Use synchronous session ABI"]
 ```
 
-The immutable-input functional slice is release-runtime verified. The mutable-output slice is local-runtime verified with mutation, status `7`, distinct empty failures, four bridge symbols, and no Mojo dynamic dependency. The session/resource slice is local-runtime verified with session and host-buffer create/copy/use/shutdown, post-create cleanup, exact-count and copy/synchronization-status failures, capability/schema/status/missing-handle/active-resource failures, concurrent/reentrant busy behavior, ten bridge symbols, no Mojo/KGEN dynamic dependency, and separate Swift/Mojo Address Sanitizer execution. The runtime-linked ABI bundle now proves exact exports、closure、relative loading、relocation、tamper rejection、and one real C function invocation without ambient loader paths. It does not establish downstream allocation、kernel dispatch、DMA、device synchronization、hardware availability、or async completion. A zero-copy claim remains blocked until copy/allocation counts are measured; standalone borrowed/mutable buffer families retain their own sanitizer gate.
+The immutable-input functional slice is release-runtime verified. The mutable-output slice is local-runtime verified with mutation, status `7`, distinct empty failures, four bridge symbols, and no Mojo dynamic dependency. The session/resource slice is local-runtime verified with session and host-buffer create/copy/use/shutdown, post-create cleanup, exact-count and copy/synchronization-status failures, capability/schema/status/missing-handle/active-resource failures, concurrent/reentrant busy behavior, ten bridge symbols, no Mojo/KGEN dynamic dependency, and separate Swift/Mojo Address Sanitizer execution. The callable runtime-library bundle proves exact exports、closure、relative loading、relocation、tamper rejection、and one real C function invocation without ambient loader paths. It is not the persistent-worker implementation. ADR-0015 selects a generated Mojo+C direct-linked executable with no runtime symbol loading; implementation and Apple/NVIDIA protocol execution remain pending. Neither artifact evidence establishes downstream allocation、kernel dispatch、DMA、device synchronization、hardware availability、or async completion. A zero-copy claim remains blocked until copy/allocation counts are measured; standalone borrowed/mutable buffer families retain their own sanitizer gate.
 
 ## 6. Phase 4 — Async and callbacks
 
@@ -349,7 +349,11 @@ Deliverables:
 - accelerator-aware artifact cache。
 - CPU reference path for correctness comparison。
 - receipt-bound executable worker bundle（implemented）。
-- receipt-bound callable ABI library bundle with exact exports and relative loader root（implemented with relocation/tamper/invocation fixture; real Mojo device session pending）。
+- receipt-bound callable ABI library bundle with exact exports and relative loader root（implemented as a separate packaging adapter with relocation/tamper/invocation fixture）。
+- internal `MojoRuntimeProtocolCore` target with protocol-v1 constants、Float32 payload schemas、and deterministic C/Swift codec rendering（planned; no public product）。
+- same-`MojoInputGraph` generated Mojo object + C worker object directly linked into `RuntimeWorkerBundle.json` schema-1 executable bundle（planned; no `dlopen`/`dlsym`/`dlclose`）。
+- worker `ready` identity admission、bounded fd-3 framing、one-session persistent lifecycle、graceful exactly-once teardown、hard-crash OS reclamation + clean-next-attempt evidence（planned）。
+- equal Apple/NVIDIA semantic identity with separate actual target closure/protocol execution receipts（planned; MAX backend name is target evidence only）。
 
 Concrete backend kernels、hardware qualification、UI rendering、scene lifecycleはこのPhaseに含みません。
 

@@ -40,7 +40,7 @@ flowchart LR
     M --> C
     C --> R["Schema-1 runtime receipt"]
     R --> V["Re-inspection and digest verification"]
-    V --> W["Future isolated worker linker / preflight"]
+    V --> W["ADR-0011 executable linker"]
 ```
 
 The preparer rejects:
@@ -103,9 +103,9 @@ The bundle layout, relative loader contract, macOS link, final Mach-O
 inspection, and clean-environment device-context execution are implemented by
 ADR-0011. Remaining gates are:
 
-1. Execute a generic accelerator fixture through the verified runtime closure
-   on a supported host.
-2. Prepare and verify the receipt natively on Linux ARM64, link the worker,
+1. Implement ADR-0015's generated Mojo+C direct-linked worker and execute its
+   protocol-v1 fixture through the verified runtime closure on a supported host.
+2. Prepare and verify the receipt natively on Linux ARM64, direct-link the worker,
    inspect ELF dependencies/RPATH, and execute success and failure paths.
 
 Concrete kernels, device performance, and hardware qualification belong to the

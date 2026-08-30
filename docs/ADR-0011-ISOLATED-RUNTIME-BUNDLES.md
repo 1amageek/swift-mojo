@@ -15,6 +15,12 @@ remains independent of an ambient Modular installation.
 The link-closed CPU artifact remains unchanged. Accelerator deployment is a
 separate attempt-owned process boundary.
 
+ADR-0015 composes this executable/loader/runtime-closure primitive into the
+selected persistent worker. Its `RuntimeWorkerBundle.json` is the sole worker
+execution contract and binds the canonical digests of this ADR's
+`RuntimeBundle.json` and `RuntimeReceipt.json`; the callable ADR-0013 library is
+not loaded by that worker.
+
 ## Decision
 
 `runtime-bundle-prepare` re-verifies the source receipt, copies exactly its
@@ -101,12 +107,13 @@ signing, redistribution, or native Linux behavior.
 
 ## Next gates
 
-1. Add a generic worker request/result and one-attempt lifecycle fixture without
-   loading the accelerator runtime into the application process.
-2. Add device-owned buffer, synchronization, cancellation, and ordered shutdown
-   semantics only through a versioned generic worker ABI.
-3. Execute a target-neutral accelerator fixture in the bundle.
-4. Reproduce receipt, bundle, ELF interpreter/RUNPATH, link, and execution on
+1. Implement ADR-0015's same-input-graph Mojo+C worker generation, direct link,
+   `RuntimeWorkerBundle.json`, and protocol-v1 `ready`/session lifecycle without
+   loading accelerator code into the application process.
+2. Execute the bounded fd-3 Float32 fixture, graceful teardown, hard-kill/app
+   survival, and clean-next-attempt paths on Apple.
+3. Reproduce receipt, bundle, ELF interpreter/RUNPATH, direct link, protocol,
+   lifecycle, and execution on
    native Linux ARM64.
 
 Product worker protocols, concrete kernels, and hardware qualification remain
