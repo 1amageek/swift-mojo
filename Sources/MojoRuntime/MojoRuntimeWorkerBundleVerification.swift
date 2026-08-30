@@ -111,4 +111,48 @@ public struct MojoRuntimeWorkerBundleVerification: Equatable, Sendable {
         self.targetClosureDigest = targetClosureDigest
         self.verifiedBundleURL = verifiedBundleURL.standardizedFileURL
     }
+
+    package func hasSameRuntimeSemantics(
+        as other: MojoRuntimeWorkerBundleVerification
+    ) -> Bool {
+        // Rebase only the private location before using synthesized equality so
+        // every stored semantic field remains part of admission.
+        MojoRuntimeWorkerBundleVerification(
+            schemaVersion: schemaVersion,
+            bundleDigest: bundleDigest,
+            executionContractDigest: executionContractDigest,
+            workerABIVersion: workerABIVersion,
+            sourceGraphDigest: sourceGraphDigest,
+            sourceGraphIdentifier: sourceGraphIdentifier,
+            inputGraphDigest: inputGraphDigest,
+            inputGraphIdentifier: inputGraphIdentifier,
+            generationPipelineDigest: generationPipelineDigest,
+            bindingTableDigest: bindingTableDigest,
+            bindings: bindings,
+            generatedMojoSourceDigest: generatedMojoSourceDigest,
+            generatedCWorkerSourceDigest: generatedCWorkerSourceDigest,
+            sourceMapDigest: sourceMapDigest,
+            generatedMojoObjectDigest: generatedMojoObjectDigest,
+            generatedCWorkerObjectDigest: generatedCWorkerObjectDigest,
+            compilerVersion: compilerVersion,
+            protocolVersion: protocolVersion,
+            protocolDescriptor: protocolDescriptor,
+            protocolHeaderByteCount: protocolHeaderByteCount,
+            protocolByteOrder: protocolByteOrder,
+            maximumFramePayloadBytes: maximumFramePayloadBytes,
+            maximumInFlightRequests: maximumInFlightRequests,
+            protocolMessageKinds: protocolMessageKinds,
+            runtimeBundleManifestDigest: runtimeBundleManifestDigest,
+            runtimeReceiptDigest: runtimeReceiptDigest,
+            executable: executable,
+            libraries: libraries,
+            loaderSearchPath: loaderSearchPath,
+            systemDependencies: systemDependencies,
+            programInterpreter: programInterpreter,
+            target: target,
+            artifactIdentity: artifactIdentity,
+            targetClosureDigest: targetClosureDigest,
+            verifiedBundleURL: other.verifiedBundleURL
+        ) == other
+    }
 }

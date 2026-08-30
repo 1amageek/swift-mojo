@@ -1,7 +1,8 @@
 # ADR-0015: Direct-linked persistent accelerator workers
 
-- Status: Accepted; W1 protocol/render and W2 bundle/verification implemented,
-  W3 client and host execution pending
+- Status: Accepted; W1 protocol/render, W2 bundle/verification, and W3 private
+  startup admission implemented; W3 public session/lifecycle and host execution
+  pending
 - Date: 2026-08-30
 - Scope: Generated attempt-owned executable workers for runtime-dependent Mojo
   bindings

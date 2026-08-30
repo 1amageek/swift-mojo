@@ -11,6 +11,7 @@ let package = Package(
     products: [
         .library(name: "Mojo", targets: ["Mojo"]),
         .library(name: "MojoRuntime", targets: ["MojoRuntime"]),
+        .library(name: "MojoRuntimeWorker", targets: ["MojoRuntimeWorker"]),
         .plugin(name: "MojoBuildPlugin", targets: ["MojoBuildPlugin"]),
         .plugin(name: "MojoCommandPlugin", targets: ["MojoCommandPlugin"]),
     ],
@@ -100,6 +101,15 @@ let package = Package(
         .target(
             name: "MojoRuntime",
             dependencies: ["MojoArtifactCore"],
+            exclude: ["DESIGN.md"]
+        ),
+        .target(
+            name: "MojoRuntimeWorker",
+            dependencies: [
+                "MojoRuntime",
+                "MojoPOSIXSupport",
+                "MojoRuntimeProtocolCore",
+            ],
             exclude: ["DESIGN.md"]
         ),
         .binaryTarget(
@@ -200,6 +210,16 @@ let package = Package(
                 "MojoArtifactCore",
                 "MojoCompilerCore",
                 "MojoRuntime",
+            ]
+        ),
+        .testTarget(
+            name: "MojoRuntimeWorkerTests",
+            dependencies: [
+                "MojoCompilerCore",
+                "MojoRuntime",
+                "MojoRuntimeProtocolCore",
+                "MojoRuntimeWorker",
+                "MojoPOSIXSupport",
             ]
         ),
         .testTarget(

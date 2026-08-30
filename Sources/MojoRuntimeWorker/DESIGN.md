@@ -2,7 +2,7 @@
 
 ## Purpose and Scope
 
-`MojoRuntimeWorker` is the planned public SwiftPM product that owns W3, the
+`MojoRuntimeWorker` is the public SwiftPM product that owns W3, the
 generic client and lifecycle boundary for ADR-0015 direct-linked workers. Its
 parent is [`DESIGN.md`](../../DESIGN.md); it has no child component designs.
 
@@ -10,6 +10,13 @@ It consumes the trusted immutable worker projection produced by the read-only
 [`MojoRuntime`](../MojoRuntime/DESIGN.md) verifier. It does not author or verify
 an original artifact, expose a general process launcher, or define model,
 training, device-selection, budget, telemetry, checkpoint, or safety semantics.
+
+The implemented RT.3-B boundary exposes trusted-projection construction and
+opaque verified binding tokens. Its package-internal startup admission owns the
+private copy, fresh verification, spawn, bounded first-frame read, and complete
+`ready` identity check. The scoped public attempt/session API and its
+post-`ready` lifecycle are added by RT.3-C; no incomplete public live-session
+surface is exposed before that contract is implemented.
 
 ## Responsibilities and Boundaries
 
@@ -28,6 +35,18 @@ environment mutation, or arbitrary binding identifiers.
 The consuming package owns which verified artifact is allowed, the mapping from
 domain operations to verified binding records, attempt policy, budgets,
 telemetry interpretation, checkpoint commit/rollback, and acceptance evidence.
+
+The current public construction surface is:
+
+```swift
+let worker = try MojoRuntimeWorker(verification: verification)
+let factory = try worker.sessionFactory(for: verifiedFactoryBinding)
+let operation = try worker.float32Operation(for: verifiedOperationBinding)
+```
+
+The returned token values have no public initializer or raw binding identifier
+property. W3 validates their full binding record and worker-bundle provenance
+again at the package-internal execution boundary.
 
 ## Related Designs
 
