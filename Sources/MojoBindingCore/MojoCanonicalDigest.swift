@@ -41,6 +41,17 @@ package enum MojoCanonicalDigest {
     return identifier & 0x7fff_ffff_ffff_ffff
   }
 
+  package static func identifier(fromSHA256Hex digest: String) -> UInt64? {
+    guard digest.utf8.count == 64,
+          digest.utf8.allSatisfy({ byte in
+            (byte >= 48 && byte <= 57) || (byte >= 97 && byte <= 102)
+          }),
+          let prefix = UInt64(digest.prefix(16), radix: 16) else {
+      return nil
+    }
+    return prefix & 0x7fff_ffff_ffff_ffff
+  }
+
   package static func file(at url: URL) throws -> String {
     let data = try Data(contentsOf: url, options: .mappedIfSafe)
     return digestHex(data)

@@ -11,6 +11,32 @@ package struct MojoRuntimeBundleManifest: Codable, Equatable, Sendable {
             self.relativePath = relativePath
             self.digest = digest
         }
+
+        private enum CodingKeys: String, CodingKey, CaseIterable {
+            case relativePath
+            case digest
+        }
+
+        package init(from decoder: Decoder) throws {
+            try requireRuntimeBundleKeys(
+                required: Set(CodingKeys.allCases.map(\.stringValue)),
+                allowed: Set(CodingKeys.allCases.map(\.stringValue)),
+                decoder: decoder
+            )
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                relativePath: try container.decode(
+                    String.self,
+                    forKey: .relativePath
+                ),
+                digest: try container.decode(String.self, forKey: .digest)
+            )
+            guard isRuntimeBundleDigest(digest) else {
+                throw MojoArtifactError.invalidRuntimeBundle(
+                    "file digest is not a lowercase SHA-256 value"
+                )
+            }
+        }
     }
 
     package static let currentSchemaVersion = 1
@@ -25,6 +51,17 @@ package struct MojoRuntimeBundleManifest: Codable, Equatable, Sendable {
     package let executable: File
     package let libraries: [File]
     package let systemDependencies: [String]
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case schemaVersion
+        case receiptDigest
+        case target
+        case loaderSearchPath
+        case programInterpreter
+        case executable
+        case libraries
+        case systemDependencies
+    }
 
     package init(
         receiptDigest: String,
@@ -91,5 +128,139 @@ package struct MojoRuntimeBundleManifest: Codable, Equatable, Sendable {
             )
         }
         return manifest
+    }
+
+    package init(from decoder: Decoder) throws {
+        let required = Set(
+            CodingKeys.allCases.filter { $0 != .programInterpreter }
+                .map(\.stringValue)
+        )
+        try requireRuntimeBundleKeys(
+            required: required,
+            allowed: Set(CodingKeys.allCases.map(\.stringValue)),
+            decoder: decoder
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decode(
+            Int.self,
+            forKey: .schemaVersion
+        )
+        guard schemaVersion == Self.currentSchemaVersion else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "unsupported schema version \(schemaVersion)"
+            )
+        }
+        let receiptDigest = try container.decode(
+            String.self,
+            forKey: .receiptDigest
+        )
+        guard isRuntimeBundleDigest(receiptDigest) else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "receipt digest is not a lowercase SHA-256 value"
+            )
+        }
+        let target = try container.decode(
+            RuntimeBundleTargetRecord.self,
+            forKey: .target
+        ).target
+        let libraries = try container.decode([File].self, forKey: .libraries)
+        guard libraries == libraries.sorted(by: {
+            $0.relativePath < $1.relativePath
+        }), Set(libraries.map(\.relativePath)).count == libraries.count else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "runtime library files must use unique canonical path order"
+            )
+        }
+        let systemDependencies = try container.decode(
+            [String].self,
+            forKey: .systemDependencies
+        )
+        guard systemDependencies == systemDependencies.sorted(),
+              Set(systemDependencies).count == systemDependencies.count else {
+            throw MojoArtifactError.invalidRuntimeBundle(
+                "system dependencies must use unique canonical order"
+            )
+        }
+        self.init(
+            receiptDigest: receiptDigest,
+            target: target,
+            loaderSearchPath: try container.decode(
+                String.self,
+                forKey: .loaderSearchPath
+            ),
+            programInterpreter: try container.decodeIfPresent(
+                String.self,
+                forKey: .programInterpreter
+            ),
+            executable: try container.decode(File.self, forKey: .executable),
+            libraries: libraries,
+            systemDependencies: systemDependencies
+        )
+    }
+}
+
+private struct RuntimeBundleDynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
+private struct RuntimeBundleTargetRecord: Decodable {
+    let target: MojoTargetConfiguration
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case triple
+        case cpu
+        case accelerator
+    }
+
+    init(from decoder: Decoder) throws {
+        try requireRuntimeBundleKeys(
+            required: [CodingKeys.triple.stringValue, CodingKeys.cpu.stringValue],
+            allowed: Set(CodingKeys.allCases.map(\.stringValue)),
+            decoder: decoder
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.target = try MojoTargetConfiguration(
+            triple: container.decode(String.self, forKey: .triple),
+            cpu: container.decode(String.self, forKey: .cpu),
+            accelerator: container.decodeIfPresent(
+                String.self,
+                forKey: .accelerator
+            )
+        )
+    }
+}
+
+private func requireRuntimeBundleKeys(
+    required: Set<String>,
+    allowed: Set<String>,
+    decoder: Decoder
+) throws {
+    let container = try decoder.container(
+        keyedBy: RuntimeBundleDynamicCodingKey.self
+    )
+    let actual = Set(container.allKeys.map(\.stringValue))
+    let missing = required.subtracting(actual)
+    let unknown = actual.subtracting(allowed)
+    guard missing.isEmpty, unknown.isEmpty else {
+        throw MojoArtifactError.invalidRuntimeBundle(
+            "closed record key mismatch; missing=\(missing.sorted()), unknown=\(unknown.sorted())"
+        )
+    }
+}
+
+private func isRuntimeBundleDigest(_ value: String) -> Bool {
+    value.utf8.count == 64 && value.utf8.allSatisfy { byte in
+        (byte >= 48 && byte <= 57) || (byte >= 97 && byte <= 102)
     }
 }

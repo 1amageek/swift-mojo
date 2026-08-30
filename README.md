@@ -335,8 +335,10 @@ target, executable, and runtime-library closures. A reported MAX backend name
 is target execution evidence only, not artifact identity. Graceful shutdown
 destroys live session/device handles exactly once; a hard in-flight deadline or
 crash relies on OS process reclamation, rejects partial output, and requires a
-clean next attempt rather than claiming a destructor ran. This ADR-0015 path is
-designed but not yet implemented.
+clean next attempt rather than claiming a destructor ran. The ADR-0015 W1
+protocol/render and W2 direct-linked bundle/read-only verification paths are
+implemented. W3 process/session execution and actual Apple/NVIDIA host
+acceptance remain pending.
 
 Artifact selectors import the read-only `MojoRuntime` product and call a
 `MojoRuntimeBundleVerifying` implementation before accepting a relocated bundle.
@@ -609,7 +611,7 @@ The committed [`Examples/ExternalMojo`](Examples/ExternalMojo) fixture intention
 | `MojoBindingCore` | SwiftSyntax scanning, P1 DSL semantics, and canonical binding/source graphs |
 | `MojoCompilerCore` | Mojo executable discovery, version inspection, and target-aware object generation |
 | `MojoArtifactCore` | Input graphs, source maps, artifact sets, preparation, inspection, doctor checks, build verification, and release gates |
-| `MojoRuntimeProtocolCore` | Planned package-internal authority for protocol-v1 constants, payload schemas, validation, generated C endpoint rendering, and Swift codec/types; no public product or launcher |
+| `MojoRuntimeProtocolCore` | Package-internal authority for protocol-v1 constants, payload schemas, validation, generated C endpoint rendering, and Swift codec/types; no public product or launcher |
 | `MojoRuntime` | Public read-only verification and immutable projections for executable, callable, and worker bundles; it has no launcher or loading authority |
 | `MojoRuntimeWorker` | Planned public generic client for verified worker projections; owns private staging/reverification, fd-3 process transport, bounded generic session invocation, graceful shutdown, and terminate/reap recovery without exposing filesystem or POSIX details |
 | `MojoCommandCore` | Testable command parsing, text/JSON output, and Core orchestration |

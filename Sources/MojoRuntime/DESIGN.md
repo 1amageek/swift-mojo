@@ -6,9 +6,8 @@
 artifacts. Its parent is [`DESIGN.md`](../../DESIGN.md). It has no child
 component designs.
 
-It currently verifies ADR-0011 executable bundles and ADR-0013 callable-library
-bundles. Under [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md)
-it will add W2 read-only verification for the direct-linked worker bundle.
+It verifies ADR-0011 executable bundles, ADR-0013 callable-library bundles, and
+the ADR-0015 W2 direct-linked worker bundle.
 
 ## Responsibilities and Boundaries
 
@@ -51,7 +50,7 @@ consumer expected identity + staged managed root
   manifest, file digests, target, runtime closure, and loader metadata.
 - Executable, callable-library, and worker bundles have distinct protocols and
   result types; a consumer cannot admit one kind as another.
-- The planned `RuntimeWorkerBundle.json` verification projects schema/protocol
+- `RuntimeWorkerBundle.json` verification projects schema/protocol
   version, semantic identity, generated-input digests, target closure, relative
   executable, runtime closure, and exact binding records.
 - It recomputes the pre-link `executionContractDigest`, verifies its post-link

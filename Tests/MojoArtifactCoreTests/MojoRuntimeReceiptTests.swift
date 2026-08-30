@@ -403,6 +403,32 @@ struct MojoRuntimeReceiptTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func rejectsLinuxSystemDependencyLinkerOptionInjection() throws {
+        try withRuntimeFixture { fixture in
+            let target = try MojoTargetConfiguration(
+                triple: "aarch64-unknown-linux-gnu",
+                cpu: "generic",
+                accelerator: "test-accelerator"
+            )
+
+            #expect(
+                throws: MojoArtifactError.invalidArguments(
+                    "Explicit system dependencies must be bare Linux SONAMEs"
+                )
+            ) {
+                _ = try MojoRuntimeReceiptOptions(
+                    objectURL: fixture.objectURL,
+                    libraryURLs: fixture.libraryURLs,
+                    target: target,
+                    allowedSystemDependencies: [
+                        "libdevice.so.1,-z,untrusted-linker-option",
+                    ]
+                )
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func rejectsRuntimeObjectArchitectureMismatch() throws {
         try withRuntimeFixture { fixture in
             #expect(

@@ -77,6 +77,20 @@ package struct MojoOutputTransaction: Sendable {
         outputURL: URL,
         access: ExclusiveAccess
     ) throws {
+        _ = try commit(
+            stagingURL: stagingURL,
+            outputURL: outputURL,
+            access: access,
+            verification: { _ in () }
+        )
+    }
+
+    package func commit<Result>(
+        stagingURL: URL,
+        outputURL: URL,
+        access: ExclusiveAccess,
+        verification: (URL) throws -> Result
+    ) throws -> Result {
         guard access.outputURL == outputURL.standardizedFileURL else {
             throw MojoArtifactError.outputLockScopeMismatch(
                 expected: access.outputURL.path,
@@ -90,19 +104,37 @@ package struct MojoOutputTransaction: Sendable {
         }
 
         guard fileManager.fileExists(atPath: outputURL.path) else {
-            try fileManager.moveItem(at: stagingURL, to: outputURL)
-            return
+            do {
+                try fileManager.moveItem(at: stagingURL, to: outputURL)
+                return try verification(outputURL)
+            } catch {
+                let primaryError = error
+                do {
+                    if fileManager.fileExists(atPath: outputURL.path) {
+                        try fileManager.removeItem(at: outputURL)
+                    }
+                } catch let recoveryError {
+                    throw MojoArtifactError.commandFailed(
+                        command: "restore generated output transaction",
+                        status: -1,
+                        diagnostic: "Primary error: \(primaryError); recovery failure: remove unverified output: \(recoveryError)"
+                    )
+                }
+                throw primaryError
+            }
         }
 
         let backupURL = outputURL.deletingLastPathComponent()
             .appendingPathComponent(
                 ".\(outputURL.lastPathComponent).backup-\(UUID().uuidString)",
                 isDirectory: true
-            )
+        )
         try fileManager.moveItem(at: outputURL, to: backupURL)
         do {
             try fileManager.moveItem(at: stagingURL, to: outputURL)
+            let result = try verification(outputURL)
             try fileManager.removeItem(at: backupURL)
+            return result
         } catch {
             let primaryError = error
             var recoveryFailures: [String] = []

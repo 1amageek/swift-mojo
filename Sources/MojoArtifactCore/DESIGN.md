@@ -7,7 +7,7 @@ into verified native artifacts. Its parent is [`DESIGN.md`](../../DESIGN.md).
 It has no child component designs.
 
 This design covers static artifacts, accelerator runtime receipts, executable
-runtime bundles, callable runtime-library bundles, and the planned
+runtime bundles, callable runtime-library bundles, and the implemented W1/W2
 direct-linked persistent worker bundle selected by
 [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md).
 
@@ -46,9 +46,9 @@ flowchart TB
     P["MojoRuntimeProtocolCore"] --> R
     R --> SA["Static artifact transaction"]
     R --> CA["Callable-library transaction"]
-    R --> WM["Planned worker Mojo object"]
-    R --> WC["Planned worker C object"]
-    RR["Runtime receipt"] --> WL["Planned direct executable link"]
+    R --> WM["Worker Mojo object"]
+    R --> WC["Worker C object"]
+    RR["Runtime receipt"] --> WL["Direct executable link"]
     WM --> WL
     WC --> WL
     WL --> WV["Worker-specific closed-tree verification"]
@@ -73,7 +73,7 @@ flowchart TB
 - `RuntimeWorkerBundle.json` schema 1 is distinct from runtime-bundle schema 1 and
   runtime-library-bundle schema 3. Unknown/missing fields and unexpected files
   fail closed.
-- The planned worker contains its generated Mojo and C objects by direct link.
+- The worker contains its generated Mojo and C objects by direct link.
   A callable primary library and dynamic symbol lookup are absent.
 - Apple and NVIDIA worker artifacts share one semantic input identity but have
   independent target/compiler/object/runtime/executable closure records.

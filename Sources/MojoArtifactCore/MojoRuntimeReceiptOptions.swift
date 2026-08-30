@@ -49,6 +49,7 @@ package struct MojoRuntimeReceiptOptions: Equatable, Sendable {
             guard allowedSystemDependencies.allSatisfy({ dependency in
                 dependency == URL(fileURLWithPath: dependency).lastPathComponent
                     && !dependency.hasPrefix("@")
+                    && Self.isSafeLinuxSONAME(dependency)
             }) else {
                 throw MojoArtifactError.invalidArguments(
                     "Explicit system dependencies must be bare Linux SONAMEs"
@@ -59,5 +60,28 @@ package struct MojoRuntimeReceiptOptions: Equatable, Sendable {
         self.libraryURLs = normalizedLibraries
         self.target = target
         self.allowedSystemDependencies = allowedSystemDependencies
+    }
+
+    private static func isSafeLinuxSONAME(_ value: String) -> Bool {
+        let bytes = value.utf8
+        guard !bytes.isEmpty,
+              bytes.count <= 255,
+              let first = bytes.first,
+              isASCIILetterOrDigit(first) else {
+            return false
+        }
+        return bytes.allSatisfy { byte in
+            isASCIILetterOrDigit(byte)
+                || byte == 43
+                || byte == 45
+                || byte == 46
+                || byte == 95
+        }
+    }
+
+    private static func isASCIILetterOrDigit(_ byte: UInt8) -> Bool {
+        (byte >= 48 && byte <= 57)
+            || (byte >= 65 && byte <= 90)
+            || (byte >= 97 && byte <= 122)
     }
 }

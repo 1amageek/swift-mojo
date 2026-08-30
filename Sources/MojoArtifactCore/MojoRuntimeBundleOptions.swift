@@ -18,11 +18,7 @@ package struct MojoRuntimeBundleOptions: Equatable, Sendable {
         target: MojoTargetConfiguration,
         allowedSystemDependencies: Set<String> = []
     ) throws {
-        guard Self.isPortableExecutableName(executableName) else {
-            throw MojoArtifactError.invalidArguments(
-                "The runtime executable name must be an ASCII identifier containing only letters, digits, underscores, or hyphens"
-            )
-        }
+        try Self.validateExecutableName(executableName)
         let receiptOptions = try MojoRuntimeReceiptOptions(
             objectURL: objectURL,
             libraryURLs: libraryURLs,
@@ -59,6 +55,14 @@ package struct MojoRuntimeBundleOptions: Equatable, Sendable {
                 || (codeUnit >= 48 && codeUnit <= 57)
                 || (codeUnit >= 65 && codeUnit <= 90)
                 || (codeUnit >= 97 && codeUnit <= 122)
+        }
+    }
+
+    package static func validateExecutableName(_ value: String) throws {
+        guard isPortableExecutableName(value) else {
+            throw MojoArtifactError.invalidArguments(
+                "The runtime executable name must be an ASCII identifier containing only letters, digits, underscores, or hyphens"
+            )
         }
     }
 }

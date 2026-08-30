@@ -14,16 +14,32 @@ package struct MojoRuntimeExecutableLinker: MojoRuntimeExecutableLinking, Sendab
     }
 
     package func link(
-        objectURL: URL,
+        objectURLs: [URL],
         libraryURLs: [URL],
         outputURL: URL,
         target: MojoTargetConfiguration,
         systemDependencies: [String]
     ) throws {
+        guard !objectURLs.isEmpty else {
+            throw MojoArtifactError.invalidArguments(
+                "At least one generated object is required to link a runtime executable"
+            )
+        }
+        let canonicalObjectURLs = try objectURLs.map { objectURL in
+            try MojoRegularFile.validate(at: objectURL)
+            return objectURL.resolvingSymlinksInPath().standardizedFileURL
+        }
+        guard Set(canonicalObjectURLs.map(\.path)).count
+                == canonicalObjectURLs.count else {
+            throw MojoArtifactError.invalidArguments(
+                "Runtime executable object paths must be unique"
+            )
+        }
         let tool = try clang(target: target)
         var arguments = tool.prefixArguments + [
-            "-target", target.triple, objectURL.path,
+            "-target", target.triple,
         ]
+        arguments.append(contentsOf: canonicalObjectURLs.map(\.path))
         arguments.append(contentsOf: libraryURLs.map(\.path))
         if target.triple.lowercased().contains("-linux-") {
             let explicitSystemLibraries = systemDependencies.filter {
@@ -67,6 +83,7 @@ package struct MojoRuntimeExecutableLinker: MojoRuntimeExecutableLinking, Sendab
     private func clang(
         target: MojoTargetConfiguration
     ) throws -> (executablePath: String, prefixArguments: [String]) {
+        _ = try MojoNativeArtifactAdapter(target: target)
         if let path = environment["SWIFT_MOJO_CLANG"] {
             guard NSString(string: path).isAbsolutePath else {
                 throw MojoArtifactError.invalidArguments(

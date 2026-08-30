@@ -3,7 +3,7 @@ import MojoCompilerCore
 
 package protocol MojoRuntimeExecutableLinking: Sendable {
     func link(
-        objectURL: URL,
+        objectURLs: [URL],
         libraryURLs: [URL],
         outputURL: URL,
         target: MojoTargetConfiguration,

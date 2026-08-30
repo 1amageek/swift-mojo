@@ -18,6 +18,9 @@ package struct MojoCommandJSONOutput: Codable, Equatable, Sendable {
     package let bundlePath: String?
     package let executable: String?
     package let library: String?
+    package let protocolVersion: Int?
+    package let executionContractDigest: String?
+    package let maximumFramePayloadBytes: UInt64?
 
     package init(
         success: Bool,
@@ -36,7 +39,10 @@ package struct MojoCommandJSONOutput: Codable, Equatable, Sendable {
         runtimeLibraries: [String]? = nil,
         bundlePath: String? = nil,
         executable: String? = nil,
-        library: String? = nil
+        library: String? = nil,
+        protocolVersion: Int? = nil,
+        executionContractDigest: String? = nil,
+        maximumFramePayloadBytes: UInt64? = nil
     ) {
         self.success = success
         self.command = command
@@ -55,5 +61,8 @@ package struct MojoCommandJSONOutput: Codable, Equatable, Sendable {
         self.bundlePath = bundlePath
         self.executable = executable
         self.library = library
+        self.protocolVersion = protocolVersion
+        self.executionContractDigest = executionContractDigest
+        self.maximumFramePayloadBytes = maximumFramePayloadBytes
     }
 }

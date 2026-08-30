@@ -61,9 +61,10 @@ package struct MojoRuntimeBundleBuilder: Sendable {
                 for: options.outputDirectoryURL
             )
             do {
-                let manifest = try prepare(
+                let manifest = try prepareContents(
                     receipt: receipt,
                     options: options,
+                    additionalObjectURLs: [],
                     staging: staging
                 )
                 try transaction.commit(
@@ -98,9 +99,10 @@ package struct MojoRuntimeBundleBuilder: Sendable {
         }
     }
 
-    private func prepare(
+    package func prepareContents(
         receipt: MojoRuntimeDependencyReceipt,
         options: MojoRuntimeBundleOptions,
+        additionalObjectURLs: [URL] = [],
         staging: URL
     ) throws -> MojoRuntimeBundleManifest {
         let fileManager = FileManager.default
@@ -144,7 +146,7 @@ package struct MojoRuntimeBundleBuilder: Sendable {
             )
         }
         try linker.link(
-            objectURL: options.objectURL,
+            objectURLs: [options.objectURL] + additionalObjectURLs,
             libraryURLs: stagedLibraries,
             outputURL: executableURL,
             target: options.target,

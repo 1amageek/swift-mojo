@@ -53,6 +53,17 @@ package struct MojoCommandRunner: Sendable {
             return URL(fileURLWithPath: value).standardizedFileURL
         }
 
+        func requiredPositiveUInt64(_ option: String) throws -> UInt64 {
+            guard let rawValue = value(option),
+                  let parsed = UInt64(rawValue),
+                  parsed > 0 else {
+                throw MojoArtifactError.invalidArguments(
+                    "\(option) must be a positive unsigned integer"
+                )
+            }
+            return parsed
+        }
+
         func packageLayoutIfPresent(
             currentDirectoryURL: URL
         ) throws -> MojoPackageLayout? {
@@ -179,6 +190,16 @@ package struct MojoCommandRunner: Sendable {
             )
         case "runtime-library-verify":
             return try verifyRuntimeLibrary(
+                options: options,
+                format: format
+            )
+        case "runtime-worker-prepare":
+            return try prepareRuntimeWorker(
+                options: options,
+                format: format
+            )
+        case "runtime-worker-verify":
+            return try verifyRuntimeWorker(
                 options: options,
                 format: format
             )
@@ -787,56 +808,13 @@ package struct MojoCommandRunner: Sendable {
                 "runtime-library-prepare requires --target-accelerator"
             )
         }
-        let layout = try options.packageLayoutIfPresent(
-            currentDirectoryURL: currentDirectoryURL
+        let prepareOptions = try runtimePrepareOptions(
+            options: options,
+            outputURL: outputURL,
+            runtimeTarget: runtimeTarget,
+            command: "runtime-library-prepare",
+            standaloneIdentity: "StandaloneRuntime"
         )
-        let prepareOptions: MojoPrepareOptions
-        if let layout {
-            guard options.urls("--mojo-package").isEmpty,
-                  options.value("--artifact-id") == nil else {
-                throw MojoArtifactError.invalidArguments(
-                    "Package runtime-library mode derives artifact identity and Mojo packages"
-                )
-            }
-            let sourceURLs = try resolvedPackageSources(
-                options: options,
-                layout: layout
-            )
-            let configuredTarget = try optionalConfiguration(
-                packageRootURL: layout.packageRootURL
-            )?.target(named: layout.targetName)
-            prepareOptions = try MojoPrepareOptions(
-                sourceURLs: sourceURLs,
-                sourceRootURL: layout.packageRootURL,
-                externalPackages: layout.externalPackages(
-                    names: configuredTarget?.mojoPackages ?? []
-                ),
-                outputDirectoryURL: outputURL,
-                identity: layout.identity,
-                targets: [runtimeTarget],
-                expectedCompilerVersion: configuredTarget?.compilerVersion
-            )
-        } else {
-            let externalPackages = try options.urls("--mojo-package").map {
-                try MojoExternalPackage(
-                    name: $0.lastPathComponent,
-                    rootURL: $0
-                )
-            }
-            prepareOptions = try MojoPrepareOptions(
-                sourceURLs: options.urls("--source"),
-                sourceRootURL: options.value("--source-root").map {
-                    URL(fileURLWithPath: $0)
-                },
-                externalPackages: externalPackages,
-                outputDirectoryURL: outputURL,
-                identity: MojoArtifactIdentity(
-                    targetName: options.value("--artifact-id")
-                        ?? "StandaloneRuntime"
-                ),
-                targets: [runtimeTarget]
-            )
-        }
         let manifest = try MojoRuntimeLibraryArtifactPreparer(
             environment: environment
         ).prepare(
@@ -898,6 +876,172 @@ package struct MojoCommandRunner: Sendable {
                 library: manifest.library.relativePath
             ),
             format: format
+        )
+    }
+
+    private func prepareRuntimeWorker(
+        options: ParsedOptions,
+        format: OutputFormat
+    ) throws -> MojoCommandResult {
+        try options.rejectUnknown(
+            allowed: [
+                "--artifact-id", "--executable-name", "--format",
+                "--maximum-frame-payload-bytes", "--mojo-package", "--output",
+                "--package-root", "--runtime-library", "--source",
+                "--source-root", "--system-library", "--target",
+                "--target-accelerator", "--target-cpu", "--target-triple",
+            ]
+        )
+        let outputURL = try options.requiredURL("--output")
+        let runtimeTarget = try target(options: options)
+        guard runtimeTarget.accelerator != nil else {
+            throw MojoArtifactError.invalidArguments(
+                "runtime-worker-prepare requires --target-accelerator"
+            )
+        }
+        guard let executableName = options.value("--executable-name") else {
+            throw MojoArtifactError.invalidArguments(
+                "Missing required option --executable-name"
+            )
+        }
+        let maximumFramePayloadBytes = try options.requiredPositiveUInt64(
+            "--maximum-frame-payload-bytes"
+        )
+        let prepareOptions = try runtimePrepareOptions(
+            options: options,
+            outputURL: outputURL,
+            runtimeTarget: runtimeTarget,
+            command: "runtime-worker-prepare",
+            standaloneIdentity: "StandaloneRuntimeWorker"
+        )
+        let manifest = try MojoRuntimeWorkerArtifactPreparer(
+            environment: environment
+        ).prepare(
+            options: prepareOptions,
+            runtimeLibraryURLs: options.urls("--runtime-library"),
+            allowedSystemDependencies: Set(
+                options.values["--system-library"] ?? []
+            ),
+            executableName: executableName,
+            maximumFramePayloadBytes: maximumFramePayloadBytes
+        )
+        let message = "Prepared generated runtime worker \(manifest.digest) at \(outputURL.path)."
+        return try success(
+            command: "runtime-worker-prepare",
+            message: message,
+            json: MojoCommandJSONOutput(
+                success: true,
+                command: "runtime-worker-prepare",
+                message: message,
+                target: try manifest.targetClosure.target.identity,
+                module: manifest.targetClosure.artifactIdentity.moduleName,
+                compilerVersion: manifest.generatedInputs.compilerVersion,
+                inputGraphDigest: manifest.semanticIdentity.inputGraphDigest,
+                artifactDigest: manifest.digest,
+                runtimeLibraries: manifest.runtimeBundle.libraries.map {
+                    URL(fileURLWithPath: $0.relativePath).lastPathComponent
+                },
+                bundlePath: outputURL.path,
+                executable: manifest.runtimeBundle.executable.relativePath,
+                protocolVersion: Int(manifest.protocolRecord.version),
+                executionContractDigest: manifest.executionContractDigest,
+                maximumFramePayloadBytes: manifest.protocolRecord
+                    .maximumFramePayloadBytes
+            ),
+            format: format
+        )
+    }
+
+    private func verifyRuntimeWorker(
+        options: ParsedOptions,
+        format: OutputFormat
+    ) throws -> MojoCommandResult {
+        try options.rejectUnknown(allowed: ["--bundle", "--format"])
+        let bundleURL = try options.requiredURL("--bundle")
+        let manifest = try MojoRuntimeWorkerBundleVerifier(
+            environment: environment
+        ).verify(bundleURL: bundleURL)
+        let message = "Verified generated runtime worker \(manifest.digest) at \(bundleURL.path)."
+        return try success(
+            command: "runtime-worker-verify",
+            message: message,
+            json: MojoCommandJSONOutput(
+                success: true,
+                command: "runtime-worker-verify",
+                message: message,
+                target: try manifest.targetClosure.target.identity,
+                module: manifest.targetClosure.artifactIdentity.moduleName,
+                compilerVersion: manifest.generatedInputs.compilerVersion,
+                inputGraphDigest: manifest.semanticIdentity.inputGraphDigest,
+                artifactDigest: manifest.digest,
+                runtimeLibraries: manifest.runtimeBundle.libraries.map {
+                    URL(fileURLWithPath: $0.relativePath).lastPathComponent
+                },
+                bundlePath: bundleURL.path,
+                executable: manifest.runtimeBundle.executable.relativePath,
+                protocolVersion: Int(manifest.protocolRecord.version),
+                executionContractDigest: manifest.executionContractDigest,
+                maximumFramePayloadBytes: manifest.protocolRecord
+                    .maximumFramePayloadBytes
+            ),
+            format: format
+        )
+    }
+
+    private func runtimePrepareOptions(
+        options: ParsedOptions,
+        outputURL: URL,
+        runtimeTarget: MojoTargetConfiguration,
+        command: String,
+        standaloneIdentity: String
+    ) throws -> MojoPrepareOptions {
+        let layout = try options.packageLayoutIfPresent(
+            currentDirectoryURL: currentDirectoryURL
+        )
+        if let layout {
+            guard options.urls("--mojo-package").isEmpty,
+                  options.value("--artifact-id") == nil else {
+                throw MojoArtifactError.invalidArguments(
+                    "Package \(command) mode derives artifact identity and Mojo packages"
+                )
+            }
+            let sourceURLs = try resolvedPackageSources(
+                options: options,
+                layout: layout
+            )
+            let configuredTarget = try optionalConfiguration(
+                packageRootURL: layout.packageRootURL
+            )?.target(named: layout.targetName)
+            return try MojoPrepareOptions(
+                sourceURLs: sourceURLs,
+                sourceRootURL: layout.packageRootURL,
+                externalPackages: layout.externalPackages(
+                    names: configuredTarget?.mojoPackages ?? []
+                ),
+                outputDirectoryURL: outputURL,
+                identity: layout.identity,
+                targets: [runtimeTarget],
+                expectedCompilerVersion: configuredTarget?.compilerVersion
+            )
+        }
+        let externalPackages = try options.urls("--mojo-package").map {
+            try MojoExternalPackage(
+                name: $0.lastPathComponent,
+                rootURL: $0
+            )
+        }
+        return try MojoPrepareOptions(
+            sourceURLs: options.urls("--source"),
+            sourceRootURL: options.value("--source-root").map {
+                URL(fileURLWithPath: $0)
+            },
+            externalPackages: externalPackages,
+            outputDirectoryURL: outputURL,
+            identity: MojoArtifactIdentity(
+                targetName: options.value("--artifact-id")
+                    ?? standaloneIdentity
+            ),
+            targets: [runtimeTarget]
         )
     }
 
@@ -1143,6 +1287,8 @@ package struct MojoCommandRunner: Sendable {
       swift package --disable-sandbox mojo runtime-bundle-verify --bundle <bundle> [--format text|json]
       swift package --disable-sandbox --allow-writing-to-package-directory mojo runtime-library-prepare --target <target> --runtime-library <library> --output <bundle> --target-triple <triple> --target-cpu <cpu> --target-accelerator <accelerator> [--system-library <name>] [--format text|json]
       swift package --disable-sandbox mojo runtime-library-verify --bundle <bundle> [--format text|json]
+      swift package --disable-sandbox --allow-writing-to-package-directory mojo runtime-worker-prepare --target <target> --runtime-library <library> --output <bundle> --executable-name <name> --maximum-frame-payload-bytes <bytes> --target-triple <triple> --target-cpu <cpu> --target-accelerator <accelerator> [--system-library <name>] [--format text|json]
+      swift package --disable-sandbox mojo runtime-worker-verify --bundle <bundle> [--format text|json]
     The internal build plugin invokes the private swift-mojo verifier tool.
     """
 }

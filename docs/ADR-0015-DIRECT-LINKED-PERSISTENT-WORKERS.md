@@ -1,6 +1,7 @@
 # ADR-0015: Direct-linked persistent accelerator workers
 
-- Status: Accepted design; implementation pending
+- Status: Accepted; W1 protocol/render and W2 bundle/verification implemented,
+  W3 client and host execution pending
 - Date: 2026-08-30
 - Scope: Generated attempt-owned executable workers for runtime-dependent Mojo
   bindings
@@ -37,7 +38,7 @@ not an application loading API.
 | Generated worker executable | Protocol-v1 frame loop, generated binding dispatch, one session, and runtime-side graceful teardown | Checkpoint policy, retry, product safety, target selection |
 | Consuming package | Select an allowed verified artifact, map domain operations to verified bindings, and own attempt policy, budgets, telemetry interpretation, checkpoint commit, and evidence admission | Private staging, POSIX, file descriptors, raw frames/codecs, process signaling/reaping, raw Mojo symbols, runtime-library loading |
 
-W1 and W2 expose no public launcher. `MojoRuntimeProtocolCore` is a planned
+W1 and W2 expose no public launcher. `MojoRuntimeProtocolCore` is an internal
 package target with no library product. It is the single semantic authority used
 by W1 and W3; the generated C endpoint and Swift codec/types therefore share one
 constant/payload definition. W3 is the sole public runtime-execution product,
@@ -257,10 +258,10 @@ spawn -> preflight -> create once -> invoke serially -> graceful shutdown
 
 ## Consequences
 
-Implementation must add the internal `MojoRuntimeProtocolCore` target, its Swift
-codec/types and generated C endpoint, a worker renderer, a two-object executable
-link, a worker-specific builder/verifier and CLI projection, the read-only W2
-projection, and the public `MojoRuntimeWorker` W3 product. W3 uses a distinct
+W1 and W2 implement the internal `MojoRuntimeProtocolCore` target, its Swift
+codec/types and generated C endpoint, the worker renderer, two-object executable
+link, closed worker builder/verifier and CLI, and the read-only W2 projection.
+W3 must add the public `MojoRuntimeWorker` product and uses a distinct
 package-internal POSIX worker-spawn ABI that preserves a socketpair endpoint as
 child descriptor 3 without changing the compiler-tool spawn contract. W1/W2
 remain launcher-free; W3 hides staging, POSIX, raw framing, and process lifecycle

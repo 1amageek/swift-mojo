@@ -27,6 +27,8 @@ struct MojoCommandRunnerTests {
         #expect(result.standardOutput.contains("runtime-bundle-verify"))
         #expect(result.standardOutput.contains("runtime-library-prepare"))
         #expect(result.standardOutput.contains("runtime-library-verify"))
+        #expect(result.standardOutput.contains("runtime-worker-prepare"))
+        #expect(result.standardOutput.contains("runtime-worker-verify"))
         #expect(!result.standardOutput.contains("mojo version"))
         #expect(!result.standardOutput.contains("swift-mojo prepare"))
         #expect(result.standardError.isEmpty)
@@ -132,6 +134,126 @@ struct MojoCommandRunnerTests {
                 "runtime-library-prepare requires --target-accelerator"
             )
         )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runtimeWorkerCommandRequiresAnAcceleratorBeforePreparation() {
+        let result = runner.run(
+            arguments: [
+                "runtime-worker-prepare",
+                "--output", "/tmp/RuntimeWorker.bundle",
+                "--executable-name", "runtime-worker",
+                "--maximum-frame-payload-bytes", "4096",
+                "--target-triple", "arm64-apple-macosx14.0",
+                "--target-cpu", "generic",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.standardError.contains(
+                "runtime-worker-prepare requires --target-accelerator"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runtimeWorkerCommandRequiresAnExecutableBeforePreparation() {
+        let result = runner.run(
+            arguments: [
+                "runtime-worker-prepare",
+                "--output", "/tmp/RuntimeWorker.bundle",
+                "--maximum-frame-payload-bytes", "4096",
+                "--target-triple", "arm64-apple-macosx14.0",
+                "--target-cpu", "generic",
+                "--target-accelerator", "metal",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.standardError.contains(
+                "Missing required option --executable-name"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runtimeWorkerCommandRequiresAPositivePayloadBoundBeforePreparation() {
+        let result = runner.run(
+            arguments: [
+                "runtime-worker-prepare",
+                "--output", "/tmp/RuntimeWorker.bundle",
+                "--executable-name", "runtime-worker",
+                "--maximum-frame-payload-bytes", "0",
+                "--target-triple", "arm64-apple-macosx14.0",
+                "--target-cpu", "generic",
+                "--target-accelerator", "metal",
+            ]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.standardError.contains(
+                "--maximum-frame-payload-bytes must be a positive unsigned integer"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runtimeWorkerCommandsRejectUnknownAndRepeatedOptions() {
+        let unknown = runner.run(
+            arguments: [
+                "runtime-worker-verify",
+                "--bundle", "/tmp/RuntimeWorker.bundle",
+                "--ambient-loader", "/tmp/libAmbient.dylib",
+            ]
+        )
+        let repeated = runner.run(
+            arguments: [
+                "runtime-worker-verify",
+                "--bundle", "/tmp/RuntimeWorkerA.bundle",
+                "--bundle", "/tmp/RuntimeWorkerB.bundle",
+            ]
+        )
+
+        #expect(unknown.exitCode != 0)
+        #expect(
+            unknown.standardError.contains(
+                "Unknown option(s): --ambient-loader"
+            )
+        )
+        #expect(repeated.exitCode != 0)
+        #expect(
+            repeated.standardError.contains(
+                "Option --bundle may be supplied only once"
+            )
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runtimeWorkerParserFailurePreservesMachineReadableContract() throws {
+        let result = runner.run(
+            arguments: [
+                "runtime-worker-verify",
+                "--bundle", "/tmp/RuntimeWorker.bundle",
+                "--ambient-loader", "/tmp/libAmbient.dylib",
+                "--format", "json",
+            ]
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: Data(result.standardOutput.utf8)
+        ) as? [String: Any]
+
+        #expect(result.exitCode != 0)
+        #expect(object?["success"] as? Bool == false)
+        #expect(object?["command"] as? String == "runtime-worker-verify")
+        #expect(
+            (object?["message"] as? String)?.contains(
+                "Unknown option(s): --ambient-loader"
+            ) == true
+        )
+        #expect(result.standardError.isEmpty)
     }
 
     @Test(.timeLimit(.minutes(1)))

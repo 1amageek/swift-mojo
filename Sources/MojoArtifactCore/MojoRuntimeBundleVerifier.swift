@@ -58,6 +58,26 @@ package struct MojoRuntimeBundleVerifier: Sendable {
         let receipt = try MojoRuntimeDependencyReceipt.decode(
             Data(contentsOf: receiptURL)
         )
+        try validateLayout(
+            root: root,
+            executableName: manifest.executable.relativePath
+                .split(separator: "/").last.map(String.init) ?? "",
+            libraryNames: receipt.libraries.map(\.fileName)
+        )
+        try validateManifestContents(
+            bundleURL: root,
+            manifest: manifest,
+            receipt: receipt
+        )
+        return manifest
+    }
+
+    package func validateManifestContents(
+        bundleURL: URL,
+        manifest: MojoRuntimeBundleManifest,
+        receipt: MojoRuntimeDependencyReceipt
+    ) throws {
+        let root = bundleURL.standardizedFileURL
         guard manifest.receiptDigest == receipt.digest,
               manifest.target == receipt.target else {
             throw MojoArtifactError.invalidRuntimeBundle(
@@ -83,12 +103,6 @@ package struct MojoRuntimeBundleVerifier: Sendable {
                 "manifest library files do not match the runtime receipt"
             )
         }
-        try validateLayout(
-            root: root,
-            executableName: manifest.executable.relativePath
-                .split(separator: "/").last.map(String.init) ?? "",
-            libraryNames: receipt.libraries.map(\.fileName)
-        )
         let executableURL = root.appendingPathComponent(
             manifest.executable.relativePath
         )
@@ -134,7 +148,6 @@ package struct MojoRuntimeBundleVerifier: Sendable {
                 "manifest loader metadata does not match the executable"
             )
         }
-        return manifest
     }
 
     package func validateContents(
@@ -211,7 +224,7 @@ package struct MojoRuntimeBundleVerifier: Sendable {
         )
     }
 
-    private static func validateEntries(
+    package static func validateEntries(
         directory: URL,
         expected: Set<String>
     ) throws {
@@ -230,7 +243,7 @@ package struct MojoRuntimeBundleVerifier: Sendable {
         }
     }
 
-    private static func validateDirectory(_ url: URL) throws {
+    package static func validateDirectory(_ url: URL) throws {
         let values = try url.resourceValues(
             forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
         )

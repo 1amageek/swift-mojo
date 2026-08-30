@@ -76,7 +76,8 @@ package struct MojoObjectLinkageInspector: Sendable {
             .last else {
             return nil
         }
-        let symbol = token.first == "_" ? token.dropFirst() : token[...]
+        let unprefixed = token.first == "_" ? token.dropFirst() : token[...]
+        let symbol = unprefixed.prefix { $0 != "@" }
         return symbol.isEmpty ? nil : String(symbol)
     }
 }

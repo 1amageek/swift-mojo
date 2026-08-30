@@ -57,7 +57,7 @@ private struct BundleBinaryInspector: MojoRuntimeBinaryInspecting {
 
 private struct BundleExecutableLinker: MojoRuntimeExecutableLinking {
     func link(
-        objectURL: URL,
+        objectURLs: [URL],
         libraryURLs: [URL],
         outputURL: URL,
         target: MojoTargetConfiguration,

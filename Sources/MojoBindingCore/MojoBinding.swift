@@ -142,11 +142,10 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             signature: signature,
             parameterNames: parameterNames
         )
-        let abiKey = [
-            "swift-mojo-binding-v1",
-            functionName,
-            signature.canonicalRecord,
-        ].joined(separator: "|")
+        let abiKey = Self.abiKey(
+            functionName: functionName,
+            signature: signature
+        )
         let implementationKey: String
         switch implementation {
         case .inline(let operation):
@@ -155,7 +154,10 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             implementationKey = "\(abiKey)|\(implementation.canonicalRecord)"
         }
 
-        self.bindingID = MojoCanonicalDigest.identifier(abiKey)
+        self.bindingID = Self.bindingIdentifier(
+            functionName: functionName,
+            signature: signature
+        )
         self.functionName = functionName
         self.signature = signature
         self.parameterNames = parameterNames
@@ -163,6 +165,26 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         self.abiDigest = MojoCanonicalDigest.hex(abiKey)
         self.implementationDigest = MojoCanonicalDigest.hex(implementationKey)
         self.sourceReference = sourceReference
+    }
+
+    package static func bindingIdentifier(
+        functionName: String,
+        signature: Signature
+    ) -> UInt64 {
+        MojoCanonicalDigest.identifier(
+            abiKey(functionName: functionName, signature: signature)
+        )
+    }
+
+    private static func abiKey(
+        functionName: String,
+        signature: Signature
+    ) -> String {
+        [
+            "swift-mojo-binding-v1",
+            functionName,
+            signature.canonicalRecord,
+        ].joined(separator: "|")
     }
 
     package static func isMojoFunction(
