@@ -466,10 +466,8 @@ struct MojoArtifactPreparerTests {
     #expect(registry.contains("import Mojo"))
     #expect(registry.contains("values: borrowing [Float]"))
     #expect(registry.contains("values.withUnsafeBufferPointer"))
-    #expect(registry.contains("private static let artifactValidationError"))
-    #expect(registry.contains("MojoInvocationError"))
-    #expect(registry.contains("incompatibleStaticABI"))
-    #expect(registry.contains("inputGraphMismatch"))
+    #expect(registry.contains("private static let artifactPreflight"))
+    #expect(registry.contains("MojoStaticArtifactPreflight"))
     #expect(registry.contains("!buffer.isEmpty"))
     #expect(registry.contains("_call_f32_buffer_f32"))
     #expect(!registry.contains("var result"))
@@ -482,7 +480,7 @@ struct MojoArtifactPreparerTests {
     )
     #expect(
       registry.components(
-        separatedBy: "_has_binding(bindingID)"
+        separatedBy: "_has_binding($0)"
       ).count == 2
     )
     #expect(
@@ -956,7 +954,7 @@ struct MojoArtifactPreparerTests {
       )
       #expect(
         MojoGenerationPipeline.digest
-          == "bed8f112bf88fd93df81c6f218fb7e291ef8071865ae77783faaaf611895060c"
+          == "8a9a2f40879eafb0c3b97d6578564b84181ff97ea4a849b2c4cae8fe24d918e4"
       )
     }
   }

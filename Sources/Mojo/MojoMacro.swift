@@ -11,3 +11,9 @@ public macro mojo(
     module: "MojoMacros",
     type: "MojoBodyMacro"
 )
+
+@attached(body)
+public macro mojoStaticArtifactAttestation() = #externalMacro(
+    module: "MojoMacros",
+    type: "MojoStaticArtifactAttestationMacro"
+)

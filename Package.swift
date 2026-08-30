@@ -49,7 +49,13 @@ let package = Package(
         ),
         .target(
             name: "Mojo",
-            dependencies: ["MojoMacros"]
+            dependencies: ["MojoMacros"],
+            exclude: ["DESIGN.md"]
+        ),
+        .target(
+            name: "CMojoStaticPreflightFixture",
+            path: "Tests/Fixtures/CMojoStaticPreflightFixture",
+            publicHeadersPath: "include"
         ),
         .target(
             name: "MojoCompilerCore",
@@ -148,7 +154,7 @@ let package = Package(
         ),
         .testTarget(
             name: "MojoTests",
-            dependencies: ["Mojo"]
+            dependencies: ["Mojo", "CMojoStaticPreflightFixture"]
         ),
         .testTarget(
             name: "MojoCompilerCoreTests",
@@ -186,6 +192,7 @@ let package = Package(
             name: "MojoBuildPluginIntegrationTests",
             dependencies: [
                 "Mojo",
+                "MojoArtifactCore",
                 "MojoBuildPluginIntegrationFixture",
             ]
         ),

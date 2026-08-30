@@ -19,8 +19,8 @@ struct MojoArtifactVerifierTests {
             #expect(source.contains("import GeneratedMojoABI"))
             #expect(source.contains("swift_mojo_has_binding"))
             #expect(source.contains(manifest.artifactDigest))
-            #expect(source.contains("private static let artifactValidationError"))
-            #expect(source.contains("let actualABIVersion = swift_mojo_static_abi_version()"))
+            #expect(source.contains("private static let artifactPreflight"))
+            #expect(source.contains("actualABIVersion: { swift_mojo_static_abi_version() }"))
             #expect(!source.contains("preparedBindingIDs.contains"))
             #expect(
                 source.components(
@@ -29,7 +29,7 @@ struct MojoArtifactVerifierTests {
             )
             #expect(
                 source.components(
-                    separatedBy: "swift_mojo_has_binding(bindingID)"
+                    separatedBy: "swift_mojo_has_binding($0)"
                 ).count == 2
             )
             #expect(source.contains("fatalError("))
@@ -102,6 +102,45 @@ struct MojoArtifactVerifierTests {
                     Issue.record("Unexpected error: \(error)")
                     return
                 }
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func manifestFieldMutationIsRejectedBeforeRegistryGeneration() throws {
+        try withFixture { fixture in
+            let manifestURL = fixture.outputDirectory.appendingPathComponent(
+                MojoStaticABI.manifestName
+            )
+            let original = try String(
+                contentsOf: manifestURL,
+                encoding: .utf8
+            )
+            let mutated = original.replacingOccurrences(
+                of: "\"abiVersion\" : 1",
+                with: "\"abiVersion\" : 2"
+            )
+            #expect(mutated != original)
+            try mutated.write(
+                to: manifestURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            let generated = fixture.root.appendingPathComponent(
+                "Registry.swift"
+            )
+
+            do {
+                _ = try MojoArtifactVerifier().verify(
+                    options: fixture.verifyOptions(generatedSource: generated)
+                )
+                Issue.record("Mutated manifest unexpectedly verified")
+            } catch let error as MojoArtifactError {
+                guard case .invalidManifest = error else {
+                    Issue.record("Unexpected error: \(error)")
+                    return
+                }
+                #expect(!FileManager.default.fileExists(atPath: generated.path))
             }
         }
     }

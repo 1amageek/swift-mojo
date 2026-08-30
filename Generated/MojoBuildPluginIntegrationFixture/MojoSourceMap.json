@@ -6,7 +6,7 @@
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
-        "line" : 8
+        "line" : 12
       }
     },
     {
@@ -15,7 +15,7 @@
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
-        "line" : 17
+        "line" : 21
       }
     },
     {
@@ -24,7 +24,7 @@
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
-        "line" : 3
+        "line" : 7
       }
     },
     {
@@ -33,7 +33,7 @@
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
-        "line" : 8
+        "line" : 12
       }
     },
     {
@@ -42,7 +42,7 @@
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
-        "line" : 17
+        "line" : 21
       }
     }
   ],

@@ -14,6 +14,7 @@ public enum MojoInvocationError: Error, Equatable, Sendable,
     case invocationFailed(bindingID: UInt64, status: Int32)
     case resourceCreationReturnedNoHandle(bindingID: UInt64)
     case sessionCreationReturnedNoHandle(bindingID: UInt64)
+    case staticArtifactAttestationUnavailable(schemaVersion: Int)
     case sessionRequirementsUnsatisfied(
         bindingID: UInt64,
         requirements: MojoSessionRequirements,
@@ -46,6 +47,8 @@ public enum MojoInvocationError: Error, Equatable, Sendable,
             "Mojo resource binding \(bindingID) succeeded without returning a handle"
         case .sessionCreationReturnedNoHandle(let bindingID):
             "Mojo session binding \(bindingID) succeeded without returning a handle"
+        case .staticArtifactAttestationUnavailable(let schemaVersion):
+            "Mojo artifact schema \(schemaVersion) does not contain the complete static attestation identity"
         case .sessionRequirementsUnsatisfied(
             let bindingID,
             let requirements,

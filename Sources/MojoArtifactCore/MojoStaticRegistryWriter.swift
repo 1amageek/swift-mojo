@@ -1,7 +1,7 @@
 import MojoBindingCore
 
 package struct MojoStaticRegistryWriter: Sendable {
-    package static let generationVersion = 3
+    package static let generationVersion = 5
     package static let borrowedFloat32BufferGenerationVersion = 1
     package static let borrowedMutableFloat32BuffersGenerationVersion = 1
     package static let borrowedMutableFloat64BuffersGenerationVersion = 1
@@ -13,7 +13,7 @@ package struct MojoStaticRegistryWriter: Sendable {
     package func source(
         manifest: MojoArtifactManifest,
         inputGraph: MojoInputGraph
-    ) -> String {
+    ) throws -> String {
         let signatures = Set(
             inputGraph.bindingGraph.bindings.map(\.signature)
         )
@@ -73,29 +73,18 @@ package struct MojoStaticRegistryWriter: Sendable {
         let preparedBindingStorage =
             "private static let preparedBindingIDs: [UInt64] = [\(bindingIDs)]"
         let validationCache = """
-        private static let artifactValidationError: MojoInvocationError? = {
-            let actualABIVersion = \(prefix)_static_abi_version()
-            guard actualABIVersion == expectedABIVersion else {
-                return .incompatibleStaticABI(
-                    expected: expectedABIVersion,
-                    actual: actualABIVersion
-                )
-            }
-            let actualInputGraph = \(graphFunction)()
-            guard actualInputGraph == expectedInputGraph else {
-                return .inputGraphMismatch(
-                    expected: expectedInputGraph,
-                    actual: actualInputGraph
-                )
-            }
-            for bindingID in preparedBindingIDs
-            where \(prefix)_has_binding(bindingID) != 1 {
-                return .bindingUnavailable(bindingID: bindingID)
-            }
-            return nil
-        }()
+        private static let artifactPreflight = MojoStaticArtifactPreflight(
+            expectedABIVersion: expectedABIVersion,
+            actualABIVersion: { \(prefix)_static_abi_version() },
+            expectedInputGraphIdentifier: expectedInputGraph,
+            actualInputGraphIdentifier: { \(graphFunction)() },
+            bindingIDs: preparedBindingIDs,
+            hasBinding: { \(prefix)_has_binding($0) == 1 }
+        )
         """
         var methods: [String] = []
+        let attestationSource = try Self.attestationSource(manifest: manifest)
+        methods.append(attestationSource.method)
         if signatures.contains(.int32Binary) {
             methods.append(
                 """
@@ -105,8 +94,10 @@ package struct MojoStaticRegistryWriter: Sendable {
                         lhs: Int32,
                         rhs: Int32
                     ) -> Int32 {
-                        if let error = artifactValidationError {
-                            fatalError(error.description)
+                        do {
+                            try artifactPreflight.requireValid()
+                        } catch {
+                            fatalError(String(describing: error))
                         }
                         switch bindingID {
                         case \(scalarBindingCases):
@@ -127,9 +118,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                         bindingID: UInt64,
                         values: borrowing [Float]
                     ) throws -> Float {
-                        if let error = artifactValidationError {
-                            throw error
-                        }
+                        try artifactPreflight.requireValid()
                         switch bindingID {
                         case \(bufferBindingCases):
                             break
@@ -162,9 +151,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                         input: borrowing [Float],
                         output: inout [Float]
                     ) throws {
-                        if let error = artifactValidationError {
-                            throw error
-                        }
+                        try artifactPreflight.requireValid()
                         switch bindingID {
                         case \(mutationBindingCases):
                             break
@@ -211,9 +198,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                         input: borrowing [Double],
                         output: inout [Double]
                     ) throws {
-                        if let error = artifactValidationError {
-                            throw error
-                        }
+                        try artifactPreflight.requireValid()
                         switch bindingID {
                         case \(doubleMutationBindingCases):
                             break
@@ -262,9 +247,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                         bindingID: UInt64,
                         requirements: MojoSessionRequirements
                     ) throws -> MojoSessionOwner {
-                        if let error = artifactValidationError {
-                            throw error
-                        }
+                        try artifactPreflight.requireValid()
                         switch bindingID {
                         case \(sessionFactoryCases):
                             break
@@ -394,9 +377,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                         elementCount: UInt64,
                         memoryKind: MojoBufferMemoryKind
                     ) throws -> MojoFloat32BufferOwner {
-                        if let error = artifactValidationError {
-                            throw error
-                        }
+                        try artifactPreflight.requireValid()
                         switch bindingID {
                         case \(bufferFactoryCases):
                             break
@@ -530,9 +511,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                         input: borrowing [Float],
                         output: inout [Float]
                     ) throws {
-                        if let error = artifactValidationError {
-                            throw error
-                        }
+                        try artifactPreflight.requireValid()
                         switch bindingID {
                         case \(sessionMutationCases):
                             break
@@ -583,11 +562,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                 """
             )
         }
-        let mojoImport = signatures.contains(.runtimeSessionFactory)
-            || signatures.contains(.sessionFloat32BufferFactory)
-            || signatures.contains(.sessionBorrowedMutableFloat32Buffers)
-            ? "@_spi(SwiftMojoGenerated) import Mojo"
-            : "import Mojo"
+        let mojoImport = "@_spi(SwiftMojoGenerated) import Mojo"
         return """
         // Generated by swift-mojo. Do not edit.
         // Artifact SHA-256: \(manifest.artifactDigest)
@@ -601,11 +576,142 @@ package struct MojoStaticRegistryWriter: Sendable {
             private static let expectedABIVersion: UInt32 = \(manifest.abiVersion)
             private static let expectedInputGraph: UInt64 = \(expectedInputGraph)
             \(preparedBindingStorage)
+        \(attestationSource.declaration)
         \(validationCache)
 
         \(methods.joined(separator: "\n\n"))
         }
         """ + "\n"
+    }
+
+    private static func attestationSource(
+        manifest: MojoArtifactManifest
+    ) throws -> (declaration: String, method: String) {
+        guard manifest.schemaVersion == MojoArtifactManifest.currentSchemaVersion
+        else {
+            return (
+                declaration: "",
+                method: """
+                    @inline(__always)
+                    static func staticArtifactAttestation() throws
+                        -> MojoStaticArtifactAttestation {
+                        try artifactPreflight.requireValid()
+                        throw MojoInvocationError
+                            .staticArtifactAttestationUnavailable(
+                                schemaVersion: \(manifest.schemaVersion)
+                            )
+                    }
+                """
+            )
+        }
+        guard let inputGraphDigest = manifest.inputGraphDigest,
+              let inputGraphIdentifier = manifest.inputGraphIdentifier,
+              let generatedSourceDigest = manifest.generatedSourceDigest,
+              let sourceMapDigest = manifest.sourceMapDigest else {
+            throw MojoArtifactError.invalidManifest(
+                "schema-5 static attestation identity is incomplete"
+            )
+        }
+
+        let identity = manifest.effectiveIdentity
+        let artifacts = Dictionary(
+            uniqueKeysWithValues: manifest.effectiveArtifacts.map {
+                ($0.adapter.rawValue, $0)
+            }
+        )
+        let bindingRecords = manifest.bindings.map { binding in
+            """
+            MojoStaticArtifactAttestation.Binding(
+                bindingID: \(binding.bindingID),
+                functionName: \(swiftLiteral(binding.functionName)),
+                abiDigest: \(swiftLiteral(binding.abiDigest)),
+                implementationDigest: \(swiftLiteral(binding.implementationDigest))
+            )
+            """
+        }.joined(separator: ",\n")
+        let bindingStorage = """
+        private static let preparedAttestationBindings: [
+            MojoStaticArtifactAttestation.Binding
+        ] = [
+        \(bindingRecords)
+        ]
+        """
+
+        var branches: [(condition: String, value: String)] = []
+        for slice in manifest.effectiveSlices {
+            let adapter = try MojoNativeArtifactAdapter(target: slice.target)
+            guard let artifact = artifacts[adapter.rawValue],
+                  let condition = swiftCondition(for: slice.target.triple) else {
+                throw MojoArtifactError.invalidManifest(
+                    "static attestation cannot resolve selected native slice \(slice.target.identity)"
+                )
+            }
+            let accelerator = slice.target.accelerator.map(swiftLiteral)
+                ?? "nil"
+            let value = """
+            MojoStaticArtifactAttestation(
+                schemaVersion: \(manifest.schemaVersion),
+                abiVersion: \(manifest.abiVersion),
+                compilerVersion: \(swiftLiteral(manifest.compilerVersion)),
+                generationPipelineDigest: \(swiftLiteral(manifest.generationPipelineDigest)),
+                targetName: \(swiftLiteral(identity.targetName)),
+                moduleName: \(swiftLiteral(identity.moduleName)),
+                sourceGraphDigest: \(swiftLiteral(manifest.sourceGraphDigest)),
+                sourceGraphIdentifier: \(manifest.sourceGraphIdentifier),
+                inputGraphDigest: \(swiftLiteral(inputGraphDigest)),
+                inputGraphIdentifier: \(inputGraphIdentifier),
+                generatedSourceDigest: \(swiftLiteral(generatedSourceDigest)),
+                sourceMapDigest: \(swiftLiteral(sourceMapDigest)),
+                artifactSetDigest: \(swiftLiteral(manifest.artifactDigest)),
+                nativeArtifactAdapter: .\(adapter.rawValue),
+                nativeArtifactName: \(swiftLiteral(artifact.name)),
+                nativeArtifactDigest: \(swiftLiteral(artifact.digest)),
+                targetTriple: \(swiftLiteral(slice.target.triple)),
+                targetCPU: \(swiftLiteral(slice.target.cpu)),
+                targetAccelerator: \(accelerator),
+                libraryIdentifier: \(swiftLiteral(slice.libraryIdentifier)),
+                archiveDigest: \(swiftLiteral(slice.archiveDigest)),
+                bindings: preparedAttestationBindings
+            )
+            """
+            branches.append((condition: condition, value: value))
+        }
+        guard !branches.isEmpty,
+              Set(branches.map(\.condition)).count == branches.count else {
+            throw MojoArtifactError.invalidManifest(
+                "static attestation requires one distinguishable Swift destination per prepared slice"
+            )
+        }
+        branches.sort { $0.condition < $1.condition }
+        var selectedStorage = ""
+        for (index, branch) in branches.enumerated() {
+            selectedStorage += index == 0
+                ? "#if \(branch.condition)\n"
+                : "#elseif \(branch.condition)\n"
+            selectedStorage += "private static let preparedStaticArtifactAttestation = \(branch.value)\n"
+        }
+        selectedStorage += """
+        #else
+        #error("The prepared Mojo artifact does not support this Swift destination")
+        #endif
+        """
+
+        return (
+            declaration: bindingStorage + "\n" + selectedStorage,
+            method: """
+                @inline(__always)
+                static func staticArtifactAttestation() throws
+                    -> MojoStaticArtifactAttestation {
+                    return try artifactPreflight.validatedAttestation(
+                        preparedStaticArtifactAttestation
+                    )
+                }
+            """
+        )
+    }
+
+    private static func swiftLiteral(_ value: String) -> String {
+        String(reflecting: value)
     }
 
     private static func sessionDomainID(
@@ -644,6 +750,14 @@ package struct MojoStaticRegistryWriter: Sendable {
         } else {
             return nil
         }
-        return "(arch(\(architecture)) && os(\(operatingSystem)))"
+        var clauses = ["arch(\(architecture))", "os(\(operatingSystem))"]
+        if operatingSystem == "iOS" {
+            clauses.append(
+                normalized.contains("simulator")
+                    ? "targetEnvironment(simulator)"
+                    : "!targetEnvironment(simulator)"
+            )
+        }
+        return "(" + clauses.joined(separator: " && ") + ")"
     }
 }

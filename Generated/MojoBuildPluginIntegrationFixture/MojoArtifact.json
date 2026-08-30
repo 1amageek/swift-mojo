@@ -1,6 +1,6 @@
 {
   "abiVersion" : 1,
-  "artifactDigest" : "ebf1d98a59126d1c30d947d4bb535c925c5ba8b876d93f091e7efbb4d42f5fb2",
+  "artifactDigest" : "c72aae0a8bab342341573ed134f1265240e4c33aab45c30651187f300277711e",
   "artifactIdentity" : {
     "artifactName" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework",
     "libraryName" : "libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a",
@@ -11,7 +11,7 @@
   "artifacts" : [
     {
       "adapter" : "appleXCFramework",
-      "digest" : "2989853ea0daa75c0424e545c2796f77ec6484c86b7939190b7bdb866fd5eb39",
+      "digest" : "dbb1822379cf901fe07a5bdfcb90b9f3f09c873396e03bb59b9930419dcf242b",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
     },
     {
@@ -48,7 +48,7 @@
     }
   ],
   "generatedSourceDigest" : "fd0865878c18440d4d8e56539e93bc7172f9afe57902139cb108b2acbaf0012e",
-  "generationPipelineDigest" : "2592c999cb4253d63e348b416de09d7fd1c16c2143e141ed4d497f37ce370ee1",
+  "generationPipelineDigest" : "57a517169b6f8a400326cf9f3cec7cbc8f16fffa2e5e1b2b12cddcd643384416",
   "inputGraphDigest" : "dca649706287d30b1dd93d5e41da02bcf631402c1c1773c880aaf567607793f2",
   "inputGraphIdentifier" : 6676104244661572363,
   "schemaVersion" : 5,
@@ -62,7 +62,7 @@
       }
     },
     {
-      "archiveDigest" : "3e5d4a4acc2797db608257702b489fbe23cabab7d75baa266b78915237f8015c",
+      "archiveDigest" : "71ee6d57895deb661519ab24086e85f9894a501713ece9af537142044b607899",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "generic",
@@ -70,7 +70,7 @@
       }
     },
     {
-      "archiveDigest" : "3e5d4a4acc2797db608257702b489fbe23cabab7d75baa266b78915237f8015c",
+      "archiveDigest" : "71ee6d57895deb661519ab24086e85f9894a501713ece9af537142044b607899",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "x86-64",
@@ -80,5 +80,5 @@
   ],
   "sourceGraphDigest" : "7379096fb533ba36b1361b5541d14332c6772d45cad8a7abcabe7b4dd733d28b",
   "sourceGraphIdentifier" : 8320692161929787958,
-  "sourceMapDigest" : "5e516236943814179cd2bfc90b5805fc40d7de8ac24a6fb6ae8316dcc31b81d5"
+  "sourceMapDigest" : "36223ec87b33bbca14354fa1aee6d277bbde64392c4d1fed6acaf81a67b021bb"
 }
