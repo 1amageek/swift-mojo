@@ -3,6 +3,7 @@ import MojoArtifactCore
 import MojoCompilerCore
 import Testing
 
+#if os(macOS)
 @Suite("Mojo runtime library bundle integration")
 struct MojoRuntimeLibraryBundleIntegrationTests {
     @Test(.timeLimit(.minutes(1)))
@@ -337,3 +338,4 @@ struct MojoRuntimeLibraryBundleIntegrationTests {
         }
     }
 }
+#endif

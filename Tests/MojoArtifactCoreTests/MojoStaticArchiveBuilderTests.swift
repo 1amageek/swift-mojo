@@ -79,6 +79,7 @@ struct MojoStaticArchiveBuilderTests {
             cpu: "generic"
         )
 
+#if os(macOS)
         try MojoStaticArchiveBuilder(
             processRunner: LinuxArchiveFixtureRunner()
         ).build(
@@ -88,6 +89,21 @@ struct MojoStaticArchiveBuilderTests {
         )
 
         #expect(FileManager.default.fileExists(atPath: fixture.archiveURL.path))
+#else
+        #expect(
+            throws: MojoArtifactError.invalidArguments(
+                "SWIFT_MOJO_LLVM_AR must name an absolute LLVM archiver on non-macOS hosts"
+            )
+        ) {
+            try MojoStaticArchiveBuilder(
+                processRunner: LinuxArchiveFixtureRunner()
+            ).build(
+                objectURL: fixture.objectURL,
+                archiveURL: fixture.archiveURL,
+                target: target
+            )
+        }
+#endif
     }
 
     @Test(.timeLimit(.minutes(1)))

@@ -1,5 +1,5 @@
-import Darwin
 import Foundation
+import MojoPOSIXSupport
 import Testing
 @testable import MojoCompilerCore
 
@@ -171,6 +171,76 @@ func foundationRunnerCapturesProcessOutput() throws {
 }
 
 @Test(.timeLimit(.minutes(1)))
+func foundationRunnerPreservesNonzeroExitStatusAndDiagnostic() throws {
+    let result = try FoundationMojoProcessRunner(
+        timeoutSeconds: 5,
+        terminationGraceSeconds: 1
+    ).capture(
+        executablePath: "/bin/sh",
+        arguments: ["-c", "printf 'failed-output'; exit 42"]
+    )
+
+    #expect(result.status == 42)
+    #expect(result.output == "failed-output")
+}
+
+@Test(.timeLimit(.minutes(1)))
+func foundationRunnerClassifiesExecutableLaunchFailure() throws {
+    do {
+        _ = try FoundationMojoProcessRunner(
+            timeoutSeconds: 5,
+            terminationGraceSeconds: 1
+        ).capture(
+            executablePath: "/swift-mojo-fixture/missing-executable",
+            arguments: []
+        )
+        Issue.record("Missing executable unexpectedly launched")
+    } catch let error as MojoCompilerToolError {
+        guard case .processLaunchFailed(let command, let message) = error else {
+            Issue.record("Unexpected process error: \(error)")
+            return
+        }
+        #expect(command == "/swift-mojo-fixture/missing-executable")
+        #expect(!message.isEmpty)
+    }
+}
+
+@Test(.timeLimit(.minutes(1)))
+func foundationRunnerObservesExitAtTheTimeoutBoundary() throws {
+    let result = try FoundationMojoProcessRunner(
+        timeoutSeconds: 1,
+        terminationGraceSeconds: 1,
+        pollInterval: 2
+    ).capture(
+        executablePath: "/bin/sh",
+        arguments: ["-c", "sleep 0.1"]
+    )
+
+    #expect(result.status == 0)
+}
+
+@Test(.timeLimit(.minutes(1)))
+func foundationRunnerRejectsExitAfterTheTimeoutBoundary() throws {
+    do {
+        _ = try FoundationMojoProcessRunner(
+            timeoutSeconds: 1,
+            terminationGraceSeconds: 1,
+            pollInterval: 2
+        ).capture(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "sleep 1.5"]
+        )
+        Issue.record("Late process exit unexpectedly succeeded")
+    } catch let error as MojoCompilerToolError {
+        guard case .processTimedOut(_, let seconds, _) = error else {
+            Issue.record("Unexpected process error: \(error)")
+            return
+        }
+        #expect(seconds == 1)
+    }
+}
+
+@Test(.timeLimit(.minutes(1)))
 func foundationRunnerTimesOutAndTerminatesDescendants() throws {
     do {
         _ = try FoundationMojoProcessRunner(
@@ -189,7 +259,7 @@ func foundationRunnerTimesOutAndTerminatesDescendants() throws {
         #expect(seconds == 1)
         let childProcessID = try #require(
             diagnostic.split(whereSeparator: { $0.isNewline }).first
-                .flatMap { pid_t($0) }
+                .flatMap { MojoPOSIXSupport.ProcessID($0) }
         )
         #expect(processDisappears(childProcessID, within: .seconds(5)))
     }
@@ -203,21 +273,19 @@ private func makeTarget() throws -> MojoTargetConfiguration {
 }
 
 private func processDisappears(
-    _ processID: pid_t,
+    _ processID: MojoPOSIXSupport.ProcessID,
     within duration: Duration
 ) -> Bool {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: duration)
     repeat {
-        errno = 0
-        if Darwin.kill(processID, 0) == -1, errno == ESRCH {
+        if !MojoPOSIXSupport.processIsAlive(processID) {
             return true
         }
         Thread.sleep(forTimeInterval: 0.02)
     } while clock.now < deadline
 
-    errno = 0
-    return Darwin.kill(processID, 0) == -1 && errno == ESRCH
+    return !MojoPOSIXSupport.processIsAlive(processID)
 }
 
 private func withTemporaryDirectory(

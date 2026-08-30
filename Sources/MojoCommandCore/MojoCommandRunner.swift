@@ -198,6 +198,7 @@ package struct MojoCommandRunner: Sendable {
         options: ParsedOptions,
         format: OutputFormat
     ) throws -> MojoCommandResult {
+        try MojoStaticArtifactAuthoring.requireSupportedHost()
         try options.rejectUnknown(
             allowed: [
                 "--output-dir", "--package-root", "--target",
@@ -292,6 +293,7 @@ package struct MojoCommandRunner: Sendable {
         options: ParsedOptions,
         format: OutputFormat
     ) throws -> MojoCommandResult {
+        try MojoStaticArtifactAuthoring.requireSupportedHost()
         try options.rejectUnknown(
             allowed: [
                 "--source", "--source-root", "--mojo-package",
@@ -1119,6 +1121,10 @@ package struct MojoCommandRunner: Sendable {
         "arm64-apple-macosx14.0"
 #elseif arch(x86_64) && os(macOS)
         "x86_64-apple-macosx14.0"
+#elseif arch(arm64) && os(Linux)
+        "aarch64-unknown-linux-gnu"
+#elseif arch(x86_64) && os(Linux)
+        "x86_64-unknown-linux-gnu"
 #else
         "unsupported-host"
 #endif

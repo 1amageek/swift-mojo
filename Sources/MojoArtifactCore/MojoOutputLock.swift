@@ -1,6 +1,6 @@
-import Darwin
 import Foundation
 import MojoBindingCore
+import MojoPOSIXSupport
 
 package struct MojoOutputLock: Sendable {
     package init() {}
@@ -21,36 +21,67 @@ package struct MojoOutputLock: Sendable {
             MojoCanonicalDigest.hex(canonicalOutputPath) + ".lock"
         )
 
-        // The C string is borrowed only for open(2) and never escapes this call.
-        // This scope owns the returned descriptor and closes it exactly once.
-        let descriptor = lockURL.path.withCString { path in
-            Darwin.open(
-                path,
-                O_CREAT | O_RDWR,
-                mode_t(S_IRUSR | S_IWUSR)
+        let descriptor: Int32
+        do {
+            descriptor = try MojoPOSIXSupport.openLockFile(
+                path: lockURL.path
             )
-        }
-        guard descriptor >= 0 else {
+        } catch {
             throw MojoArtifactError.outputLockFailed(
                 path: lockURL.path,
-                diagnostic: Self.systemErrorDescription()
+                diagnostic: String(describing: error)
             )
         }
-        defer {
-            _ = flock(descriptor, LOCK_UN)
-            _ = Darwin.close(descriptor)
-        }
 
-        guard flock(descriptor, LOCK_EX) == 0 else {
+        do {
+            try MojoPOSIXSupport.lockExclusive(descriptor)
+        } catch {
+            let primaryError = error
+            do {
+                try MojoPOSIXSupport.closeFile(descriptor)
+            } catch let cleanupError {
+                throw MojoArtifactError.outputLockFailed(
+                    path: lockURL.path,
+                    diagnostic: "Primary error: \(primaryError); descriptor cleanup error: \(cleanupError)"
+                )
+            }
             throw MojoArtifactError.outputLockFailed(
                 path: lockURL.path,
-                diagnostic: Self.systemErrorDescription()
+                diagnostic: String(describing: primaryError)
             )
         }
-        return try body()
-    }
 
-    private static func systemErrorDescription() -> String {
-        String(cString: strerror(errno))
+        let bodyResult: Swift.Result<Result, any Error>
+        do {
+            bodyResult = .success(try body())
+        } catch {
+            bodyResult = .failure(error)
+        }
+
+        var cleanupDiagnostics: [String] = []
+        do {
+            try MojoPOSIXSupport.unlock(descriptor)
+        } catch {
+            cleanupDiagnostics.append("unlock: \(error)")
+        }
+        do {
+            try MojoPOSIXSupport.closeFile(descriptor)
+        } catch {
+            cleanupDiagnostics.append("close: \(error)")
+        }
+        if !cleanupDiagnostics.isEmpty {
+            let primaryDiagnostic: String
+            switch bodyResult {
+            case .success:
+                primaryDiagnostic = "body succeeded"
+            case .failure(let error):
+                primaryDiagnostic = "body failed: \(error)"
+            }
+            throw MojoArtifactError.outputLockFailed(
+                path: lockURL.path,
+                diagnostic: "\(primaryDiagnostic); cleanup failed: \(cleanupDiagnostics.joined(separator: "; "))"
+            )
+        }
+        return try bodyResult.get()
     }
 }

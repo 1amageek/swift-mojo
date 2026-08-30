@@ -9,7 +9,7 @@ same Swift session contract is used on every accelerator platform. Concrete
 backend implementation, hardware qualification, and deployment policy belong to
 the consuming package, not to `swift-mojo`.
 
-> **Current status:** the macOS scalar, borrowed-buffer, mutable-output, synchronous session, and session-owned Float32-buffer paths are verified through real Mojo compile, static link, and runtime execution. The session path includes typed capability negotiation, factory-domain isolation, child-before-parent ownership, exactly-once shutdown, concurrent-use rejection, and separate Swift-side and Mojo-side Address Sanitizer runs. Schema 5 also generates and verifies a SwiftPM `staticLibrary` artifact bundle from a real Mojo `aarch64-unknown-linux-gnu` cross-compile. Native Linux consumer execution, async execution, tensors, allocation/copy measurement, and dedicated sanitizer coverage for the standalone borrowed-buffer families remain pending bridge work. Model behavior and hardware acceptance are downstream responsibilities.
+> **Current status:** the macOS scalar, borrowed-buffer, mutable-output, synchronous session, and session-owned Float32-buffer paths are verified through real Mojo compile, static link, and runtime execution. The session path includes typed capability negotiation, factory-domain isolation, child-before-parent ownership, exactly-once shutdown, concurrent-use rejection, and separate Swift-side and Mojo-side Address Sanitizer runs. Schema 5 also generates and verifies a SwiftPM `staticLibrary` artifact bundle from a real Mojo `aarch64-unknown-linux-gnu` cross-compile. A clean native Linux ARM64 Swift 6.2.4 consumer now verifies the build plugin, statically links the artifact, runs scalar invocation and opaque-session create/use/shutdown, and has no Mojo compiler or dynamic dependency. Linux owned-buffer transfer, async execution, tensors, allocation/copy measurement, and dedicated sanitizer coverage for the standalone borrowed-buffer families remain pending bridge work. Model behavior and hardware acceptance are downstream responsibilities.
 
 ## Start with a Swift function
 
@@ -673,7 +673,7 @@ The following state was observed on this machine on 2026-08-21:
 | Borrowed buffer change | Source, generated ABI, macro lowering, typed errors, real compile/link/runtime, and failure behavior are verified; allocation/copy counts and sanitizers remain pending |
 | Mutable output change | IR, macro, generated Mojo/C/Registry, real Mojo 1.0 universal compile, static link, runtime mutation, typed status, both empty-buffer failures, immutable-revision release acceptance, symbol inspection, and no-Mojo-dylib inspection passed; allocation/copy measurement and standalone-buffer sanitizers remain pending |
 | Runtime session change | IR, macro, generated Mojo/C/Registry, session/resource lifecycle tests, real Mojo 1.0 CPU session and host-buffer create/copy/use/shutdown, copy and synchronization status propagation, typed failures, ten-symbol static link, no-Mojo-dylib inspection, Swift Address Sanitizer, and Mojo Address Sanitizer passed locally; concrete device implementation and hardware acceptance remain downstream |
-| Linux artifact change | Real Mojo cross-compiled `aarch64-unknown-linux-gnu`; schema-5 artifact-bundle layout/digest/package wiring and a KGEN-free archive passed locally. Native Linux ARM64 consumer link/run remains pending |
+| Linux artifact change | Real Mojo cross-compiled `aarch64-unknown-linux-gnu`; schema-5 artifact-bundle layout/digest/package wiring and a KGEN-free archive passed locally. A clean native Linux ARM64 Swift 6.2.4 consumer verified the plugin, statically linked the archive, ran scalar and opaque-session create/use/shutdown paths, exported seven bridge symbols, and had no Mojo dynamic dependency. Linux owned-buffer transfer and device execution remain separate gates |
 | Multi-target change | An immutable pushed revision prepared, linked, and executed two independent Mojo-enabled targets in one consumer; both returned `42` without module or symbol collision, and the release process repeats this on the final tag commit |
 | Wrapper latency | The prior `9.148 µs` versus `9.067 µs` p50 result is retained as historical evidence only. `Benchmarks/RuntimeBridge` now provides the reproducible explicit harness; it has not been rerun for the current changes |
 | Historical cold build | A prior compiler-free fresh-scratch Release consumer build completed in `165` seconds; it is not current correctness or performance evidence |
@@ -761,7 +761,7 @@ Historical cold Release attempts did not complete within a 120-second bound beca
 ## Documentation
 
 - [Requirements](docs/REQUIREMENTS.md)
-- [Design](docs/DESIGN.md)
+- [Design](DESIGN.md)
 - [Philosophy](docs/PHILOSOPHY.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Toolchain and CI contract](docs/TOOLCHAINS.md)

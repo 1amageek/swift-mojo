@@ -4,6 +4,7 @@ import MojoBindingCore
 import MojoCompilerCore
 import Testing
 
+#if os(macOS)
 @Suite("Generated Mojo runtime library preparation")
 struct MojoRuntimeLibraryArtifactPreparerTests {
     @Test(.timeLimit(.minutes(1)))
@@ -376,3 +377,4 @@ private struct FixtureCompiler: MojoObjectCompiling, Sendable {
         return ""
     }
 }
+#endif

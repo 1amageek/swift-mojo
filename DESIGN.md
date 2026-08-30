@@ -1,6 +1,18 @@
-# Design
+# Swift Mojo
 
-## 1. Design target
+## Purpose and Scope
+
+This file is the system and Swift package master design for `swift-mojo`.
+The repository root is both the system root and the SwiftPM package root, so
+this design has no parent design. Its direct child component designs are listed
+under [Related Designs](#related-designs).
+
+The package owns a generic Swift-to-Mojo authoring, prepared-artifact, build
+verification, and runtime-ownership boundary. It supports Darwin authoring and
+Darwin/glibc consumers without embedding downstream model, application, device,
+or deployment policy.
+
+### Swift authoring surface
 
 利用者が設計する最終surfaceを先に固定します。
 
@@ -15,7 +27,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 current sourceではこのsurfaceとexternal package bindingを実装していますが、inline semanticsは `(Int32, Int32) -> Int32` の加算だけです。external packageにはimmutable/mutable `Float` borrow、synchronous opaque-session create/use/shutdown、およびsession-owned Float32-buffer create/synchronous host copy/shutdownを実装しています。構文の見た目と対応言語範囲、caller-owned borrowとowned resource、capability representationと実device実装、generic sessionとmodel inference、実装済みと実行検証済みを混同しません。
 
-## 2. Confirmed current facts
+## Confirmed Current Facts
 
 | Fact | Evidence in repository |
 |---|---|
@@ -39,9 +51,28 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Accelerator deployment is an exact managed bundle | schema-1 bundle manifests bind the linked executable、receipt、copied closure、relative loader root、direct system dependencies、and Linux interpreter; final imports are re-derived before atomic commit |
 | Runtime-linked generated ABI is a separate exact bundle | schema-3 runtime-library manifests bind compiler/input-graph/generated-source/source-map provenance、typed binding IDs/signatures/session-factory relationships、the primary dylib/shared library、generated header/module map、exact exports、receipt closure、`@loader_path`/`$ORIGIN`、and all file digests; relocation and invocation pass with an empty environment fixture |
 | Runtime preflight is consumable without the authoring CLI | the public read-only `MojoRuntime` product distinguishes executable and callable-library bundles through `MojoRuntimeBundleVerifying` and `MojoRuntimeLibraryBundleVerifying`; construction, mutation, loading, and execution remain outside those APIs |
-| Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation and KGEN-free archive inspection pass, while native Linux ARM64 consumer link/run remains pending |
+| Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation, KGEN-free archive inspection, and a clean native Linux ARM64 Swift 6.2.4 scalar plus owned-session create/use/shutdown consumer pass |
 
-## 3. Architecture and responsibilities
+## Responsibilities and Boundaries
+
+`swift-mojo` owns versioned binding semantics, generated C ABI surfaces,
+canonical artifact identity, compiler process control, prepared native artifact
+packaging, build-time verification, and generic synchronous session ownership.
+
+It does not own model architecture, model weights, learning policy, application
+lifecycle, device selection, deployment orchestration, or product safety policy.
+Those concerns consume only the package's public contracts. Platform-specific
+POSIX declarations remain internal implementation details and cannot flow into
+public Mojo, compiler, artifact, command, or runtime APIs.
+
+## Related Designs
+
+| Design | Relationship | Contract Used | Summary | Cautions |
+|---|---|---|---|---|
+| [`CMojoPOSIXSupport`](Sources/CMojoPOSIXSupport/DESIGN.md) | child | Fixed-width C POSIX ABI | Normalizes Darwin and glibc process, descriptor, lock, signal, wait, and exit operations. | Unsupported hosts fail explicitly; C pointers do not escape one call. |
+| [`MojoPOSIXSupport`](Sources/MojoPOSIXSupport/DESIGN.md) | child | Typed package-scoped Swift adapter | Owns Swift marshalling, capability checks, status decoding, and typed adapter errors. | It does not own timeouts, artifact policy, or user-facing errors. |
+
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -95,9 +126,9 @@ flowchart TB
 | `MojoBuildPlugin` | verifier command | SwiftPM/Xcode | missing required inputs or verifier failure stops build |
 | generated Registry | internal scalar/buffer/session call thunk | expanded Swift body | scalar invariant mismatch traps; buffer/session failures throw typed errors |
 
-## 4. End-to-end flows
+## Runtime Flows
 
-### 4.1 Prepare flow
+### Prepare flow
 
 ```text
 SwiftPM-resolved target source inventory
@@ -128,7 +159,7 @@ SwiftPM-resolved target source inventory
 
 Rendererは元のforeign textをpassthroughしません。inline pathは `MojoBinding.Operation` のallowlistからMojo expressionを生成し、P1では `addForward` と `addReversed` だけです。borrowed bufferはfull Mojo packageの関数へだけ接続し、Swift bodyをMojo textへ変換しません。
 
-### 4.2 Build flow
+### Build flow
 
 ```text
 SwiftPM loads platform-conditioned committed binary target
@@ -152,7 +183,7 @@ Swift source inventoryの正本はSwiftPM plugin APIが返すtarget-resolved `so
 
 release gateはprepare/initと同じoutput lockを保持し、`Package.swift` をSwiftSyntaxで読み、target-scoped binary target path、binary dependency、declared remote package由来のMojo product、同一package由来の `MojoBuildPlugin`、local dependencyとmoving branchの不在を確認します。package URL/registry identityとversion/revision requirementはliteralだけを受理し、`revision:` はfull 40/64-character Git object ID、`from:` / `exact:` はvalid semantic versionだけを受理します。package release versionはsource constantへ複製せず、Git tagまたはregistry releaseと、それを解決した `Package.resolved` のversion/revisionだけを正本とします。remote acceptanceはさらにadvertised commitとSwiftPMのresolved pinが同一であることを検証します。公開タグを作る直前には、候補commitを隔離bare Git remoteへ複製し、提案tagをその隔離remoteだけに作成します。fresh consumerが `exact:` requirementでversionと同じcommitを解決し、Mojo productをbuildしてpublic command pluginを実行できることを確認するため、stable releaseからbranch/revision dependencyへ到達するSwiftPM違反は公開前に停止します。変数やhelperから計算されてprovenanceを証明できないdependencyはfail closedします。終了直前にSwift/Mojo input graph、`SwiftMojo.json`、`Package.swift` を再読し、検証中に変わったsnapshotを成功扱いしません。現在は証明可能性を優先し、manifest fragmentをliteral call/arrayとして要求します。変数やhelperで計算されたmanifestを受理するには、PackageDescription評価結果をtoolchain/versionごとに安定して取得・検証する別contractが必要です。
 
-### 4.3 Runtime flow
+### Runtime flow
 
 ```text
 add(20, 22)
@@ -257,7 +288,7 @@ synchronization、native hardware executionを推測しません。`.hostPinned`
 `DeviceContext.enqueue_create_host_buffer` が表すpage-locked host memoryの契約であり、
 vendor固有のmanaged/unified memoryをcross-platform共通機能として公開しません。
 
-## 5. Why a normal macro is sufficient only for a subset
+## Why a Normal Macro Is Sufficient Only for a Subset
 
 SE-0415のbody macroは、元bodyを受け取り、生成bodyへ全面置換できます。元bodyは意味的に正しいSwiftでなくてもよい一方、Swift grammarとしてparseできなければmacroへ到達しません。
 
@@ -275,7 +306,7 @@ flowchart TD
 
 任意のMojo syntaxを同じ `.swift` bodyへ直接書く最終形は、Swift grammarとの共通部分を越えた時点でmacro単体では不可能です。
 
-## 6. Syntax strategy comparison
+## Syntax Strategy Comparison
 
 | Strategy | Swift parser | IDE/source map | Build integration | P1 decision |
 |---|---|---|---|---|
@@ -288,7 +319,7 @@ flowchart TD
 
 P1では文字列段階を経ず、実現可能な最小DSLを直接実装しました。今後も、Swift-parseable subsetで十分なsyntaxは共有IRを拡張し、full Mojoだけを別source/preprocessor層へ分離します。
 
-## 7. Shared IR and identity
+## Shared IR and Identity
 
 `MojoBinding` は次を保持します。
 
@@ -312,7 +343,7 @@ hash collision at runtime ID     -> duplicate failure or full build-time digest 
 
 人がSwift名、Mojo名、C symbol、cache keyを別々に同期する設計は採用しません。
 
-## 8. Artifact and ABI design
+## Artifact and ABI Design
 
 ### 8.1 Stable dispatcher
 
@@ -361,7 +392,7 @@ accelerator objectが`AsyncRT_*`、`KGEN_CompilerRT_*`、または`MGP_RT_*`を�
 
 export allowlist、header、module mapは同じ`MojoInputGraph`とartifact identityから生成します。verifierはtree、digest、receipt reproduction、architecture、install name/SONAME、RPATH/RUNPATH、direct imports、system boundary、export setを再確認します。このadapterはisolated worker内でpersistent sessionを保持するためのdeployment primitiveです。public runtime productはverifyだけを提供し、`dlopen`、symbol cast、session生成はまだ提供しません。
 
-## 9. State, ownership, lifetime, and isolation
+## State, Ownership, and Lifecycle
 
 | State | Creator | Owner | Lifetime | Isolation | Failure |
 |---|---|---|---|---|---|
@@ -381,7 +412,7 @@ export allowlist、header、module mapは同じ`MojoInputGraph`とartifact ident
 
 scalar/borrowed-buffer runtimeに共有可変ownership stateはありません。session lifecycleとchild-resource registryは全targetで同じ `Mutex<State>` により保護し、foreign callとdestroyはcritical section外で実行します。一方、generated directoryは複数CLI processから到達できる外部可変stateなので、cache readからcommitまでoutput path由来のinterprocess lockで保護します。process-localなMutexでfilesystem transactionの排他を代替しません。将来async operation、callback ownerを追加するときは現在の同期leaseを流用せず、completion ownerを含む別の明示isolationを設計します。
 
-## 10. Error contract
+## Failure, Concurrency, and Constraints
 
 | Boundary | Success | Failure |
 |---|---|---|
@@ -398,7 +429,7 @@ scalar/borrowed-buffer runtimeに共有可変ownership stateはありません�
 
 scalar runtimeで `throws` にしないのは、toolchain/artifact failureをprepare/build gateへ移した静的設計だからです。immutable borrowed-buffer sliceはdirect-return ABIとtyped Swift validation errorの最小形です。mutable-output sliceはrecoverable Mojo-side statusを追加しましたが、owned diagnostic payloadやtransactional output rollbackは持ちません。opaque session/resource sliceはMojo-created stateのlifetimeを跨ぎますが、operationは同期かつsingle-leaseです。Accelerator availability、device execution、async completionはcapability spellingから推測せず、downstream adapterの実行証拠を要求します。
 
-## 11. Public API, implementation, and tests
+## Verification and Change Impact
 
 | Public/developer surface | Concrete implementation | Behavioral evidence |
 |---|---|---|
@@ -407,12 +438,19 @@ scalar runtimeで `throws` にしないのは、toolchain/artifact failureをpre
 | `swift package --disable-sandbox --allow-writing-to-package-directory mojo prepare` | source graph + pipeline identity + renderer + compiler + packager | cache invalidation/lock tests、gated real Mojo acceptance |
 | borrowed `[Float]` | buffer signature IR + macro + generated Mojo/C/Registry | unit/artifact tests、real Mojo compile、compiler-free link/run、typed empty failure、Mach-O inspection verified; allocation/copy and sanitizers pending |
 | mutable `inout [Float]` output | mutable signature IR + macro + nested borrow Registry + generated status ABI | unit/artifact tests、real Mojo 1.0 universal compile/static link/runtime mutation、typed status、empty input/output、immutable-revision release、Mach-O/no-dylib inspection verified; allocation/copy and standalone-buffer sanitizers pending |
-| `MojoSessionOwner` / `MojoFloat32BufferOwner` | session/resource factory IR + macro + generated versioned create/use/copy/synchronize/shutdown ABI + `Mutex<State>` owner | unit/artifact tests、real Mojo 1.0 universal macOS session/host-buffer lifecycle and round-trip copy、cleanup、typed copy/synchronize failures、reentrant/concurrent busy、ten-symbol/no-dylib inspection、Swift Address Sanitizer、Mojo Address Sanitizer verified locally; native Linux and downstream device execution remain separate gates |
-| build plugin | leaf/directory inputs + `verify` | committed schema-5 mixed fixture verifies, Apple-links, and returns `42`; verifier/release suites cover wrong target、stale、missing/corrupt nested inputs |
+| `MojoSessionOwner` / `MojoFloat32BufferOwner` | session/resource factory IR + macro + generated versioned create/use/copy/synchronize/shutdown ABI + `Mutex<State>` owner | unit/artifact tests、real Mojo 1.0 universal macOS session/host-buffer lifecycle and round-trip copy、cleanup、typed copy/synchronize failures、reentrant/concurrent busy、ten-symbol/no-dylib inspection、Swift Address Sanitizer、Mojo Address Sanitizer verified locally; clean native Linux ARM64 verifies the generic session create/use/shutdown subset, while native Linux owned-buffer transfer and downstream device execution remain separate gates |
+| build plugin | leaf/directory inputs + `verify` | committed schema-5 mixed fixture verifies and links on macOS/Linux, returns scalar `42`, creates and uses an owned session, shuts it down, and rejects use after shutdown; verifier/release suites cover wrong target、stale、missing/corrupt nested inputs |
 | static artifact | Apple XCFramework + Linux static-library artifact bundle + generated Registry | corrupt archive/header/metadata tests、Mach-O and ELF archive inspection |
 | relocation | static executable | artifact copy outside build location returns scalar `42` and buffer `10.0` without Mojo installed |
 
-## 12. Target and packaging behavior
+Changes to canonical identity or generated ABI require the binding, artifact,
+plugin, release-verifier, and compiler-free consumer tests. Changes to process,
+descriptor, lock, signal, or exit behavior additionally require both child
+component contracts, real Darwin process tests, and a clean native glibc
+Linux/aarch64 run. Downstream device execution is separate evidence and cannot
+be inferred from package build or cross-compilation success.
+
+## Target and Packaging Behavior
 
 schema 5では `SwiftMojo.json` がtargetごとのApple/Linux slice setを所有します。同一Apple platform/architecture/variant、または同一Linux target tripleへcollapseするCPU違いのsliceはSwiftPMが選択できないため、configuration/prepare boundaryで拒否します。
 
@@ -420,7 +458,64 @@ configured buildはhost architectureをdestinationと仮定せず、manifestとc
 
 `Generated/<Target>` はsource-controlled inputです。SwiftPMはlocal binary targetをpackage graph読込時に必要とするため、pluginだけで空のbinary target pathを後から作ることはできません。`init` が最初のbootstrapを担います。
 
-## 13. Mojo model package distribution
+### 12.1 Cross-platform authoring and consumer boundary
+
+The generic package is supported on Darwin and Glibc Linux. Platform-specific
+system calls are owned by the internal [`MojoPOSIXSupport`](Sources/MojoPOSIXSupport/DESIGN.md)
+Swift adapter and its [`CMojoPOSIXSupport`](Sources/CMojoPOSIXSupport/DESIGN.md)
+C shim; no public Mojo, compiler, artifact, or command API
+imports `Darwin` or `Glibc` directly. These two implementation targets form one
+adapter boundary, not a second semantic implementation:
+
+```mermaid
+flowchart LR
+    Core["MojoBindingCore\nMojoCompilerCore\nMojoArtifactCore"]
+    Digest["MojoCanonicalDigest\ncanonical bytes + SHA-256"]
+    POSIX["MojoPOSIXSupport\ntyped Swift boundary"]
+    CShim["CMojoPOSIXSupport\nDarwin/glibc ABI shim"]
+    Darwin["Darwin adapter"]
+    Glibc["Glibc adapter"]
+    Consumer["SwiftPM consumer\nmacro + plugin + artifact"]
+
+    Core --> Digest
+    Core --> POSIX
+    POSIX --> CShim
+    CShim --> Darwin
+    CShim --> Glibc
+    Consumer --> Core
+```
+
+The following contracts are fixed before implementation:
+
+| Boundary | Owner | Contract | Unsupported case |
+|---|---|---|---|
+| Canonical digest | `MojoCanonicalDigest` | UTF-8 length framing, digest hex casing, and identifier truncation remain stable. Explicit recursive traversal includes every regular file even when a symlink sorts first; this corrects the former macOS enumerator bug that skipped later entries. Packaging version 9 rejects artifacts produced with the incomplete traversal. The provider is the pinned `swift-crypto` `Crypto` module; no platform-specific fallback is allowed. | Missing digest dependency fails package resolution/compilation; unsupported runtime hosts fail at their typed operation boundary. |
+| Compiler process | `FoundationMojoProcessRunner` + `MojoPOSIXSupport` | Spawn receives the explicit executable/argument/environment contract, creates a new session/process group, redirects both standard streams to one owned descriptor, polls and reaps exactly the child PID, and on timeout signals the whole group TERM→grace→KILL before returning the typed timeout. | A target without the required POSIX adapter returns a typed process-control failure; it never silently uses `Process` or drops group cleanup. |
+| Output lock | `MojoOutputLock` + `MojoPOSIXSupport` | The lock path is derived from the resolved output path with the unchanged canonical digest. `open`/`flock(LOCK_EX)` owns one descriptor for the complete transaction and unlock/close are attempted exactly once after the body. | Open, lock, unlock, or close failure remains an output-lock failure. |
+| CLI termination | `SwiftMojoCommand` + `MojoPOSIXSupport` | `MojoCommandRunner` owns exit codes and text/JSON projections; the executable only writes the two streams and exits with that exact code. | Unsupported host termination is a typed startup failure, not a success exit. |
+
+Linux is a consumer platform, not a reduced authoring mode. A clean
+`aarch64-unknown-linux-gnu` consumer must resolve the same package graph,
+compile the `Mojo` macro target and `MojoBuildPlugin`, verify the prepared
+static-library artifact, link the generated C module, and execute its Swift
+entry point without installing or invoking the Mojo compiler. The build plugin
+continues to verify only; it does not become a Linux compiler wrapper.
+
+The verification matrix is intentionally split by evidence boundary:
+
+| Invariant | Darwin host | Glibc Linux host | Native ARM64 Linux |
+|---|---|---|---|
+| Canonical digest bytes/output | focused parity tests | same golden input/output | same golden input/output in consumer fixture |
+| Process success/nonzero/timeout/reap | real process runner tests | real process runner tests | consumer/package test or fixture |
+| Exclusive output transaction | concurrent lock test | concurrent lock test | clean consumer preparation/verification where applicable |
+| Macro/plugin/artifact link and invoke | SwiftPM package test | SwiftPM package build/test | clean `aarch64` container acceptance |
+| Unsupported platform/target failure | typed failure test | typed failure test | typed failure test |
+
+Successful cross-compilation or archive inspection is not evidence for native
+Linux process execution. Device-runtime qualification remains a downstream
+consumer responsibility.
+
+## Mojo Model Package Distribution
 
 ### 13.1 Terminology and ownership
 
@@ -517,9 +612,9 @@ schema-5 sourceはtarget-scoped identity、Swift + external Mojo input graph、g
 2. remote artifact distribution、checksum、signing、release/tag policy。
 3. model/session API、weights compatibility、実推論、shutdown/error/cancellation acceptance。
 
-Apple platformはXCFramework、LinuxはSwiftPM SE-0482 `staticLibrary` artifact bundleをnative artifact adapterとして使います。両者を同じlayoutとして偽装せず、schema 5のadapter recordとplatform-conditioned binary dependencyで分離します。Linuxのcross artifactは検証済みですが、native Linux対応を名乗るにはLinux ARM64上のSwift consumer link/run gateが必要です。具体的なhardware qualificationはconsumerが所有します。
+Apple platformはXCFramework、LinuxはSwiftPM SE-0482 `staticLibrary` artifact bundleをnative artifact adapterとして使います。両者を同じlayoutとして偽装せず、schema 5のadapter recordとplatform-conditioned binary dependencyで分離します。Linux ARM64上のclean Swift 6.2.4 consumerはcompilerなしでplugin verification、static link、scalar invoke、opaque session create/use/shutdownまで実行済みです。owned-buffer transfer、runtime-linked bundle、具体的なhardware qualificationはそれぞれ別gateとしてconsumerまたは対応するartifact ownerが所有します。
 
-## 14. `@c`, callbacks, and platform frameworks
+## `@c`, Callbacks, and Platform Frameworks
 
 P1の方向はSwiftから、MojoがC ABIでexportした静的symbolを呼ぶため、Swift `@c` は不要です。
 
@@ -532,7 +627,7 @@ callbackを追加するときは、その時点のSwift compiler capability、ge
 
 Platform frameworkのAPI形状は、Swift-facing wrapperと低レイヤー実装を分離する参考になります。ただし、このpackageはUI、render loop、またはvendor resource lifecycleを所有しません。Accelerator対応時も公開するのはcompute invocation、buffer ownership、capability、synchronizationまでです。
 
-## 15. Invariants
+## Contracts and Invariants
 
 1. Swift利用コードはraw C symbol、pointer、artifact pathを指定しない。
 2. macroはI/Oやcompiler起動を行わない。
@@ -549,25 +644,24 @@ Platform frameworkのAPI形状は、Swift-facing wrapperと低レイヤー実装
 13. model packageのMojo source、Swift binding、configuration、source map、manifest、全native sliceのidentityが一致しないconsumer buildは成功しない。
 14. production model weightsをcode artifactへ暗黙に同梱せず、weight identityとstorage ownerをSwift APIで明示する。
 
-## 16. Open decisions
+## Open Decisions
 
-- non-Apple platform adapterとSwiftPM distribution boundary。
 - compiler executable identityをversion以外にも含めるcache policy。
 - compiler diagnostic format変化に耐えるstructured source-map integration。
 - DSL type checkerをSwiftSyntax-onlyで保つ範囲。
 - external package dependency lock identityをinput graphへ含める方式。
 - local committed XCFrameworkからremote artifact distributionへ移行するrelease policy。
 - runtime-dependent Mojo standard libraryを使う際のinitialization ABI。
-- owned buffer、diagnostic payload、async、GPU envelope。
+- owned diagnostic payload、async、GPU envelope。
 - full Mojo grammarに対するcustom source、preprocessor、upstream compiler integrationの選択。
 
-## 17. References
+## References
 
 - [SE-0415: Function Body Macros](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0415-function-body-macros.md)
 - [SwiftPM: Writing a build tool plugin](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/writingbuildtoolplugin/)
 - [Mojo: `@export`](https://mojolang.org/docs/reference/decorators/export/)
 - [Mojo: Modules and packages](https://mojolang.org/docs/manual/packages/)
 - [Mojo: compilation targets](https://mojolang.org/docs/tools/compilation/)
-- [ADR-0001](ADR-0001-STATIC-PREPARE-PIPELINE.md)
-- [ADR-0002](ADR-0002-MODEL-SWIFT-PACKAGE.md)
-- [ADR-0003](ADR-0003-RELEASE-ARTIFACT-SETS.md)
+- [ADR-0001](docs/ADR-0001-STATIC-PREPARE-PIPELINE.md)
+- [ADR-0002](docs/ADR-0002-MODEL-SWIFT-PACKAGE.md)
+- [ADR-0003](docs/ADR-0003-RELEASE-ARTIFACT-SETS.md)

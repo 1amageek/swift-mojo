@@ -309,3 +309,7 @@ instrumented by Mojo's upstream LLVM Address Sanitizer contract. The Mojo lane
 verifies the exact `__asan_version_mismatch_check_*` runtime symbol before linking.
 Linux ARM64 native execution and downstream device-buffer implementations
 remain outside this acceptance result.
+
+ADR-0008 later records the separate 2026-08-30 native Linux ARM64 acceptance of
+the generic static create/use/shutdown subset. Linux owned-buffer transfer and
+device-buffer implementations remain outside both results.

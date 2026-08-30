@@ -5,6 +5,7 @@ import Testing
 
 @Suite("Artifact initialization safety")
 struct MojoArtifactInitializerTests {
+#if os(macOS)
   @Test(.timeLimit(.minutes(1)))
   func createsLinuxBootstrapForPackageResolution() throws {
     let root = FileManager.default.temporaryDirectory
@@ -72,6 +73,7 @@ struct MojoArtifactInitializerTests {
     #expect(disposition == .alreadyInitialized)
     #expect(try Data(contentsOf: sentinel) == Data("prepared".utf8))
   }
+#endif
 
   @Test(.timeLimit(.minutes(1)))
   func rejectsUnmanagedExistingDirectory() throws {

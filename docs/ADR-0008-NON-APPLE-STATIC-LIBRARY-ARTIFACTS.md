@@ -1,6 +1,6 @@
 # ADR-0008: Non-Apple static-library artifacts
 
-- Status: Implemented and cross-package verified; native Linux acceptance pending
+- Status: Accepted; native Linux ARM64 static-session acceptance passed
 - Date: 2026-08-21
 - Scope: Linux ARM64 distribution of the generated C ABI
 
@@ -131,9 +131,25 @@ runtime devices inside either artifact.
    artifact while SwiftPM accepts the Linux artifact-bundle target.**
 4. A Linux ARM64 Swift 6.2+ consumer imports the generated module, statically
    links the archive, and runs create/use/shutdown without the Mojo compiler.
+   **Passed with Swift 6.2.4 on native `aarch64-unknown-linux-gnu`.**
 5. Hardware qualification, device runtime behavior, performance, and product
    acceptance belong to the consuming package and are not `swift-mojo` release
    gates. Cross-compilation on macOS is not gate 4 evidence.
+
+## Verification result
+
+On 2026-08-30 a clean `swift:6.2` Linux/aarch64 container, with Mojo absent and
+the source checkout mounted read-only, resolved and compiled the `Mojo` macro,
+`MojoBuildPlugin`, verifier, generated Swift registry, and schema-5 static-library
+artifact. The native test returned scalar `42`, created a factor-bearing opaque
+session, transformed `[1, 2, 3]` to `[2, 4, 6]`, shut the session down, rejected
+use after shutdown, and tolerated repeated shutdown. The final test executable
+contained all seven expected bridge symbols and `ldd` reported no Mojo dynamic
+dependency.
+
+This evidence proves the generic CPU static-session consumer path only. It does
+not prove owned-buffer transfer on Linux, runtime-linked worker bundles, an
+accelerator runtime, downstream device behavior, or performance.
 
 ## References
 

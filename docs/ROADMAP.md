@@ -160,7 +160,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 
 **Depends on:** G1–G7
 
-**Status:** Verified on the current schema-5 mixed Apple/Linux tree for the macOS destination; native Linux execution remains a separate gate
+**Status:** Verified on the current schema-5 mixed Apple/Linux tree for macOS and clean native Linux ARM64 Swift 6.2.4 destinations
 
 - real Mojo `1.0.0 (ed45d567)` compile。
 - Xcode build + plugin + macro + static link。
@@ -168,6 +168,7 @@ func add(_ a: Int32, _ b: Int32) -> Int32 {
 - final Mach-Oに4つのfixed ABI symbols。
 - Mojo dylib dependencyなし。
 - real external Mojo package import、prepare、release、static execution。
+- native Linux ARM64でplugin verification、scalar `42`、opaque session create/use/shutdown、seven bridge symbols、no Mojo dynamic dependency。
 - arm64 `generic` とx86_64 `x86-64` objectを1つのtarget-scoped universal static frameworkへ統合。
 - release packageから別directoryへ移設したclean consumerがMojo compilerなしでbuild/link/runし `42`。
 - final consumer Mach-Oにtarget-scoped ABI symbolsが4つ存在し、Mojo dylib dependencyなし。
@@ -233,7 +234,7 @@ flowchart LR
 
 **Depends on:** Phase 1 ABI/artifact pipeline. It can progress in parallel with Phase 2 because external Mojo packages do not require inline DSL expansion.
 
-**Status:** `([Float]) throws -> Float`、caller-owned mutable output、synchronous opaque session、and session-owned Float32-buffer create/synchronous host copy/shutdown are immutable-revision release-acceptance verified across IR、macro、generated Mojo/C ABI、Registry、real Mojo 1.0 universal macOS compile、static link、runtime behavior、typed failures、and Mach-O inspection. The owner model includes typed capability negotiation、exact transfer count、factory-domain isolation、one session/resource lease、active-child exclusion、and exactly-once child-before-parent destruction. The session/resource/host-transfer path also passes separate Swift-side and Mojo-side Address Sanitizer lanes. Schema-5 Linux ARM64 cross packaging is verified, while native Linux consumer execution、allocation/copy measurement、and standalone borrowed-buffer sanitizer coverage remain pending. Concrete device execution is downstream.
+**Status:** `([Float]) throws -> Float`、caller-owned mutable output、synchronous opaque session、and session-owned Float32-buffer create/synchronous host copy/shutdown are immutable-revision release-acceptance verified across IR、macro、generated Mojo/C ABI、Registry、real Mojo 1.0 universal macOS compile、static link、runtime behavior、typed failures、and Mach-O inspection. The owner model includes typed capability negotiation、exact transfer count、factory-domain isolation、one session/resource lease、active-child exclusion、and exactly-once child-before-parent destruction. The session/resource/host-transfer path also passes separate Swift-side and Mojo-side Address Sanitizer lanes. Schema-5 Linux ARM64 cross packaging and a clean native scalar plus opaque-session create/use/shutdown consumer are verified; Linux owned-buffer transfer、allocation/copy measurement、and standalone borrowed-buffer sanitizer coverage remain pending. Concrete device execution is downstream.
 
 Deliverables:
 
@@ -314,7 +315,7 @@ Deliverables:
 - model-specific Swift APIとMojo sourceとartifactを結ぶcompatibility manifest。
 - multiple Mojo-enabled targets向けtarget-derived static framework/module/archive/C symbol identityとtwo-target acceptance workflow（verified）。
 - arm64/x86_64 Apple and aarch64 Linux slice-aware schema-5 manifest、universal archive、XCFramework/artifact-bundle metadata gates（verified）。
-- Apple XCFramework adapterとLinux SE-0482 static-library artifact-bundle adapterの分離（cross packaging verified; native Linux ARM64 consumer pending）。
+- Apple XCFramework adapterとLinux SE-0482 static-library artifact-bundle adapterの分離（cross packaging and native Linux ARM64 scalar/session consumer verified; Linux owned-buffer transfer remains separate）。
 - release/cache identity including target accelerator（implemented; arbitrary target feature setはplanned）。
 - remote artifact bundle or package distribution workflow。
 - signed/reproducible generated artifact policy。

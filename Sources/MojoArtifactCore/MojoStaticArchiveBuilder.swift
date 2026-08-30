@@ -67,7 +67,13 @@ package struct MojoStaticArchiveBuilder: Sendable {
                 }
                 return (executablePath, arguments)
             }
+#if os(macOS)
             return ("/usr/bin/xcrun", ["llvm-ar"] + arguments)
+#else
+            throw MojoArtifactError.invalidArguments(
+                "SWIFT_MOJO_LLVM_AR must name an absolute LLVM archiver on non-macOS hosts"
+            )
+#endif
         }
     }
 

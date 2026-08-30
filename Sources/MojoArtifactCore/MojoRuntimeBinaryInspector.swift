@@ -346,7 +346,8 @@ package struct MojoRuntimeBinaryInspector: MojoRuntimeBinaryInspecting, Sendable
     }
 
     private static func elfMachine(from output: String) -> String? {
-        output.split(whereSeparator: \Character.isNewline).compactMap { line in
+        output.split(whereSeparator: \Character.isNewline).compactMap {
+            line -> String? in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.hasPrefix("Machine:") else {
                 return nil
@@ -379,7 +380,8 @@ package struct MojoRuntimeBinaryInspector: MojoRuntimeBinaryInspecting, Sendable
     }
 
     private static func elfProgramInterpreter(from output: String) -> String? {
-        output.split(whereSeparator: \Character.isNewline).compactMap { line in
+        output.split(whereSeparator: \Character.isNewline).compactMap {
+            line -> String? in
             guard line.contains("Requesting program interpreter:"),
                   let start = line.firstIndex(of: "["),
                   let end = line[start...].firstIndex(of: "]"),

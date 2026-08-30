@@ -1,6 +1,6 @@
 {
   "abiVersion" : 1,
-  "artifactDigest" : "a5d82ced39ed83ea1c0ce90a6d63216abc64682eb1783e9431898961c2a4f87c",
+  "artifactDigest" : "ebf1d98a59126d1c30d947d4bb535c925c5ba8b876d93f091e7efbb4d42f5fb2",
   "artifactIdentity" : {
     "artifactName" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework",
     "libraryName" : "libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a",
@@ -11,35 +11,50 @@
   "artifacts" : [
     {
       "adapter" : "appleXCFramework",
-      "digest" : "56ad0209d55335633f189d5f20c41cb96137d13f9ab166755f65763bbcee5191",
+      "digest" : "2989853ea0daa75c0424e545c2796f77ec6484c86b7939190b7bdb866fd5eb39",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
     },
     {
       "adapter" : "linuxStaticLibraryBundle",
-      "digest" : "946d0eca1a2c14b95bae5994848243d8fb3a25faf46a0b3f562f03c75cc86012",
+      "digest" : "abd86c5beabe88c136dd1bf7e3b3e4ada92057a01b4a37508b3c071cdb930ac3",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.artifactbundle"
     }
   ],
   "bindings" : [
     {
+      "abiDigest" : "389990f455e9f85ca85a201fd9989af9bd990df95b76c0fdcab577d497329a6b",
+      "bindingID" : 4078450316648511580,
+      "functionName" : "integrationOpenSession",
+      "implementationDigest" : "081617cc6ce119ae369e8cc5e7ccc6dce9a706a119feb9dbb402739b726a7feb"
+    },
+    {
       "abiDigest" : "bbcf8322e5008f10a4b8ce248ec74b44fb8e6449da314d49c3f6b155b994a946",
       "bindingID" : 4309807554310999824,
       "functionName" : "integrationAdd",
       "implementationDigest" : "5a7d70ba2c27ecb73b73bbf94e2fbbbbc3f7dd452dd48c26cc6bb7d825ae1c4c"
+    },
+    {
+      "abiDigest" : "4e8f67e58bc98663642c7fd94fadfdb5891dea877e1c413955695772f6569d25",
+      "bindingID" : 5660857492218414691,
+      "functionName" : "integrationScale",
+      "implementationDigest" : "aec393f73117d7c88ce6e8328694a4a6c9f7e32d59521a089d23bceaa2625acc"
     }
   ],
   "compilerVersion" : "Mojo 1.0.0 (ed45d567)",
   "externalPackages" : [
-
+    {
+      "digest" : "8c409657b00fb4bf2e6ef577cf558eb3235ce17e839396a785d252090003ff47",
+      "name" : "SessionModel"
+    }
   ],
-  "generatedSourceDigest" : "bf9019e69af6d85c8485e323b420159a5ed5e62f48883235440de7215957aad5",
-  "generationPipelineDigest" : "1c58a7a955c9f417de9cbd4f0c57a35bf017f60d4c4c3664f790fcaf43c2b719",
-  "inputGraphDigest" : "e766e90480c9311d90c7e79e7b66cdab858377dbf38e5427267055032a7b62cd",
-  "inputGraphIdentifier" : 7450898839080874269,
+  "generatedSourceDigest" : "fd0865878c18440d4d8e56539e93bc7172f9afe57902139cb108b2acbaf0012e",
+  "generationPipelineDigest" : "2592c999cb4253d63e348b416de09d7fd1c16c2143e141ed4d497f37ce370ee1",
+  "inputGraphDigest" : "dca649706287d30b1dd93d5e41da02bcf631402c1c1773c880aaf567607793f2",
+  "inputGraphIdentifier" : 6676104244661572363,
   "schemaVersion" : 5,
   "slices" : [
     {
-      "archiveDigest" : "fab67551d54e4b2f28e92c637363d8cca7f7844f0ea9d6c4cbde05e7ca000593",
+      "archiveDigest" : "b71b2ae760107457f2b2715daf28fd1aa4a37bdc3c1810a30eab3d5422c02ca6",
       "libraryIdentifier" : "linux-234e17a28cd31bbdd7861545e26b882a5e96f4b155fa3922926bac590e206378",
       "target" : {
         "cpu" : "generic",
@@ -47,7 +62,7 @@
       }
     },
     {
-      "archiveDigest" : "7ca1fae0f278701cb062b1530c06e2d1a09e29b041f57440b1b25bdcbfcb9878",
+      "archiveDigest" : "3e5d4a4acc2797db608257702b489fbe23cabab7d75baa266b78915237f8015c",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "generic",
@@ -55,7 +70,7 @@
       }
     },
     {
-      "archiveDigest" : "7ca1fae0f278701cb062b1530c06e2d1a09e29b041f57440b1b25bdcbfcb9878",
+      "archiveDigest" : "3e5d4a4acc2797db608257702b489fbe23cabab7d75baa266b78915237f8015c",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "x86-64",
@@ -63,7 +78,7 @@
       }
     }
   ],
-  "sourceGraphDigest" : "cdd3b1d4c72b69f194dfc377498c687c52a4fe9f66db8c4e57a0031736c1afd1",
-  "sourceGraphIdentifier" : 5608021488439093745,
-  "sourceMapDigest" : "beda3cdeb94eceea669b757434857ea9c27f7b63e29cc69480c8229bf3ae1190"
+  "sourceGraphDigest" : "7379096fb533ba36b1361b5541d14332c6772d45cad8a7abcabe7b4dd733d28b",
+  "sourceGraphIdentifier" : 8320692161929787958,
+  "sourceMapDigest" : "5e516236943814179cd2bfc90b5805fc40d7de8ac24a6fb6ae8316dcc31b81d5"
 }

@@ -1,5 +1,5 @@
-import Darwin
 import Foundation
+import MojoPOSIXSupport
 
 package struct FoundationMojoProcessRunner: MojoProcessRunning {
     private enum WaitOutcome {
@@ -73,23 +73,54 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
         temporaryDirectory: URL
     ) throws -> MojoProcessResult {
         let outputURL = temporaryDirectory.appendingPathComponent("output.log")
-        // The filesystem representation is borrowed only for open(2). The
-        // returned descriptor owns the file description and is closed exactly once.
-        let outputDescriptor = outputURL.path.withCString { path in
-            Darwin.open(
-                path,
-                O_CREAT | O_TRUNC | O_RDWR,
-                mode_t(S_IRUSR | S_IWUSR)
+        let outputDescriptor: Int32
+        do {
+            outputDescriptor = try MojoPOSIXSupport.openOutputFile(
+                path: outputURL.path
             )
-        }
-        guard outputDescriptor >= 0 else {
+        } catch {
             throw MojoCompilerToolError.processControlFailed(
                 command: command,
-                diagnostic: Self.systemErrorDescription()
+                diagnostic: String(describing: error)
             )
         }
-        defer { _ = Darwin.close(outputDescriptor) }
+        let result: MojoProcessResult
+        do {
+            result = try capture(
+                executablePath: executablePath,
+                arguments: arguments,
+                outputDescriptor: outputDescriptor,
+                command: command
+            )
+        } catch {
+            let primaryError = error
+            do {
+                try MojoPOSIXSupport.closeFile(outputDescriptor)
+            } catch let cleanupError {
+                throw MojoCompilerToolError.processControlFailed(
+                    command: command,
+                    diagnostic: "Primary error: \(primaryError); descriptor cleanup error: \(cleanupError)"
+                )
+            }
+            throw primaryError
+        }
+        do {
+            try MojoPOSIXSupport.closeFile(outputDescriptor)
+        } catch {
+            throw MojoCompilerToolError.processControlFailed(
+                command: command,
+                diagnostic: "Descriptor cleanup failed: \(error)"
+            )
+        }
+        return result
+    }
 
+    private func capture(
+        executablePath: String,
+        arguments: [String],
+        outputDescriptor: Int32,
+        command: String
+    ) throws -> MojoProcessResult {
         let processID = try spawn(
             executablePath: executablePath,
             arguments: arguments,
@@ -111,10 +142,25 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
             }
             throw primaryError
         }
-        let data = try Self.readOutput(
-            descriptor: outputDescriptor,
-            command: command
-        )
+        switch outcome {
+        case .exited:
+            try terminateRemainingProcessGroup(
+                processID: processID,
+                command: command
+            )
+        case .timedOut:
+            try terminateAndReap(processID: processID, command: command)
+        }
+        let data: Data
+        do {
+            try MojoPOSIXSupport.seekToStart(outputDescriptor)
+            data = try MojoPOSIXSupport.readOutput(outputDescriptor)
+        } catch {
+            throw MojoCompilerToolError.processControlFailed(
+                command: command,
+                diagnostic: String(describing: error)
+            )
+        }
         guard let output = String(data: data, encoding: .utf8) else {
             throw MojoCompilerToolError.compilerOutputWasNotUTF8(
                 command: command
@@ -140,107 +186,39 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
         arguments: [String],
         outputDescriptor: Int32,
         command: String
-    ) throws -> pid_t {
-        var actions: posix_spawn_file_actions_t? = nil
-        try Self.requirePOSIXSuccess(
-            posix_spawn_file_actions_init(&actions),
-            operation: "posix_spawn_file_actions_init",
-            command: command
-        )
-        defer { posix_spawn_file_actions_destroy(&actions) }
-
-        var attributes: posix_spawnattr_t? = nil
-        try Self.requirePOSIXSuccess(
-            posix_spawnattr_init(&attributes),
-            operation: "posix_spawnattr_init",
-            command: command
-        )
-        defer { posix_spawnattr_destroy(&attributes) }
-
-        try Self.requirePOSIXSuccess(
-            posix_spawn_file_actions_adddup2(
-                &actions,
-                outputDescriptor,
-                STDOUT_FILENO
-            ),
-            operation: "redirect stdout",
-            command: command
-        )
-        try Self.requirePOSIXSuccess(
-            posix_spawn_file_actions_adddup2(
-                &actions,
-                outputDescriptor,
-                STDERR_FILENO
-            ),
-            operation: "redirect stderr",
-            command: command
-        )
-        if outputDescriptor != STDOUT_FILENO,
-           outputDescriptor != STDERR_FILENO {
-            try Self.requirePOSIXSuccess(
-                posix_spawn_file_actions_addclose(&actions, outputDescriptor),
-                operation: "close inherited output descriptor",
-                command: command
+    ) throws -> MojoPOSIXSupport.ProcessID {
+        do {
+            return try MojoPOSIXSupport.spawn(
+                executablePath: executablePath,
+                arguments: arguments,
+                environment: environment,
+                outputDescriptor: outputDescriptor
             )
-        }
-        try Self.requirePOSIXSuccess(
-            posix_spawnattr_setflags(
-                &attributes,
-                Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT)
-            ),
-            operation: "configure process session",
-            command: command
-        )
-
-        let argumentStorage = try MojoProcessCStringArray(
-            [executablePath] + arguments,
-            command: command
-        )
-        let environmentStorage = try environment.map { environment in
-            try MojoProcessCStringArray(
-                environment.keys.sorted().map { key in
-                    "\(key)=\(environment[key] ?? "")"
-                },
-                command: command
-            )
-        }
-        var processID = pid_t()
-        let spawnResult = try executablePath.withCString { executable in
-            try argumentStorage.withUnsafeMutablePointers { argumentPointers in
-                if let environmentStorage {
-                    return try environmentStorage.withUnsafeMutablePointers {
-                        environmentPointers in
-                        posix_spawn(
-                            &processID,
-                            executable,
-                            &actions,
-                            &attributes,
-                            argumentPointers,
-                            environmentPointers
-                        )
-                    }
-                }
-                return posix_spawn(
-                    &processID,
-                    executable,
-                    &actions,
-                    &attributes,
-                    argumentPointers,
-                    Darwin.environ
+        } catch let error as MojoPOSIXSupportError {
+            switch error {
+            case .processLaunchFailed(let diagnostic):
+                throw MojoCompilerToolError.processLaunchFailed(
+                    command: command,
+                    message: diagnostic
+                )
+            case .unsupportedPlatform,
+                 .operationFailed,
+                 .childAlreadyReaped:
+                throw MojoCompilerToolError.processControlFailed(
+                    command: command,
+                    diagnostic: error.description
                 )
             }
-        }
-        guard spawnResult == 0 else {
-            throw MojoCompilerToolError.processLaunchFailed(
+        } catch {
+            throw MojoCompilerToolError.processControlFailed(
                 command: command,
-                message: String(cString: strerror(spawnResult))
+                diagnostic: String(describing: error)
             )
         }
-        return processID
     }
 
     private func waitForExit(
-        processID: pid_t,
+        processID: MojoPOSIXSupport.ProcessID,
         command: String
     ) throws -> WaitOutcome {
         let clock = ContinuousClock()
@@ -250,26 +228,26 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
                 processID: processID,
                 command: command
             ) {
-                try terminateRemainingProcessGroup(
-                    processID: processID,
-                    command: command
-                )
                 return .exited(Self.exitStatus(from: status))
             }
-            Thread.sleep(forTimeInterval: pollInterval)
+            sleepUntilNextPoll(clock: clock, deadline: deadline)
         }
-
-        try terminateAndReap(processID: processID, command: command)
+        if let status = try pollForExit(
+            processID: processID,
+            command: command
+        ) {
+            return .exited(Self.exitStatus(from: status))
+        }
         return .timedOut
     }
 
     private func terminateAndReap(
-        processID: pid_t,
+        processID: MojoPOSIXSupport.ProcessID,
         command: String
     ) throws {
         try Self.signalProcessGroup(
             processID: processID,
-            signal: SIGTERM,
+            signal: MojoPOSIXSupport.terminationSignal,
             command: command
         )
         if try waitForReap(
@@ -286,7 +264,7 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
 
         try Self.signalProcessGroup(
             processID: processID,
-            signal: SIGKILL,
+            signal: MojoPOSIXSupport.killSignal,
             command: command
         )
         guard try waitForReap(
@@ -306,19 +284,19 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
     }
 
     private func terminateRemainingProcessGroup(
-        processID: pid_t,
+        processID: MojoPOSIXSupport.ProcessID,
         command: String
     ) throws {
         guard Self.processGroupIsAlive(processID) else { return }
         try Self.signalProcessGroup(
             processID: processID,
-            signal: SIGTERM,
+            signal: MojoPOSIXSupport.terminationSignal,
             command: command
         )
         if waitForProcessGroupExit(processID: processID) { return }
         try Self.signalProcessGroup(
             processID: processID,
-            signal: SIGKILL,
+            signal: MojoPOSIXSupport.killSignal,
             command: command
         )
         guard waitForProcessGroupExit(processID: processID) else {
@@ -329,20 +307,22 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
         }
     }
 
-    private func waitForProcessGroupExit(processID: pid_t) -> Bool {
+    private func waitForProcessGroupExit(
+        processID: MojoPOSIXSupport.ProcessID
+    ) -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(
             by: .seconds(terminationGraceSeconds)
         )
         while clock.now < deadline {
             guard Self.processGroupIsAlive(processID) else { return true }
-            Thread.sleep(forTimeInterval: pollInterval)
+            sleepUntilNextPoll(clock: clock, deadline: deadline)
         }
         return !Self.processGroupIsAlive(processID)
     }
 
     private func waitForReap(
-        processID: pid_t,
+        processID: MojoPOSIXSupport.ProcessID,
         duration: Duration,
         command: String
     ) throws -> Bool {
@@ -352,152 +332,70 @@ package struct FoundationMojoProcessRunner: MojoProcessRunning {
             if try pollForExit(processID: processID, command: command) != nil {
                 return true
             }
-            Thread.sleep(forTimeInterval: pollInterval)
+            sleepUntilNextPoll(clock: clock, deadline: deadline)
         }
         return try pollForExit(processID: processID, command: command) != nil
     }
 
+    private func sleepUntilNextPoll(
+        clock: ContinuousClock,
+        deadline: ContinuousClock.Instant
+    ) {
+        let remaining = clock.now.duration(to: deadline)
+        let sleepSeconds = min(
+            pollInterval,
+            max(0, Self.timeInterval(from: remaining))
+        )
+        if sleepSeconds > 0 {
+            Thread.sleep(forTimeInterval: sleepSeconds)
+        }
+    }
+
     private func pollForExit(
-        processID: pid_t,
+        processID: MojoPOSIXSupport.ProcessID,
         command: String
     ) throws -> Int32? {
-        var status: Int32 = 0
-        while true {
-            let result = waitpid(processID, &status, WNOHANG)
-            if result == processID { return status }
-            if result == 0 { return nil }
-            if result == -1, errno == EINTR { continue }
-            if result == -1, errno == ECHILD {
-                throw MojoCompilerToolError.processControlFailed(
-                    command: command,
-                    diagnostic: "The child process was reaped outside its owner"
-                )
-            }
+        do {
+            return try MojoPOSIXSupport.waitNoHang(processID: processID)
+        } catch {
             throw MojoCompilerToolError.processControlFailed(
                 command: command,
-                diagnostic: "waitpid failed: \(Self.systemErrorDescription())"
+                diagnostic: String(describing: error)
             )
         }
     }
 
     private static func signalProcessGroup(
-        processID: pid_t,
+        processID: MojoPOSIXSupport.ProcessID,
         signal: Int32,
         command: String
     ) throws {
-        guard Darwin.kill(-processID, signal) == 0 || errno == ESRCH else {
+        do {
+            try MojoPOSIXSupport.signalProcessGroup(
+                processID: processID,
+                signal: signal
+            )
+        } catch {
             throw MojoCompilerToolError.processControlFailed(
                 command: command,
-                diagnostic: "Failed to signal process group \(processID): \(systemErrorDescription())"
+                diagnostic: String(describing: error)
             )
         }
     }
 
-    private static func processGroupIsAlive(_ processID: pid_t) -> Bool {
-        Darwin.kill(-processID, 0) == 0 || errno == EPERM
+    private static func processGroupIsAlive(
+        _ processID: MojoPOSIXSupport.ProcessID
+    ) -> Bool {
+        MojoPOSIXSupport.processGroupIsAlive(processID)
     }
 
     private static func exitStatus(from waitStatus: Int32) -> Int32 {
-        let signal = waitStatus & 0x7f
-        if signal == 0 {
-            return (waitStatus >> 8) & 0xff
-        }
-        return 128 + signal
+        MojoPOSIXSupport.exitStatus(from: waitStatus)
     }
 
-    private static func readOutput(
-        descriptor: Int32,
-        command: String
-    ) throws -> Data {
-        guard Darwin.lseek(descriptor, 0, SEEK_SET) >= 0 else {
-            throw MojoCompilerToolError.processControlFailed(
-                command: command,
-                diagnostic: "lseek failed: \(systemErrorDescription())"
-            )
-        }
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 16_384)
-        while true {
-            // The mutable byte view is initialized storage owned by buffer. Its
-            // base address is borrowed only for read(2) and does not escape.
-            let readCount = buffer.withUnsafeMutableBytes { bytes in
-                Darwin.read(descriptor, bytes.baseAddress, bytes.count)
-            }
-            if readCount > 0 {
-                data.append(buffer, count: readCount)
-                continue
-            }
-            if readCount == 0 { return data }
-            if errno == EINTR { continue }
-            throw MojoCompilerToolError.processControlFailed(
-                command: command,
-                diagnostic: "read failed: \(systemErrorDescription())"
-            )
-        }
-    }
-
-    private static func requirePOSIXSuccess(
-        _ result: Int32,
-        operation: String,
-        command: String
-    ) throws {
-        guard result == 0 else {
-            throw MojoCompilerToolError.processControlFailed(
-                command: command,
-                diagnostic: "\(operation) failed: \(String(cString: strerror(result)))"
-            )
-        }
-    }
-
-    private static func systemErrorDescription() -> String {
-        String(cString: strerror(errno))
-    }
-}
-
-// This owner allocates one NUL-terminated buffer per argument with strdup,
-// retains every pointer for the complete posix_spawn call, and frees each
-// allocation exactly once. The mutable pointer array never escapes its borrow.
-private final class MojoProcessCStringArray {
-    private var pointers: [UnsafeMutablePointer<CChar>?] = []
-
-    init(_ strings: [String], command: String) throws {
-        for string in strings {
-            guard let pointer = strdup(string) else {
-                for allocatedPointer in pointers {
-                    free(allocatedPointer)
-                }
-                pointers.removeAll(keepingCapacity: false)
-                throw MojoCompilerToolError.processControlFailed(
-                    command: command,
-                    diagnostic: "Unable to allocate process argument storage"
-                )
-            }
-            pointers.append(pointer)
-        }
-        pointers.append(nil)
-    }
-
-    deinit {
-        for pointer in pointers {
-            free(pointer)
-        }
-    }
-
-    func withUnsafeMutablePointers<Result>(
-        _ body: (
-            UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
-        ) throws -> Result
-    ) throws -> Result {
-        // strdup owns every string allocation until this object is released.
-        // The argv buffer is borrowed only by posix_spawn and cannot escape.
-        try pointers.withUnsafeMutableBufferPointer { buffer in
-            guard let baseAddress = buffer.baseAddress else {
-                throw MojoCompilerToolError.processControlFailed(
-                    command: "prepare process arguments",
-                    diagnostic: "Process argument buffer is unavailable"
-                )
-            }
-            return try body(baseAddress)
-        }
+    private static func timeInterval(from duration: Duration) -> TimeInterval {
+        let components = duration.components
+        return TimeInterval(components.seconds)
+            + TimeInterval(components.attoseconds) / 1_000_000_000_000_000_000
     }
 }

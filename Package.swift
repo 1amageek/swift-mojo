@@ -16,6 +16,10 @@ let package = Package(
     ],
     dependencies: [
         .package(
+            url: "https://github.com/apple/swift-crypto.git",
+            exact: "4.5.1"
+        ),
+        .package(
             url: "https://github.com/swiftlang/swift-syntax.git",
             exact: "603.0.2"
         ),
@@ -24,6 +28,7 @@ let package = Package(
         .target(
             name: "MojoBindingCore",
             dependencies: [
+                .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(
                     name: "SwiftParserDiagnostics",
@@ -46,12 +51,25 @@ let package = Package(
             name: "Mojo",
             dependencies: ["MojoMacros"]
         ),
-        .target(name: "MojoCompilerCore"),
+        .target(
+            name: "MojoCompilerCore",
+            dependencies: ["MojoPOSIXSupport"]
+        ),
+        .target(
+            name: "CMojoPOSIXSupport",
+            exclude: ["DESIGN.md"]
+        ),
+        .target(
+            name: "MojoPOSIXSupport",
+            dependencies: ["CMojoPOSIXSupport"],
+            exclude: ["DESIGN.md"]
+        ),
         .target(
             name: "MojoArtifactCore",
             dependencies: [
                 "MojoBindingCore",
                 "MojoCompilerCore",
+                "MojoPOSIXSupport",
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(
                     name: "SwiftParserDiagnostics",
@@ -95,7 +113,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "swift-mojo",
-            dependencies: ["MojoCommandCore"]
+            dependencies: ["MojoCommandCore", "MojoPOSIXSupport"]
         ),
         .plugin(
             name: "MojoBuildPlugin",
@@ -134,7 +152,11 @@ let package = Package(
         ),
         .testTarget(
             name: "MojoCompilerCoreTests",
-            dependencies: ["MojoCompilerCore"]
+            dependencies: ["MojoCompilerCore", "MojoPOSIXSupport"]
+        ),
+        .testTarget(
+            name: "MojoPOSIXSupportTests",
+            dependencies: ["MojoPOSIXSupport"]
         ),
         .testTarget(
             name: "MojoBindingCoreTests",
@@ -162,7 +184,10 @@ let package = Package(
         ),
         .testTarget(
             name: "MojoBuildPluginIntegrationTests",
-            dependencies: ["MojoBuildPluginIntegrationFixture"]
+            dependencies: [
+                "Mojo",
+                "MojoBuildPluginIntegrationFixture",
+            ]
         ),
     ]
 )

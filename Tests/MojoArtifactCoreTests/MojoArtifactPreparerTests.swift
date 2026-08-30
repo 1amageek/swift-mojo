@@ -665,6 +665,7 @@ struct MojoArtifactPreparerTests {
     }
   }
 
+#if os(macOS)
   @Test(.timeLimit(.minutes(1)))
   func preparesAndVerifiesAppleAndLinuxArtifactsAsOneTargetSet() throws {
     try withPreparerFixture { fixture in
@@ -733,6 +734,7 @@ struct MojoArtifactPreparerTests {
       )
     }
   }
+#endif
 
   @Test(.timeLimit(.minutes(1)))
   func duplicateXCFrameworkSelectorsAreRejectedBeforeCompilation() throws {
@@ -954,7 +956,7 @@ struct MojoArtifactPreparerTests {
       )
       #expect(
         MojoGenerationPipeline.digest
-          == "1c58a7a955c9f417de9cbd4f0c57a35bf017f60d4c4c3664f790fcaf43c2b719"
+          == "bed8f112bf88fd93df81c6f218fb7e291ef8071865ae77783faaaf611895060c"
       )
     }
   }

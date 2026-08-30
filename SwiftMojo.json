@@ -3,7 +3,9 @@
   "targets": {
     "MojoBuildPluginIntegrationFixture": {
       "compilerVersion": "Mojo 1.0.0 (ed45d567)",
-      "mojoPackages": [],
+      "mojoPackages": [
+        "SessionModel"
+      ],
       "slices": [
         {
           "cpu": "generic",

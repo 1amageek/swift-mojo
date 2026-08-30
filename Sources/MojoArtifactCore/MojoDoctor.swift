@@ -26,6 +26,7 @@ package struct MojoDoctor: Sendable {
         layout: MojoPackageLayout? = nil
     ) -> MojoDoctorReport {
         var checks: [MojoDoctorReport.Check] = []
+#if os(macOS)
         checks.append(
             commandCheck(
                 name: "Swift toolchain",
@@ -40,6 +41,22 @@ package struct MojoDoctor: Sendable {
                 arguments: ["xcodebuild", "-version"]
             )
         )
+#else
+        checks.append(
+            commandCheck(
+                name: "Swift toolchain",
+                executablePath: "/usr/bin/env",
+                arguments: ["swift", "--version"]
+            )
+        )
+        checks.append(
+            MojoDoctorReport.Check(
+                name: "Static artifact authoring host",
+                status: .failed,
+                detail: "Static Mojo artifact authoring requires macOS; this host can consume prepared artifacts"
+            )
+        )
+#endif
         checks.append(mojoCheck())
         if let layout {
             checks.append(packageCheck(layout: layout))

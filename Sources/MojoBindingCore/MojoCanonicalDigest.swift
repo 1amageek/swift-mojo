@@ -1,4 +1,4 @@
-import CryptoKit
+import Crypto
 import Foundation
 
 package enum MojoCanonicalDigestError: Error, Equatable, CustomStringConvertible {
@@ -61,75 +61,63 @@ package enum MojoCanonicalDigest {
     else {
       throw MojoCanonicalDigestError.symbolicLink(rootURL.path)
     }
-    guard let enumerator = fileManager.enumerator(atPath: rootURL.path) else {
-      throw CocoaError(.fileReadNoSuchFile)
-    }
     var entries: [(path: String, symbolicLinkDestination: String?)] = []
-    for (relativePath, expected) in allowedSymbolicLinks {
-      let url = rootURL.appendingPathComponent(relativePath)
-        .standardizedFileURL
-      let rootPath =
-        canonicalRoot.path.hasSuffix("/")
-        ? canonicalRoot.path
-        : canonicalRoot.path + "/"
-      guard url.path.hasPrefix(rootPath) else {
-        throw MojoCanonicalDigestError.symbolicLinkEscapesRoot(
-          url.path
-        )
-      }
-      let attributes: [FileAttributeKey: Any]
-      do {
-        attributes = try fileManager.attributesOfItem(
-          atPath: url.path
-        )
-      } catch {
-        throw MojoCanonicalDigestError.symbolicLinkMissing(relativePath)
-      }
-      guard
-        attributes[.type] as? FileAttributeType
-          == .typeSymbolicLink
-      else {
-        throw MojoCanonicalDigestError.symbolicLinkMissing(relativePath)
-      }
-      let actual = try fileManager.destinationOfSymbolicLink(
-        atPath: url.path
-      )
-      guard actual == expected else {
-        throw MojoCanonicalDigestError.symbolicLinkDestination(
-          path: url.path,
-          expected: expected,
-          actual: actual
-        )
-      }
-      guard !NSString(string: actual).isAbsolutePath else {
-        throw MojoCanonicalDigestError.symbolicLinkEscapesRoot(url.path)
-      }
-      let resolvedTarget = url.deletingLastPathComponent()
-        .appendingPathComponent(actual)
-        .standardizedFileURL
-      guard resolvedTarget.path.hasPrefix(rootPath),
-        fileManager.fileExists(atPath: resolvedTarget.path)
-      else {
-        throw MojoCanonicalDigestError.symbolicLinkEscapesRoot(url.path)
-      }
-      entries.append((relativePath, actual))
-    }
-    for case let relativePath as String in enumerator {
-      let url = rootURL.appendingPathComponent(relativePath)
-      let attributes = try fileManager.attributesOfItem(
-        atPath: url.path
-      )
-      let type = attributes[.type] as? FileAttributeType
-      if type == .typeSymbolicLink {
-        guard allowedSymbolicLinks[relativePath] != nil else {
-          throw MojoCanonicalDigestError.symbolicLink(url.path)
+    let rootPath =
+      canonicalRoot.path.hasSuffix("/")
+      ? canonicalRoot.path
+      : canonicalRoot.path + "/"
+    var observedSymbolicLinks = Set<String>()
+
+    func appendEntries(in directoryURL: URL, relativeDirectory: String) throws {
+      let names = try fileManager.contentsOfDirectory(atPath: directoryURL.path)
+      for name in names {
+        let relativePath =
+          relativeDirectory.isEmpty
+          ? name
+          : "\(relativeDirectory)/\(name)"
+        let url = directoryURL.appendingPathComponent(name)
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        let type = attributes[.type] as? FileAttributeType
+        switch type {
+        case .typeSymbolicLink:
+          guard let expected = allowedSymbolicLinks[relativePath] else {
+            throw MojoCanonicalDigestError.symbolicLink(url.path)
+          }
+          let actual = try fileManager.destinationOfSymbolicLink(atPath: url.path)
+          guard actual == expected else {
+            throw MojoCanonicalDigestError.symbolicLinkDestination(
+              path: url.path,
+              expected: expected,
+              actual: actual
+            )
+          }
+          guard !NSString(string: actual).isAbsolutePath else {
+            throw MojoCanonicalDigestError.symbolicLinkEscapesRoot(url.path)
+          }
+          let resolvedTarget = url.deletingLastPathComponent()
+            .appendingPathComponent(actual)
+            .standardizedFileURL
+          guard resolvedTarget.path.hasPrefix(rootPath),
+            fileManager.fileExists(atPath: resolvedTarget.path)
+          else {
+            throw MojoCanonicalDigestError.symbolicLinkEscapesRoot(url.path)
+          }
+          observedSymbolicLinks.insert(relativePath)
+          entries.append((relativePath, actual))
+        case .typeDirectory:
+          try appendEntries(in: url, relativeDirectory: relativePath)
+        case .typeRegular:
+          entries.append((relativePath, nil))
+        default:
+          continue
         }
-        enumerator.skipDescendants()
-        continue
       }
-      if type == .typeRegular {
-        entries.append((relativePath, nil))
-      }
+    }
+
+    try appendEntries(in: rootURL, relativeDirectory: "")
+    for relativePath in allowedSymbolicLinks.keys
+    where !observedSymbolicLinks.contains(relativePath) {
+      throw MojoCanonicalDigestError.symbolicLinkMissing(relativePath)
     }
     entries.sort { $0.path < $1.path }
 

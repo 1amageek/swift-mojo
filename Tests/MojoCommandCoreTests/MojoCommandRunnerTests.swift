@@ -32,6 +32,27 @@ struct MojoCommandRunnerTests {
         #expect(result.standardError.isEmpty)
     }
 
+#if os(Linux)
+    @Test(.timeLimit(.minutes(1)))
+    func nativeLinuxRejectsStaticArtifactAuthoringBeforeMutation() throws {
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { removeFixture(output) }
+
+        let result = runner.run(
+            arguments: ["init", "--output-dir", output.path]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.standardError.contains(
+                "Static Mojo artifact authoring requires macOS; Linux is a prepared-artifact consumer platform"
+            )
+        )
+        #expect(!FileManager.default.fileExists(atPath: output.path))
+    }
+#endif
+
     @Test(.timeLimit(.minutes(1)))
     func runtimeReceiptCommandRequiresAnObject() {
         let result = runner.run(
@@ -344,6 +365,7 @@ struct MojoCommandRunnerTests {
     }
 
     private func removeFixture(_ root: URL) {
+        guard FileManager.default.fileExists(atPath: root.path) else { return }
         do {
             try FileManager.default.removeItem(at: root)
         } catch {

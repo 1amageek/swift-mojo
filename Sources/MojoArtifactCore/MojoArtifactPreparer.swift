@@ -3,7 +3,7 @@ import MojoBindingCore
 import MojoCompilerCore
 
 package struct MojoArtifactPreparer: Sendable {
-  package static let packagingVersion = 8
+  package static let packagingVersion = 9
 
   private let compiler: any MojoObjectCompiling
   private let generationPipelineDigestOverride: String?

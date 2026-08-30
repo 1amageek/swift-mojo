@@ -1,6 +1,6 @@
-import Darwin
 import Foundation
 import MojoCommandCore
+import MojoPOSIXSupport
 
 @main
 enum SwiftMojoCommand {
@@ -15,7 +15,7 @@ enum SwiftMojoCommand {
             FileHandle.standardError.write(Data(result.standardError.utf8))
         }
         if result.exitCode != 0 {
-            exit(result.exitCode)
+            MojoPOSIXSupport.exit(result.exitCode)
         }
     }
 }
