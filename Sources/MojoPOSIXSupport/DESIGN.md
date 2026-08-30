@@ -58,7 +58,13 @@ MojoCompilerCore / MojoArtifactCore / swift-mojo executable / MojoRuntimeWorker
   returns the parent endpoint plus owned child PID to `MojoRuntimeWorker`.
 - Worker reads, writes, and readiness waits report bounded progress, EOF,
   interruption, timeout, and platform failure without treating a partial frame
-  as completion.
+  as completion. The worker wakeup endpoint is drained through a bounded
+  package operation after poll reports readability; coalesced cancellation
+  tokens are never interpreted as protocol bytes.
+- Worker spawn clears the inherited signal mask and restores TERM, INT, HUP,
+  and PIPE to their default dispositions before `exec`. The worker may install
+  its own handlers after startup, but a blocked or ignored signal state from
+  the calling Swift executor cannot disable lifecycle escalation.
 - Exit status decoding maps normal exit to its exact code and signal termination
   to `128 + signal`.
 - The adapter does not silently substitute Foundation `Process`, a no-op lock,
@@ -89,6 +95,12 @@ Swift worker I/O
   -> poll for readiness within the caller-provided bound
   -> read or write a bounded byte region
   -> report exact progress or typed terminal status
+
+Swift cancellation wakeup
+  -> set cancellation state under the caller-owned Mutex
+  -> best-effort write one coalesced wakeup token
+  -> poll returns wakeup readiness
+  -> bounded drain clears tokens before the attempt classifies cancellation
 ```
 
 ## State, Ownership, and Lifecycle

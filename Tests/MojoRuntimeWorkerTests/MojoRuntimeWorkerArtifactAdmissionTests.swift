@@ -45,9 +45,10 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             }
         )
 
-        let admitted = try admission.admit(
+        let admitted = try admit(
+            admission,
             verification: fixture.verification,
-            startupTimeout: .seconds(3)
+            timeout: .seconds(3)
         )
         defer { cleanup(admitted) }
 
@@ -103,9 +104,10 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             )
 
             do {
-                _ = try admission.admit(
+                _ = try admit(
+                    admission,
                     verification: fixture.verification,
-                    startupTimeout: .seconds(1)
+                    timeout: .seconds(1)
                 )
                 Issue.record("\(mutation) unexpectedly admitted")
             } catch let error as MojoRuntimeWorkerError {
@@ -155,9 +157,10 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
         )
 
         #expect(throws: MojoRuntimeWorkerError.stagedProjectionMismatch) {
-            try admission.admit(
+            try admit(
+                admission,
                 verification: fixture.verification,
-                startupTimeout: .seconds(1)
+                timeout: .seconds(1)
             )
         }
         #expect(spawnCount == 0)
@@ -213,9 +216,10 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
                 field: "executionContractDigest"
             )
         ) {
-            try admission.admit(
+            try admit(
+                admission,
                 verification: fixture.verification,
-                startupTimeout: .seconds(3)
+                timeout: .seconds(3)
             )
         }
         let spawned = try #require(process)
@@ -312,7 +316,7 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             field: "executionContractDigest"
         )
         let error = MojoRuntimeWorkerError.cleanupFailed(
-            primary: primary,
+            primary: .worker(primary),
             failures: [
                 .transportCloseFailed,
                 .processReapFailed,
@@ -327,7 +331,7 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             Issue.record("Expected a structured cleanup failure")
             return
         }
-        #expect(observedPrimary == primary)
+        #expect(observedPrimary == .worker(primary))
         #expect(
             observedFailures == [
                 .transportCloseFailed,
@@ -356,9 +360,10 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
         )
 
         do {
-            _ = try admission.admit(
+            _ = try admit(
+                admission,
                 verification: fixture.verification,
-                startupTimeout: .seconds(1)
+                timeout: .seconds(1)
             )
             Issue.record("Missing source unexpectedly admitted")
         } catch let error as MojoRuntimeWorkerError {
@@ -402,13 +407,28 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
         )
 
         #expect(throws: MojoRuntimeWorkerError.privateStageCreationFailed) {
-            try admission.admit(
+            try admit(
+                admission,
                 verification: fixture.verification,
-                startupTimeout: .seconds(1)
+                timeout: .seconds(1)
             )
         }
         #expect(FileManager.default.fileExists(atPath: collisionRoot.path))
         #expect(FileManager.default.fileExists(atPath: markerURL.path))
+    }
+
+    private func admit(
+        _ admission: MojoRuntimeWorkerArtifactAdmission,
+        verification: MojoRuntimeWorkerBundleVerification,
+        timeout: Duration
+    ) throws -> MojoRuntimeWorkerAdmittedProcess {
+        let clock = ContinuousClock()
+        return try admission.admit(
+            verification: verification,
+            startupDeadline: clock.now.advanced(by: timeout),
+            terminationGracePeriod: timeout,
+            forcedCleanup: timeout
+        )
     }
 
     private func makeFixture(

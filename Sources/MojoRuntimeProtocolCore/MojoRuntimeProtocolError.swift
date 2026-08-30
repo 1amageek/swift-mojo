@@ -11,6 +11,7 @@ package enum MojoRuntimeProtocolError: Error, Equatable, Sendable,
     case invalidPayloadLength
     case payloadTooLarge(length: UInt64, limit: UInt64)
     case integerOverflow(operation: String)
+    case schemaMismatch(expected: UInt32, actual: UInt32)
     case truncatedHeader(actual: Int)
     case truncatedPayload(expected: Int, actual: Int)
     case trailingBytes(Int)
@@ -49,6 +50,8 @@ package enum MojoRuntimeProtocolError: Error, Equatable, Sendable,
             "Protocol payload length \(length) exceeds limit \(limit)"
         case .integerOverflow(let operation):
             "Protocol integer overflow during \(operation)"
+        case .schemaMismatch(let expected, let actual):
+            "Protocol schema \(actual) is unsupported; expected \(expected)"
         case .truncatedHeader(let actual):
             "Protocol header is truncated: found \(actual) bytes"
         case .truncatedPayload(let expected, let actual):

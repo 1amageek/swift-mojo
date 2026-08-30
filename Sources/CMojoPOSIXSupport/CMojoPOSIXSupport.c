@@ -655,11 +655,53 @@ int32_t swift_mojo_posix_worker_spawn(
 #else
     result = ENOTSUP;
 #endif
+#if defined(POSIX_SPAWN_SETSIGMASK)
+    flags |= POSIX_SPAWN_SETSIGMASK;
+#else
+    result = ENOTSUP;
+#endif
+#if defined(POSIX_SPAWN_SETSIGDEF)
+    flags |= POSIX_SPAWN_SETSIGDEF;
+#else
+    result = ENOTSUP;
+#endif
 #if defined(POSIX_SPAWN_CLOEXEC_DEFAULT)
     flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
 #endif
     if (result == 0) {
         result = posix_spawnattr_setflags(&attributes, flags);
+    }
+    sigset_t empty_signal_mask;
+    sigset_t default_signal_set;
+    if (result == 0 && sigemptyset(&empty_signal_mask) != 0) {
+        result = errno;
+    }
+    if (result == 0 && sigemptyset(&default_signal_set) != 0) {
+        result = errno;
+    }
+    if (result == 0 && sigaddset(&default_signal_set, SIGTERM) != 0) {
+        result = errno;
+    }
+    if (result == 0 && sigaddset(&default_signal_set, SIGINT) != 0) {
+        result = errno;
+    }
+    if (result == 0 && sigaddset(&default_signal_set, SIGHUP) != 0) {
+        result = errno;
+    }
+    if (result == 0 && sigaddset(&default_signal_set, SIGPIPE) != 0) {
+        result = errno;
+    }
+    if (result == 0) {
+        result = posix_spawnattr_setsigmask(
+            &attributes,
+            &empty_signal_mask
+        );
+    }
+    if (result == 0) {
+        result = posix_spawnattr_setsigdefault(
+            &attributes,
+            &default_signal_set
+        );
     }
 
     pid_t child = 0;

@@ -57,15 +57,18 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         _ verification: MojoRuntimeWorkerBundleVerification,
         _ timeout: Duration
     ) throws -> MojoRuntimeWorkerStartupResult
+    package typealias ReadStartupAtDeadline = (
+        _ process: MojoPOSIXWorkerProcess,
+        _ verification: MojoRuntimeWorkerBundleVerification,
+        _ deadline: ContinuousClock.Instant
+    ) throws -> MojoRuntimeWorkerStartupResult
     package typealias MakeStageRoot = () -> URL
-
-    private static let reapTimeout = Duration.seconds(2)
-    private static let reapPollInterval: TimeInterval = 0.005
 
     private let fileManager: FileManager
     private let verify: Verify
     private let spawn: Spawn
     private let readStartup: ReadStartup
+    private let readStartupAtDeadline: ReadStartupAtDeadline?
     private let makeStageRoot: MakeStageRoot
 
     package init() {
@@ -89,6 +92,13 @@ package struct MojoRuntimeWorkerArtifactAdmission {
                 timeout: timeout
             )
         }
+        readStartupAtDeadline = { process, verification, deadline in
+            try MojoRuntimeWorkerStartupReader.readReady(
+                from: process,
+                verification: verification,
+                deadline: deadline
+            )
+        }
         makeStageRoot = {
             Self.uniqueStageRoot(fileManager: fileManager)
         }
@@ -105,6 +115,31 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         self.verify = verify
         self.spawn = spawn
         self.readStartup = readStartup
+        self.readStartupAtDeadline = nil
+        self.makeStageRoot = makeStageRoot ?? {
+            Self.uniqueStageRoot(fileManager: fileManager)
+            }
+    }
+
+    package init(
+        fileManager: FileManager,
+        verify: @escaping Verify,
+        spawn: @escaping Spawn,
+        readStartupAtDeadline: @escaping ReadStartupAtDeadline,
+        makeStageRoot: MakeStageRoot? = nil
+    ) {
+        self.fileManager = fileManager
+        self.verify = verify
+        self.spawn = spawn
+        self.readStartup = { process, verification, timeout in
+            let clock = ContinuousClock()
+            return try readStartupAtDeadline(
+                process,
+                verification,
+                clock.now.advanced(by: timeout)
+            )
+        }
+        self.readStartupAtDeadline = readStartupAtDeadline
         self.makeStageRoot = makeStageRoot ?? {
             Self.uniqueStageRoot(fileManager: fileManager)
         }
@@ -113,7 +148,9 @@ package struct MojoRuntimeWorkerArtifactAdmission {
     package func admit(
         verification trustedVerification:
             MojoRuntimeWorkerBundleVerification,
-        startupTimeout: Duration
+        startupDeadline: ContinuousClock.Instant,
+        terminationGracePeriod: Duration,
+        forcedCleanup: Duration
     ) throws -> MojoRuntimeWorkerAdmittedProcess {
         let stageRoot = makeStageRoot()
         var ownsStageRoot = false
@@ -121,6 +158,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         var process: MojoPOSIXWorkerProcess?
 
         do {
+            try Self.requireNotCancelled()
             do {
                 try fileManager.createDirectory(
                     at: stageRoot,
@@ -135,6 +173,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
                 at: stageRoot,
                 fileManager: fileManager
             )
+            try Self.requireNotCancelled()
 
             let bundleURL = stageRoot.appendingPathComponent(
                 "bundle",
@@ -152,6 +191,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             } catch {
                 throw MojoRuntimeWorkerError.privateStageCopyFailed
             }
+            try Self.requireNotCancelled()
 
             let stagedVerification: MojoRuntimeWorkerBundleVerification
             do {
@@ -164,6 +204,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             ) else {
                 throw MojoRuntimeWorkerError.stagedProjectionMismatch
             }
+            try Self.requireNotCancelled()
             try Self.verifyPrivatePermissions(
                 at: stageRoot,
                 fileManager: fileManager
@@ -180,11 +221,27 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             guard let process else {
                 throw MojoRuntimeWorkerError.workerSpawnFailed
             }
-            let startup = try readStartup(
-                process,
-                stagedVerification,
-                startupTimeout
-            )
+            try Self.requireNotCancelled()
+            let startup: MojoRuntimeWorkerStartupResult
+            if let readStartupAtDeadline {
+                startup = try readStartupAtDeadline(
+                    process,
+                    stagedVerification,
+                    startupDeadline
+                )
+            } else {
+                let clock = ContinuousClock()
+                let remaining = clock.now.duration(to: startupDeadline)
+                guard remaining > .zero else {
+                    throw MojoRuntimeWorkerError.startupTimedOut
+                }
+                startup = try readStartup(
+                    process,
+                    stagedVerification,
+                    remaining
+                )
+            }
+            try Self.requireNotCancelled()
             let limits = try MojoRuntimeProtocolLimits(
                 maximumFramePayloadBytes:
                     stagedVerification.maximumFramePayloadBytes
@@ -210,11 +267,13 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             }
             let cleanupFailures = rollback(
                 process: process,
-                stageRoot: ownedStageRoot
+                stageRoot: ownedStageRoot,
+                terminationGracePeriod: terminationGracePeriod,
+                forcedCleanup: forcedCleanup
             )
             guard cleanupFailures.isEmpty else {
                 throw MojoRuntimeWorkerError.cleanupFailed(
-                    primary: primary,
+                    primary: .worker(primary),
                     failures: cleanupFailures
                 )
             }
@@ -279,42 +338,38 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         )
     }
 
+    private static func requireNotCancelled() throws {
+        let isCancelled = withUnsafeCurrentTask { task in
+            task?.isCancelled ?? false
+        }
+        guard !isCancelled else {
+            throw MojoRuntimeWorkerError.cancellationRequested
+        }
+    }
+
     private func rollback(
         process: MojoPOSIXWorkerProcess?,
-        stageRoot: URL?
+        stageRoot: URL?,
+        terminationGracePeriod: Duration,
+        forcedCleanup: Duration
     ) -> [MojoRuntimeWorkerCleanupFailure] {
-        var failures: [MojoRuntimeWorkerCleanupFailure] = []
-        var mayRemoveStage = process == nil
         if let process {
-            do {
-                try MojoPOSIXWorkerSupport.closeDescriptor(
-                    process.protocolDescriptor
-                )
-            } catch {
-                failures.append(.transportCloseFailed)
-            }
-            let termination = Self.terminateAndReap(process)
-            failures.append(contentsOf: termination.failures)
-            mayRemoveStage = termination.mayRemoveStage
-            do {
-                try MojoPOSIXWorkerSupport.closeDescriptor(
-                    process.diagnosticDescriptor
-                )
-            } catch {
-                failures.append(.diagnosticsCloseFailed)
-            }
+            return MojoRuntimeWorkerTerminalizer.cleanupAdmissionFailure(
+                process: process,
+                stageRoot: stageRoot,
+                terminationGracePeriod: terminationGracePeriod,
+                forcedCleanup: forcedCleanup
+            )
         }
-        if let stageRoot,
-           fileManager.fileExists(atPath: stageRoot.path) {
-            if let stageFailure = Self.finalizePrivateStage(
-                at: stageRoot,
-                processLifetimeEnded: mayRemoveStage,
-                fileManager: fileManager
-            ) {
-                failures.append(stageFailure)
-            }
+        guard let stageRoot,
+              fileManager.fileExists(atPath: stageRoot.path) else {
+            return []
         }
-        return failures
+        return Self.finalizePrivateStage(
+            at: stageRoot,
+            processLifetimeEnded: true,
+            fileManager: fileManager
+        ).map { [$0] } ?? []
     }
 
     package static func finalizePrivateStage(
@@ -334,140 +389,6 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         } catch {
             return .privateStageRemovalFailed
         }
-    }
-
-    private struct TerminationOutcome {
-        let mayRemoveStage: Bool
-        let failures: [MojoRuntimeWorkerCleanupFailure]
-    }
-
-    private struct ProcessGroupOutcome {
-        let terminated: Bool
-        let failures: [MojoRuntimeWorkerCleanupFailure]
-    }
-
-    private static func terminateAndReap(
-        _ process: MojoPOSIXWorkerProcess
-    ) -> TerminationOutcome {
-        var failures: [MojoRuntimeWorkerCleanupFailure] = []
-        let processID = process.processID
-        guard processID > 0 else {
-            return TerminationOutcome(
-                mayRemoveStage: false,
-                failures: [.processInspectionFailed]
-            )
-        }
-
-        var reaped = false
-        do {
-            if try MojoPOSIXSupport.waitNoHang(processID: processID) != nil {
-                reaped = true
-            }
-        } catch let error as MojoPOSIXSupportError
-            where error == .childAlreadyReaped {
-            failures.append(.processInspectionFailed)
-            reaped = true
-        } catch {
-            failures.append(.processInspectionFailed)
-        }
-
-        var signalFailed = false
-        if !reaped, MojoPOSIXSupport.processGroupIsAlive(processID) {
-            do {
-                try MojoPOSIXSupport.signalProcessGroup(
-                    processID: processID,
-                    signal: MojoPOSIXSupport.killSignal
-                )
-            } catch {
-                signalFailed = true
-            }
-        }
-
-        if !reaped {
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: reapTimeout)
-            while clock.now < deadline {
-                do {
-                    if try MojoPOSIXSupport.waitNoHang(
-                        processID: processID
-                    ) != nil {
-                        reaped = true
-                        break
-                    }
-                } catch let error as MojoPOSIXSupportError
-                    where error == .childAlreadyReaped {
-                    failures.append(.processReapFailed)
-                    reaped = true
-                    break
-                } catch {
-                    failures.append(.processReapFailed)
-                    break
-                }
-                Thread.sleep(forTimeInterval: reapPollInterval)
-            }
-        }
-        if !reaped {
-            do {
-                reaped = try MojoPOSIXSupport.waitNoHang(
-                    processID: processID
-                ) != nil
-            } catch let error as MojoPOSIXSupportError
-                where error == .childAlreadyReaped {
-                failures.append(.processReapFailed)
-                reaped = true
-            } catch {
-                failures.append(.processReapFailed)
-            }
-        }
-        if !reaped {
-            failures.append(.processReapFailed)
-        }
-        if signalFailed, !reaped {
-            failures.append(.processTerminationFailed)
-        }
-        let group = terminateRemainingProcessGroup(processID)
-        failures.append(contentsOf: group.failures)
-        return TerminationOutcome(
-            mayRemoveStage: reaped && group.terminated,
-            failures: failures
-        )
-    }
-
-    private static func terminateRemainingProcessGroup(
-        _ processID: MojoPOSIXSupport.ProcessID
-    ) -> ProcessGroupOutcome {
-        guard MojoPOSIXSupport.processGroupIsAlive(processID) else {
-            return ProcessGroupOutcome(terminated: true, failures: [])
-        }
-        do {
-            try MojoPOSIXSupport.signalProcessGroup(
-                processID: processID,
-                signal: MojoPOSIXSupport.killSignal
-            )
-        } catch {
-            guard MojoPOSIXSupport.processGroupIsAlive(processID) else {
-                return ProcessGroupOutcome(terminated: true, failures: [])
-            }
-            return ProcessGroupOutcome(
-                terminated: false,
-                failures: [.processGroupTerminationFailed]
-            )
-        }
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: reapTimeout)
-        while clock.now < deadline {
-            guard MojoPOSIXSupport.processGroupIsAlive(processID) else {
-                return ProcessGroupOutcome(terminated: true, failures: [])
-            }
-            Thread.sleep(forTimeInterval: reapPollInterval)
-        }
-        guard !MojoPOSIXSupport.processGroupIsAlive(processID) else {
-            return ProcessGroupOutcome(
-                terminated: false,
-                failures: [.processGroupTerminationFailed]
-            )
-        }
-        return ProcessGroupOutcome(terminated: true, failures: [])
     }
 
     private static func workerError(_ error: Error) -> MojoRuntimeWorkerError {

@@ -94,6 +94,16 @@ package enum MojoPOSIXWorkerIOResult: Equatable, Sendable {
   case wouldBlock
 }
 
+package struct MojoPOSIXWorkerWakeupDrain: Equatable, Sendable {
+  package let consumedBytes: Int
+  package let limitReached: Bool
+
+  package init(consumedBytes: Int, limitReached: Bool) {
+    self.consumedBytes = consumedBytes
+    self.limitReached = limitReached
+  }
+}
+
 package enum MojoPOSIXWorkerSupportError:
   Error, Equatable, CustomStringConvertible, Sendable
 {
@@ -214,6 +224,55 @@ package enum MojoPOSIXWorkerSupport {
     else {
       throw failure(operation: "signal worker wakeup", code: errorCode)
     }
+  }
+
+  /// Drains all currently queued wakeup bytes without blocking.
+  ///
+  /// The wakeup descriptor is owned by the cancellation gate. This function
+  /// only borrows it for the synchronous read loop; it never closes or
+  /// retains the descriptor.
+  package static func drainWakeup(
+    _ wakeup: MojoPOSIXWorkerWakeup
+  ) throws -> MojoPOSIXWorkerWakeupDrain {
+    try requireSupported(operation: "drain worker wakeup")
+    let maximumBytes = 4_096
+    let maximumReads = 16
+    var consumedBytes = 0
+    var storage = [UInt8](repeating: 0, count: 256)
+    for _ in 0..<maximumReads {
+      let remaining = maximumBytes - consumedBytes
+      guard remaining > 0 else {
+        return MojoPOSIXWorkerWakeupDrain(
+          consumedBytes: consumedBytes,
+          limitReached: true
+        )
+      }
+      let readCount = min(storage.count, remaining)
+      let result = try storage.withUnsafeMutableBytes { bytes in
+        let bounded = UnsafeMutableRawBufferPointer(
+          rebasing: bytes[..<(readCount)]
+        )
+        return try read(
+          descriptor: wakeup.readDescriptor,
+          into: bounded
+        )
+      }
+      switch result {
+      case .bytes(let count):
+        consumedBytes += count
+      case .wouldBlock, .eof:
+        return MojoPOSIXWorkerWakeupDrain(
+          consumedBytes: consumedBytes,
+          limitReached: false
+        )
+      case .interrupted:
+        continue
+      }
+    }
+    return MojoPOSIXWorkerWakeupDrain(
+      consumedBytes: consumedBytes,
+      limitReached: true
+    )
   }
 
   package static func poll(

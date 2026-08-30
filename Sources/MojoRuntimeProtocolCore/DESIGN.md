@@ -80,12 +80,20 @@ frame bytes
 Encoding performs the inverse transformation and must reproduce the canonical
 bytes exactly. Stream fragmentation and transport reads/writes are handled by
 `MojoRuntimeWorker` and the generated worker, outside this pure codec contract.
+For the worker client, this module also exposes a package-level segmented
+prefix decoder: it accepts the exact header and per-kind payload prefix,
+returns the typed payload plus the checked Float32 body byte count, and never
+materializes a complete tensor frame. The prefix widths (24 bytes for an
+invocation request and 12 bytes for an invocation result) remain owned by this
+module so transport code does not duplicate wire layouts.
 
 ## State, Ownership, and Lifecycle
 
 The module has no shared mutable state and owns no runtime resource. Schema and
 rendered source values are immutable. Temporary encode/decode buffers belong to
-one call and cannot escape it.
+one call and cannot escape it. A segmented decode borrows only its prefix data
+during parsing; the body is owned by the transport caller and is read into its
+final destination after the declared count has passed checked arithmetic.
 
 ## Failure, Concurrency, and Constraints
 
@@ -98,7 +106,9 @@ allocation. Pure codec/render operations may run concurrently.
 
 Golden C/Swift byte fixtures must cover every kind and Float32 payload, partial
 stream assembly, all malformed header fields, integer/size overflow, oversize,
-sequence/pairing violations, and exact schema/renderer digest invalidation.
+sequence/pairing violations, exact schema/renderer digest invalidation, and
+segmented prefix decoding with a body accepted only at the declared byte
+count.
 Differential tests must feed C-rendered frames to the Swift decoder and
 Swift-encoded frames to the C decoder.
 

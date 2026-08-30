@@ -11,19 +11,33 @@ package struct MojoRuntimeWorkerStartupResult: Sendable {
 package enum MojoRuntimeWorkerStartupReader {
     private static let maximumDiagnosticByteCount = 65_536
     private static let maximumDiagnosticReadsPerPoll = 16
+    private static let cancellationPollSlice: Duration = .milliseconds(50)
 
     package static func readReady(
         from process: MojoPOSIXWorkerProcess,
         verification: MojoRuntimeWorkerBundleVerification,
         timeout: Duration
     ) throws -> MojoRuntimeWorkerStartupResult {
+        let clock = ContinuousClock()
+        return try readReady(
+            from: process,
+            verification: verification,
+            deadline: clock.now.advanced(by: timeout)
+        )
+    }
+
+    package static func readReady(
+        from process: MojoPOSIXWorkerProcess,
+        verification: MojoRuntimeWorkerBundleVerification,
+        deadline: ContinuousClock.Instant
+    ) throws -> MojoRuntimeWorkerStartupResult {
         do {
+            try requireNotCancelled()
             let limits = try MojoRuntimeProtocolLimits(
                 maximumFramePayloadBytes:
                     verification.maximumFramePayloadBytes
             )
             let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: timeout)
             var diagnostics = Data()
             var sawProtocolHangup = false
             let headerData = try readExactly(
@@ -66,6 +80,10 @@ package enum MojoRuntimeWorkerStartupReader {
                     ready,
                     against: verification
                 )
+                try requireNotCancelled()
+                guard clock.now < deadline else {
+                    throw MojoRuntimeWorkerError.startupTimedOut
+                }
                 return MojoRuntimeWorkerStartupResult(
                     sequence: sequence,
                     diagnostics: diagnostics
@@ -115,6 +133,7 @@ package enum MojoRuntimeWorkerStartupReader {
         var offset = 0
 
         while offset < byteCount {
+            try requireNotCancelled()
             let remaining = clock.now.duration(to: deadline)
             guard remaining > .zero else {
                 throw MojoRuntimeWorkerError.startupTimedOut
@@ -123,11 +142,11 @@ package enum MojoRuntimeWorkerStartupReader {
                 protocolDescriptor: process.protocolDescriptor,
                 diagnosticDescriptor: process.diagnosticDescriptor,
                 interests: .read,
-                timeout: remaining
+                timeout: min(remaining, cancellationPollSlice)
             )
             switch pollResult {
             case .timedOut:
-                throw MojoRuntimeWorkerError.startupTimedOut
+                continue
             case .interrupted:
                 continue
             case .ready(let events):
@@ -188,6 +207,7 @@ package enum MojoRuntimeWorkerStartupReader {
     ) throws {
         var buffer = [UInt8](repeating: 0, count: 4_096)
         for _ in 0..<maximumDiagnosticReadsPerPoll {
+            try requireNotCancelled()
             guard clock.now < deadline else {
                 throw MojoRuntimeWorkerError.startupTimedOut
             }
@@ -210,6 +230,15 @@ package enum MojoRuntimeWorkerStartupReader {
             case .wouldBlock, .eof:
                 return
             }
+        }
+    }
+
+    private static func requireNotCancelled() throws {
+        let isCancelled = withUnsafeCurrentTask { task in
+            task?.isCancelled ?? false
+        }
+        guard !isCancelled else {
+            throw MojoRuntimeWorkerError.cancellationRequested
         }
     }
 }

@@ -1,4 +1,13 @@
+import Foundation
+public import Mojo
+import MojoPOSIXSupport
 public import MojoRuntime
+
+private enum MojoRuntimeWorkerAttemptOutcome<Value> {
+    case success(Value)
+    case bodyFailure(Error)
+    case workerFailure(Error)
+}
 
 public struct MojoRuntimeWorker: Sendable {
     package let verification: MojoRuntimeWorkerBundleVerification
@@ -96,6 +105,174 @@ public struct MojoRuntimeWorker: Sendable {
     ) throws {
         guard verification.bindings.contains(binding) else {
             throw MojoRuntimeWorkerError.bindingNotInVerification
+        }
+    }
+
+    public func withAttempt<Result: Sendable>(
+        sessionFactory: MojoRuntimeWorkerSessionFactory,
+        requirements: MojoSessionRequirements,
+        timeouts: MojoRuntimeWorkerTimeouts,
+        _ body: @Sendable (
+            MojoRuntimeWorkerSession
+        ) async throws -> Result
+    ) async throws -> Result {
+        try await withAttempt(
+            sessionFactory: sessionFactory,
+            requirements: requirements,
+            timeouts: timeouts,
+            admissionFactory: {
+                MojoRuntimeWorkerArtifactAdmission()
+            },
+            wakeupFactory: {
+                try MojoPOSIXWorkerSupport.createWakeup()
+            },
+            body
+        )
+    }
+
+    package func withAttempt<Result: Sendable>(
+        sessionFactory: MojoRuntimeWorkerSessionFactory,
+        requirements: MojoSessionRequirements,
+        timeouts: MojoRuntimeWorkerTimeouts,
+        admissionFactory: @escaping @Sendable ()
+            -> MojoRuntimeWorkerArtifactAdmission,
+        wakeupFactory: @escaping @Sendable () throws
+            -> MojoPOSIXWorkerWakeup = {
+                try MojoPOSIXWorkerSupport.createWakeup()
+            },
+        _ body: @Sendable (
+            MojoRuntimeWorkerSession
+        ) async throws -> Result
+    ) async throws -> Result {
+        let factoryBinding = try validatedBinding(for: sessionFactory)
+        let clock = ContinuousClock()
+        let startupDeadline = clock.now.advanced(by: timeouts.startup)
+        let admissionTask = Task.detached {
+            try admissionFactory().admit(
+                verification: self.verification,
+                startupDeadline: startupDeadline,
+                terminationGracePeriod: timeouts.terminationGracePeriod,
+                forcedCleanup: timeouts.forcedCleanup
+            )
+        }
+        let admitted: MojoRuntimeWorkerAdmittedProcess
+        do {
+            admitted = try await withTaskCancellationHandler(
+                operation: {
+                    try await admissionTask.value
+                },
+                onCancel: {
+                    admissionTask.cancel()
+                }
+            )
+        } catch {
+            if error is CancellationError {
+                throw MojoRuntimeWorkerError.cancellationRequested
+            }
+            throw error
+        }
+
+        let gate: MojoRuntimeWorkerCancellationGate
+        do {
+            let wakeup = try wakeupFactory()
+            gate = MojoRuntimeWorkerCancellationGate(wakeup: wakeup)
+        } catch {
+            let failures = MojoRuntimeWorkerTerminalizer
+                .cleanupAdmissionFailure(
+                    process: admitted.process,
+                    stageRoot: admitted.stage.rootURL,
+                    terminationGracePeriod: timeouts.terminationGracePeriod,
+                    forcedCleanup: timeouts.forcedCleanup
+            )
+            if failures.isEmpty {
+                throw MojoRuntimeWorkerError.wakeupCreationFailed
+            }
+            throw MojoRuntimeWorkerError.cleanupFailed(
+                primary: .worker(.wakeupCreationFailed),
+                failures: failures
+            )
+        }
+
+        let attempt = MojoRuntimeWorkerAttemptActor(
+            admitted: admitted,
+            gate: gate,
+            factoryBinding: factoryBinding,
+            requirements: requirements,
+            timeouts: timeouts
+        )
+        let outcome: MojoRuntimeWorkerAttemptOutcome<Result>
+        do {
+            let sessionState = try await withTaskCancellationHandler(
+                operation: {
+                    try await attempt.createSession(
+                        factory: sessionFactory,
+                        deadline: clock.now.advanced(
+                            by: timeouts.sessionCreation
+                        )
+                    )
+                },
+                onCancel: {
+                    gate.cancelScope()
+                }
+            )
+            let session = MojoRuntimeWorkerSessionFacade(
+                state: sessionState,
+                attempt: attempt
+            )
+            do {
+                let result = try await withTaskCancellationHandler(
+                    operation: {
+                        try await body(session)
+                    },
+                    onCancel: {
+                        gate.cancelScope()
+                    }
+                )
+                outcome = .success(result)
+            } catch {
+                outcome = .bodyFailure(error)
+            }
+        } catch {
+            outcome = .workerFailure(error)
+        }
+
+        let primary: MojoRuntimeWorkerError?
+        switch outcome {
+        case .success:
+            primary = nil
+        case .bodyFailure:
+            primary = nil
+        case .workerFailure(let error):
+            primary = error as? MojoRuntimeWorkerError
+        }
+        let cleanupError = await attempt.finishAttempt(primary: primary)
+        switch outcome {
+        case .success(let result):
+            if let cleanupError {
+                throw cleanupError
+            }
+            return result
+        case .bodyFailure(let error):
+            if let cleanupError {
+                if let failures = cleanupError.cleanupFailures {
+                    throw MojoRuntimeWorkerError.cleanupFailed(
+                        primary: .caller(
+                            typeName: String(reflecting: type(of: error)),
+                            description: String(describing: error)
+                        ),
+                        failures: failures
+                    )
+                }
+                // Cleanup completed without a cleanup failure. Preserve the
+                // exact original body error, including a worker-typed value.
+                throw error
+            }
+            throw error
+        case .workerFailure(let error):
+            if let cleanupError {
+                throw cleanupError
+            }
+            throw error
         }
     }
 }

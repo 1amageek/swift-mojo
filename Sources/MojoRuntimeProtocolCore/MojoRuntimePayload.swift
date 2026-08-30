@@ -112,9 +112,9 @@ package struct MojoRuntimeCreateSessionPayload: Equatable, Codable, Sendable {
             )
         }
         guard requestSchema == Self.schemaVersion else {
-            throw MojoRuntimeProtocolError.invalidPayload(
-                kind: .createSession,
-                reason: "unsupported session schema"
+            throw MojoRuntimeProtocolError.schemaMismatch(
+                expected: Self.schemaVersion,
+                actual: requestSchema
             )
         }
         self.bindingID = bindingID
@@ -149,9 +149,9 @@ package struct MojoRuntimeSessionCreatedPayload: Equatable, Codable, Sendable {
             )
         }
         guard responseSchema == Self.schemaVersion else {
-            throw MojoRuntimeProtocolError.invalidPayload(
-                kind: .sessionCreated,
-                reason: "unsupported session response schema"
+            throw MojoRuntimeProtocolError.schemaMismatch(
+                expected: Self.schemaVersion,
+                actual: responseSchema
             )
         }
         self.status = status

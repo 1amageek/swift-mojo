@@ -129,6 +129,22 @@ package struct MojoRuntimeFrameHeader: Equatable, Sendable {
     }
 }
 
+package struct MojoRuntimeFramePrefix: Equatable, Sendable {
+    package let header: MojoRuntimeFrameHeader
+    package let payload: MojoRuntimePayload
+    package let bodyByteCount: Int
+
+    package init(
+        header: MojoRuntimeFrameHeader,
+        payload: MojoRuntimePayload,
+        bodyByteCount: Int
+    ) {
+        self.header = header
+        self.payload = payload
+        self.bodyByteCount = bodyByteCount
+    }
+}
+
 package struct MojoRuntimeFrame: Equatable, Sendable {
     package let header: MojoRuntimeFrameHeader
     package let payload: MojoRuntimePayload
@@ -204,10 +220,11 @@ package struct MojoRuntimeFrame: Equatable, Sendable {
         _ data: Data,
         limits: MojoRuntimeProtocolLimits
     ) throws -> Self {
-        let header = try MojoRuntimeFrameHeader.decode(
-            Data(data.prefix(MojoRuntimeProtocol.headerByteCount)),
-            limits: limits
-        )
+        guard data.count >= MojoRuntimeProtocol.headerByteCount else {
+            throw MojoRuntimeProtocolError.truncatedHeader(actual: data.count)
+        }
+        let headerData = Data(data.prefix(MojoRuntimeProtocol.headerByteCount))
+        let header = try MojoRuntimeFrameHeader.decode(headerData, limits: limits)
         let payloadLength = try MojoRuntimeCheckedArithmetic.int(
             header.payloadByteCount,
             label: "payload length conversion"
@@ -226,43 +243,95 @@ package struct MojoRuntimeFrame: Equatable, Sendable {
         guard data.count == frameLength else {
             throw MojoRuntimeProtocolError.trailingBytes(data.count - frameLength)
         }
-        let bodyPrefixByteCount: Int?
-        switch header.kind {
-        case .invokeFloat32:
-            bodyPrefixByteCount = 24
-        case .invocationResult:
-            bodyPrefixByteCount = 12
-        case .ready, .createSession, .sessionCreated, .shutdownSession,
-             .sessionShutdown, .shutdownWorker, .workerShutdown, .failure:
-            bodyPrefixByteCount = nil
-        }
-        let payloadData: Data
-        let bodyByteCount: Int?
-        if let bodyPrefixByteCount {
-            guard payloadLength >= bodyPrefixByteCount else {
+        let prefixByteCount = try payloadPrefixByteCount(
+            for: header.kind,
+            payloadLength: payloadLength
+        )
+        let prefixEnd = try MojoRuntimeCheckedArithmetic.add(
+            MojoRuntimeProtocol.headerByteCount,
+            prefixByteCount,
+            label: "payload prefix offset"
+        )
+        let prefix = try Self.decodePrefix(
+            headerData: headerData,
+            payloadPrefixData: Data(
+                data[MojoRuntimeProtocol.headerByteCount..<prefixEnd]
+            ),
+            limits: limits
+        )
+        return Self(header: prefix.header, payload: prefix.payload)
+    }
+
+    package static func decodePrefix(
+        headerData: Data,
+        payloadPrefixData: Data,
+        limits: MojoRuntimeProtocolLimits
+    ) throws -> MojoRuntimeFramePrefix {
+        let header = try MojoRuntimeFrameHeader.decode(
+            headerData,
+            limits: limits
+        )
+        let payloadLength = try MojoRuntimeCheckedArithmetic.int(
+            header.payloadByteCount,
+            label: "payload length conversion"
+        )
+        let prefixByteCount = try payloadPrefixByteCount(
+            for: header.kind,
+            payloadLength: payloadLength
+        )
+        guard payloadPrefixData.count == prefixByteCount else {
+            if payloadPrefixData.count < prefixByteCount {
                 throw MojoRuntimeProtocolError.truncatedPayload(
-                    expected: bodyPrefixByteCount,
-                    actual: payloadLength
+                    expected: prefixByteCount,
+                    actual: payloadPrefixData.count
                 )
             }
-            let prefixEnd = try MojoRuntimeCheckedArithmetic.add(
-                MojoRuntimeProtocol.headerByteCount,
-                bodyPrefixByteCount,
-                label: "payload prefix offset"
+            throw MojoRuntimeProtocolError.trailingBytes(
+                payloadPrefixData.count - prefixByteCount
             )
-            payloadData = Data(data[MojoRuntimeProtocol.headerByteCount..<prefixEnd])
-            bodyByteCount = payloadLength - bodyPrefixByteCount
-        } else {
-            payloadData = Data(data.dropFirst(MojoRuntimeProtocol.headerByteCount))
-            bodyByteCount = nil
+        }
+        let bodyByteCount = payloadLength - prefixByteCount
+        let bodyByteCountArgument: Int? = switch header.kind {
+        case .invokeFloat32, .invocationResult:
+            bodyByteCount
+        case .ready, .createSession, .sessionCreated, .shutdownSession,
+             .sessionShutdown, .shutdownWorker, .workerShutdown, .failure:
+            nil
         }
         let payload = try Self.decodePayload(
             kind: header.kind,
-            data: payloadData,
+            data: payloadPrefixData,
             limits: limits,
+            bodyByteCount: bodyByteCountArgument
+        )
+        return MojoRuntimeFramePrefix(
+            header: header,
+            payload: payload,
             bodyByteCount: bodyByteCount
         )
-        return Self(header: header, payload: payload)
+    }
+
+    package static func payloadPrefixByteCount(
+        for kind: MojoRuntimeFrameKind,
+        payloadLength: Int
+    ) throws -> Int {
+        let fixedByteCount: Int? = switch kind {
+        case .invokeFloat32:
+            24
+        case .invocationResult:
+            12
+        case .ready, .createSession, .sessionCreated, .shutdownSession,
+             .sessionShutdown, .shutdownWorker, .workerShutdown, .failure:
+            nil
+        }
+        guard let fixedByteCount else { return payloadLength }
+        guard payloadLength >= fixedByteCount else {
+            throw MojoRuntimeProtocolError.truncatedPayload(
+                expected: fixedByteCount,
+                actual: payloadLength
+            )
+        }
+        return fixedByteCount
     }
 
     private init(header: MojoRuntimeFrameHeader, payload: MojoRuntimePayload) {

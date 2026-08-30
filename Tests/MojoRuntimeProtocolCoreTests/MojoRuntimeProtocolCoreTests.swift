@@ -131,6 +131,172 @@ struct MojoRuntimeProtocolCoreTests {
         }
     }
 
+    @Test("segmented prefix decoding validates body length without materializing the body", .timeLimit(.minutes(1)))
+    func segmentedPrefixDecoding() throws {
+        let invokePayload = try MojoRuntimeInvokeFloat32Payload(
+            bindingID: 41,
+            inputElementCount: 2,
+            outputElementCount: 3
+        )
+        let invokeFrame = try MojoRuntimeFrame(
+            requestID: 1,
+            payload: .invokeFloat32(invokePayload),
+            limits: limits
+        )
+        let invokePrefix = try invokeFrame.encodedPrefixData(limits: limits)
+        let invokeDecoded = try MojoRuntimeFrame.decodePrefix(
+            headerData: Data(invokePrefix.prefix(32)),
+            payloadPrefixData: Data(invokePrefix.dropFirst(32)),
+            limits: limits
+        )
+        #expect(invokeDecoded.header == invokeFrame.header)
+        #expect(invokeDecoded.payload == invokeFrame.payload)
+        #expect(invokeDecoded.bodyByteCount == 8)
+
+        let resultPayload = try MojoRuntimeInvocationResultPayload(
+            status: 0,
+            resultElementCount: 3
+        )
+        let resultFrame = try MojoRuntimeFrame(
+            requestID: 1,
+            payload: .invocationResult(resultPayload),
+            limits: limits
+        )
+        let resultPrefix = try resultFrame.encodedPrefixData(limits: limits)
+        let resultDecoded = try MojoRuntimeFrame.decodePrefix(
+            headerData: Data(resultPrefix.prefix(32)),
+            payloadPrefixData: Data(resultPrefix.dropFirst(32)),
+            limits: limits
+        )
+        #expect(resultDecoded.bodyByteCount == 12)
+        #expect(resultDecoded.payload == resultFrame.payload)
+    }
+
+    @Test("segmented codec rejects every tensor and fixed-prefix boundary", .timeLimit(.minutes(1)))
+    func segmentedBoundaryFailures() throws {
+        let invoke = try MojoRuntimeFrame(
+            requestID: 1,
+            payload: .invokeFloat32(try MojoRuntimeInvokeFloat32Payload(
+                bindingID: 41,
+                inputElementCount: 2,
+                outputElementCount: 1
+            )),
+            limits: limits
+        )
+        let invokePrefix = try invoke.encodedPrefixData(limits: limits)
+        let invokeHeader = Data(invokePrefix.prefix(32))
+        let invokePayloadPrefix = Data(invokePrefix.dropFirst(32))
+        for malformedPrefix in [
+            Data(invokePayloadPrefix.dropLast()),
+            invokePayloadPrefix + Data([0x01]),
+        ] {
+            #expect(throws: MojoRuntimeProtocolError.self) {
+                try MojoRuntimeFrame.decodePrefix(
+                    headerData: invokeHeader,
+                    payloadPrefixData: malformedPrefix,
+                    limits: limits
+                )
+            }
+        }
+        for malformedLength in [UInt64(31), UInt64(33)] {
+            #expect(throws: MojoRuntimeProtocolError.self) {
+                try MojoRuntimeFrame.decodePrefix(
+                    headerData: header(
+                        from: invokeHeader,
+                        payloadLength: malformedLength
+                    ),
+                    payloadPrefixData: invokePayloadPrefix,
+                    limits: limits
+                )
+            }
+        }
+
+        let result = try MojoRuntimeFrame(
+            requestID: 1,
+            payload: .invocationResult(try MojoRuntimeInvocationResultPayload(
+                status: 0,
+                resultElementCount: 2
+            )),
+            limits: limits
+        )
+        let resultPrefix = try result.encodedPrefixData(limits: limits)
+        let resultHeader = Data(resultPrefix.prefix(32))
+        let resultPayloadPrefix = Data(resultPrefix.dropFirst(32))
+        for malformedPrefix in [
+            Data(resultPayloadPrefix.dropLast()),
+            resultPayloadPrefix + Data([0x01]),
+        ] {
+            #expect(throws: MojoRuntimeProtocolError.self) {
+                try MojoRuntimeFrame.decodePrefix(
+                    headerData: resultHeader,
+                    payloadPrefixData: malformedPrefix,
+                    limits: limits
+                )
+            }
+        }
+        for malformedLength in [UInt64(19), UInt64(21)] {
+            #expect(throws: MojoRuntimeProtocolError.self) {
+                try MojoRuntimeFrame.decodePrefix(
+                    headerData: header(
+                        from: resultHeader,
+                        payloadLength: malformedLength
+                    ),
+                    payloadPrefixData: resultPayloadPrefix,
+                    limits: limits
+                )
+            }
+        }
+
+        let exactInvoke = invokePrefix + Data(repeating: 0, count: 8)
+        #expect(
+            try MojoRuntimeFrame.decode(exactInvoke, limits: limits)
+                == invoke
+        )
+        #expect(throws: MojoRuntimeProtocolError.self) {
+            try MojoRuntimeFrame.decode(
+                exactInvoke.dropLast(),
+                limits: limits
+            )
+        }
+        #expect(throws: MojoRuntimeProtocolError.self) {
+            try MojoRuntimeFrame.decode(
+                exactInvoke + Data([0]),
+                limits: limits
+            )
+        }
+
+        let shutdown = try MojoRuntimeFrame(
+            requestID: 1,
+            payload: .shutdownSession,
+            limits: limits
+        )
+        let shutdownHeader = shutdown.header.encodedData()
+        #expect(
+            try MojoRuntimeFrame.decodePrefix(
+                headerData: shutdownHeader,
+                payloadPrefixData: Data(),
+                limits: limits
+            ).payload == .shutdownSession
+        )
+        #expect(throws: MojoRuntimeProtocolError.self) {
+            try MojoRuntimeFrame.decodePrefix(
+                headerData: header(
+                    from: shutdownHeader,
+                    payloadLength: 1
+                ),
+                payloadPrefixData: Data(),
+                limits: limits
+            )
+        }
+        #expect(throws: MojoRuntimeProtocolError.self) {
+            try MojoRuntimeFrame.decodePrefix(
+                headerData: shutdownHeader,
+                payloadPrefixData: Data([0]),
+                limits: limits
+            )
+        }
+    }
+
     @Test("malformed fixed header fields are rejected", .timeLimit(.minutes(1)))
     func malformedHeaders() throws {
         let header = try MojoRuntimeFrameHeader(
@@ -310,5 +476,15 @@ struct MojoRuntimeProtocolCoreTests {
             targetAccelerator: nil,
             maximumFramePayloadBytes: limits.maximumFramePayloadBytes
         )
+    }
+
+    private func header(from data: Data, payloadLength: UInt64) -> Data {
+        var bytes = Array(data)
+        for offset in 0..<MemoryLayout<UInt64>.size {
+            bytes[16 + offset] = UInt8(
+                truncatingIfNeeded: payloadLength >> UInt64(offset * 8)
+            )
+        }
+        return Data(bytes)
     }
 }

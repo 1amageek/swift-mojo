@@ -11,12 +11,13 @@ It consumes the trusted immutable worker projection produced by the read-only
 an original artifact, expose a general process launcher, or define model,
 training, device-selection, budget, telemetry, checkpoint, or safety semantics.
 
-The implemented RT.3-B boundary exposes trusted-projection construction and
-opaque verified binding tokens. Its package-internal startup admission owns the
-private copy, fresh verification, spawn, bounded first-frame read, and complete
-`ready` identity check. The scoped public attempt/session API and its
-post-`ready` lifecycle are added by RT.3-C; no incomplete public live-session
-surface is exposed before that contract is implemented.
+The RT.3-C boundary adds a scoped `withAttempt` operation and an asynchronous
+`MojoRuntimeWorkerSession` protocol. The attempt actor is the sole owner of
+protocol phase, request sequence, active session provenance, and terminal
+state. The blocking POSIX exchange is performed by a bounded detached
+operation and is never run on the actor executor. A session facade is usable
+only while its attempt is live; an escaped value observes a typed
+closed-attempt failure.
 
 ## Responsibilities and Boundaries
 
@@ -36,17 +37,60 @@ The consuming package owns which verified artifact is allowed, the mapping from
 domain operations to verified binding records, attempt policy, budgets,
 telemetry interpretation, checkpoint commit/rollback, and acceptance evidence.
 
-The current public construction surface is:
+The public construction and scoped execution surface is:
 
 ```swift
 let worker = try MojoRuntimeWorker(verification: verification)
 let factory = try worker.sessionFactory(for: verifiedFactoryBinding)
 let operation = try worker.float32Operation(for: verifiedOperationBinding)
+let timeouts = try MojoRuntimeWorkerTimeouts(
+    startup: .seconds(5),
+    sessionCreation: .seconds(5),
+    gracefulShutdown: .seconds(5),
+    terminationGracePeriod: .seconds(1),
+    forcedCleanup: .seconds(5)
+)
+
+let result = try await worker.withAttempt(
+    sessionFactory: factory,
+    requirements: requirements,
+    timeouts: timeouts
+) { session in
+    try await session.invoke(
+        operation,
+        input: input,
+        outputElementCount: 1,
+        timeout: .seconds(1)
+    )
+}
 ```
 
 The returned token values have no public initializer or raw binding identifier
 property. W3 validates their full binding record and worker-bundle provenance
 again at the package-internal execution boundary.
+
+`MojoRuntimeWorkerTimeouts` is caller-supplied lifecycle policy. It contains
+positive bounds for startup, session creation, graceful shutdown, termination
+grace, and forced cleanup. W3 consumes each duration once to form a
+`ContinuousClock` absolute deadline for that phase; it does not reinterpret
+these values as a model or training budget. `MojoRuntimeWorker.withAttempt`
+owns one process and one session for the duration of its nonescaping
+asynchronous body. It performs startup, generic session creation, body
+execution, graceful session/worker shutdown, and final reap/stage cleanup.
+Cancellation is connected to the detached admission task before staging begins;
+startup polling observes it within a bounded 50 millisecond slice and admission
+rolls back any process or private stage before returning the typed cancellation.
+`MojoRuntimeWorkerSession` exposes capabilities, asynchronous shutdown state,
+bounded invocation, and explicit asynchronous shutdown. Its concrete facade is
+internal and stores only the attempt actor. An explicit shutdown never
+hard-terminates an in-flight exchange; it returns `operationInProgress` until
+the current call has completed. Scope finalization owns the separate
+cancel/join/hard-terminalization path. `MojoRuntimeWorkerSession.invoke`
+accepts only the opaque operation token
+created by the same worker projection, a caller-supplied output element count,
+and a positive per-invocation timeout. Its result is an owned bounded `[Float]`;
+input is borrowed directly for the synchronous write phase and is never copied
+into a second tensor buffer by W3.
 
 ## Related Designs
 
@@ -83,6 +127,19 @@ Manas/Kuyu domain policy
         -> MojoPOSIXSupport / CMojoPOSIXSupport
 ```
 
+The attempt-internal dependency direction is:
+
+```text
+MojoRuntimeWorker.withAttempt
+    -> MojoRuntimeWorkerAttemptActor
+        -> MojoRuntimeWorkerCancellationGate (Mutex + wakeup)
+        -> MojoRuntimeWorkerTransport (bounded detached exchange)
+        -> MojoRuntimeProtocolCore segmented prefix codec
+        -> MojoRuntimeWorkerTerminalizer
+            -> close / TERM / grace drain / KILL / reap / group confirmation
+            -> private stage removal
+```
+
 The lower layers never import the consuming package and W3 never interprets a
 binding as a model, optimizer, checkpoint, Metal, CUDA, or Jetson operation.
 
@@ -102,6 +159,14 @@ binding as a model, optimizer, checkpoint, Metal, CUDA, or Jetson operation.
 - One attempt owns one process, at most one live session, one in-flight request,
   monotonically increasing request IDs, and receive/send storage bounded by the
   verified manifest ceiling.
+- `MojoRuntimeWorkerAttemptActor` is the only mutable authority for phase,
+  request sequence, next request identifier, factory provenance, active session
+  nonce, and terminal state. A second public call cannot allocate an identifier
+  or issue a frame while another exchange is in flight.
+- A `MojoSessionRequirements` value is encoded into the closed
+  `createSession` payload and the returned `MojoSessionCapabilities` is decoded
+  and checked against those requirements before the session is exposed. W3
+  never constructs or owns a raw `MojoSessionOwner`.
 - Public invocation accepts a verified binding value from the same projection
   and bounded Float32 input. Binding provenance, element-count multiplication,
   payload size, response pairing, status, and trailing bytes are validated.
@@ -117,6 +182,57 @@ binding as a model, optimizer, checkpoint, Metal, CUDA, or Jetson operation.
 - Application budget values and runtime telemetry remain generic payload or
   result data selected and interpreted by the consuming package; W3 does not
   guess limits or turn evidence into success.
+- `MojoRuntimeWorkerTimeouts` and the per-invocation timeout are lifecycle
+  bounds only. Each is validated as positive and finite by its owner, converted
+  once to a monotonic absolute deadline, and never echoed by the worker or
+  treated as a domain budget.
+
+### Attempt state machine
+
+```text
+starting --ready--> idle --create--> live --invoke--> live
+   |                  |             |                  |
+   +--failure-------->+             +--cancel/timeout-+--> terminal
+                                      |
+                                      +--shutdownSession--> closing
+                                                              |
+                                      shutdownWorker <---------+
+                                                              |
+                                                         terminal
+```
+
+The actor marks an exchange as in-flight before it suspends for the detached
+transport operation. It commits a response only after the complete frame and,
+for a successful invocation, the complete result body have been accepted. A
+response is checked against the same absolute deadline again on the actor
+before commit, so executor scheduling delay cannot admit a late session,
+invocation, or shutdown acknowledgement. A cancel observed after a complete,
+on-time response commit cannot replace the result.
+Cancellation between calls enters the same graceful closing path as normal
+scope exit. Cancellation, timeout, protocol error, EOF, crash, or partial
+result during an exchange enters terminal hard cleanup and never returns a
+partial output.
+
+An error thrown by the scoped body remains a caller-owned value even when its
+dynamic type is `MojoRuntimeWorkerError`. Successful cleanup rethrows that exact
+value. Failed cleanup returns its type/description snapshot together with the
+ordered cleanup failures; a concurrent escaped invocation cannot replace the
+body's primary outcome while scope finalization joins it.
+
+### Segmented protocol exchange
+
+Protocol headers and bounded payload prefixes are read exactly as separate
+segments. `MojoRuntimeProtocolCore` owns the per-kind prefix width and shape
+validation; W3 supplies only the declared body segment. Invocation input is
+written through an `UnsafeRawBufferPointer` scoped to the caller's array borrow.
+An invocation result allocates one `[Float]` after its checked count is known and
+reads the body directly into its mutable storage. No full tensor frame `Data`
+is materialized on this path.
+
+The cancellation gate's `Mutex` contains only cancellation state and a
+best-effort wakeup signal. It is never held across I/O, `await`, diagnostics,
+or callbacks. The wakeup descriptor is drained before cancellation is
+classified, so a coalesced signal cannot be mistaken for a protocol frame.
 
 ## Runtime Flows
 
@@ -161,16 +277,37 @@ in-flight deadline / protocol failure / EOF / crash
 
 Ordered I/O, cancellation, and terminal transitions require one isolated W3
 attempt owner. No blocking POSIX call or external callback executes while a
-memory-only mutex is held. Public session values cannot outlive or detach from
-their attempt owner.
+memory-only mutex is held. Public session values contain no transport,
+filesystem, process, descriptor, or raw binding state and cannot reopen a
+closed attempt.
 
 ## Failure, Concurrency, and Constraints
 
 Artifact/projection mismatch, private-stage failure, unsupported platform,
 socket/spawn failure, malformed or oversized frames, preflight mismatch,
 invalid binding provenance, busy use, timeout, cancellation, worker failure,
-shutdown contradiction, signal failure, reap failure, and cleanup failure are
-distinct typed errors. Primary and cleanup failures are preserved together.
+shutdown contradiction, session capability mismatch, wakeup creation failure,
+signal failure, reap failure, and cleanup failure are distinct typed errors.
+Primary and cleanup failures are preserved together in actual cleanup order. A
+failed cleanup does not make a process, descriptor, or stage look successfully
+reclaimed.
+
+The terminalizer has one claim gate and two explicit modes. A graceful close
+first completes `shutdownSession` and `shutdownWorker`, closes the protocol
+descriptor, drains diagnostics, and waits for the worker's normal exit through
+the graceful absolute deadline. Only if that normal exit fails does it signal
+the process group with TERM, wait through the bounded escalation interval, and
+then use KILL. If the leader exits while a descendant keeps the process group
+alive, both cleanup modes apply the same TERM/grace/diagnostic-drain sequence
+to the remaining group before KILL. A hard terminalization (in-flight cancellation/deadline,
+protocol error, EOF, crash, or partial output) closes the protocol descriptor,
+signals TERM immediately, waits through the bounded escalation interval, and
+then uses KILL. Both modes force-reap the direct child, confirm that no
+process-group member is live, close diagnostics and wakeup descriptors, and
+remove private staging only after the process lifetime is proven ended. The
+mode split prevents a worker that has already acknowledged graceful teardown
+but has not yet called `exit(0)` from being turned into an artificial signal
+failure. Cleanup is explicit and does not depend on a destructor.
 
 Only one request may be in flight. Concurrent public calls are serialized or
 rejected by the attempt owner; they cannot produce duplicate request IDs or
@@ -181,11 +318,12 @@ bounded, and enforced without returning a successful empty result.
 
 Focused tests must prove trusted-projection-only construction, private copy and
 reverification, absence of public path/PID/fd/raw-frame surfaces, fd-3 mapping,
-fragmented reads/writes, every malformed/oversized frame, ready mismatch with
-zero session calls, verified-binding provenance, one-in-flight ordering,
-graceful exactly-once destruction, cooperative cancellation, forced in-flight
-termination/reap, partial-output rejection, cleanup-failure composition,
-application survival, and clean next-attempt recovery.
+fragmented reads/writes, segmented prefix decoding, every malformed/oversized
+frame, ready mismatch with zero session calls, generic requirements/capabilities
+transfer, same-projection binding provenance, one-in-flight actor ordering,
+monotonic deadline and cancellation wakeup, graceful exactly-once destruction,
+forced in-flight termination/reap, partial-output rejection, cleanup-failure
+composition, application survival, and clean next-attempt recovery.
 
 Real worker acceptance must execute the same client on macOS and native Linux;
 each result proves only its actual target. Changes require rechecking ADR-0015,

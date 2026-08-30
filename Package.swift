@@ -106,6 +106,7 @@ let package = Package(
         .target(
             name: "MojoRuntimeWorker",
             dependencies: [
+                "Mojo",
                 "MojoRuntime",
                 "MojoPOSIXSupport",
                 "MojoRuntimeProtocolCore",

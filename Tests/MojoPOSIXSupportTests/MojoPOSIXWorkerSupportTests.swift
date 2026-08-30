@@ -211,6 +211,30 @@ struct MojoPOSIXWorkerSupportTests {
   }
 
   @Test(.timeLimit(.minutes(1)))
+  func workerWakeupDrainIsBoundedAndContinuesAfterShortReads() throws {
+    let wakeup = try MojoPOSIXWorkerSupport.createWakeup()
+    defer {
+      for descriptor in [wakeup.readDescriptor, wakeup.writeDescriptor] {
+        do {
+          try MojoPOSIXWorkerSupport.closeDescriptor(descriptor)
+        } catch {
+          Issue.record("Failed to close wakeup fixture: \(error)")
+        }
+      }
+    }
+
+    for _ in 0..<5_000 {
+      try MojoPOSIXWorkerSupport.signalWakeup(wakeup)
+    }
+    let first = try MojoPOSIXWorkerSupport.drainWakeup(wakeup)
+    #expect(first.consumedBytes == 4_096)
+    #expect(first.limitReached)
+    let second = try MojoPOSIXWorkerSupport.drainWakeup(wakeup)
+    #expect(second.consumedBytes > 0)
+    #expect(!second.limitReached)
+  }
+
+  @Test(.timeLimit(.minutes(1)))
   func workerIORejectsEmptyBuffersWithoutReportingEOF() throws {
     do {
       _ = try MojoPOSIXWorkerSupport.read(
@@ -296,6 +320,39 @@ struct MojoPOSIXWorkerSupportTests {
       signal: MojoPOSIXSupport.killSignal
     )
     _ = try waitForReap(worker.processID, timeout: .seconds(3))
+    #expect(!MojoPOSIXSupport.processGroupIsAlive(worker.processID))
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func workerSpawnDeliversTerminationToAChildInstalledHandler() throws {
+    let worker = try MojoPOSIXWorkerSupport.spawn(
+      executablePath: "/bin/sh",
+      arguments: [
+        "-c",
+        "trap 'printf term >&3; exit 0' TERM; printf ready >&3; while :; do :; done",
+      ]
+    )
+    defer {
+      cleanup(worker)
+    }
+
+    #expect(
+      try readExactly(
+        descriptor: worker.protocolDescriptor,
+        count: 5
+      ) == Data("ready".utf8)
+    )
+    try MojoPOSIXSupport.signalProcessGroup(
+      processID: worker.processID,
+      signal: MojoPOSIXSupport.terminationSignal
+    )
+    #expect(
+      try readExactly(
+        descriptor: worker.protocolDescriptor,
+        count: 4
+      ) == Data("term".utf8)
+    )
+    _ = try waitForReap(worker.processID)
     #expect(!MojoPOSIXSupport.processGroupIsAlive(worker.processID))
   }
 

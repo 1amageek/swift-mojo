@@ -180,6 +180,34 @@ struct MojoRuntimeWorkerPublicSurfaceTests {
         }
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func rejectsNonPositiveAndNonPOSIXTimeoutsWithTypedFields() throws {
+        #expect(
+            throws: MojoRuntimeWorkerError.invalidTimeout(field: .startup)
+        ) {
+            try MojoRuntimeWorkerTimeouts(
+                startup: .zero,
+                sessionCreation: .seconds(1),
+                gracefulShutdown: .seconds(1),
+                terminationGracePeriod: .seconds(1),
+                forcedCleanup: .seconds(1)
+            )
+        }
+        #expect(
+            throws: MojoRuntimeWorkerError.invalidTimeout(
+                field: .forcedCleanup
+            )
+        ) {
+            try MojoRuntimeWorkerTimeouts(
+                startup: .seconds(1),
+                sessionCreation: .seconds(1),
+                gracefulShutdown: .seconds(1),
+                terminationGracePeriod: .seconds(1),
+                forcedCleanup: .seconds(Int64.max)
+            )
+        }
+    }
+
 #if os(macOS)
     @Test(.timeLimit(.minutes(1)))
     func externalConsumerSeesOnlyTypedConstructionAuthority() throws {
@@ -189,21 +217,61 @@ struct MojoRuntimeWorkerPublicSurfaceTests {
                 source: """
                 import MojoRuntime
                 import MojoRuntimeWorker
+                import Mojo
 
-                func select(
+                func run(
                     verification: MojoRuntimeWorkerBundleVerification,
                     factoryBinding: MojoRuntimeWorkerBinding,
-                    operationBinding: MojoRuntimeWorkerBinding
-                ) throws {
+                    operationBinding: MojoRuntimeWorkerBinding,
+                    requirements: MojoSessionRequirements,
+                    timeouts: MojoRuntimeWorkerTimeouts
+                ) async throws -> MojoSessionCapabilities {
                     let worker = try MojoRuntimeWorker(
                         verification: verification
                     )
-                    _ = try worker.sessionFactory(for: factoryBinding)
+                    let factory = try worker.sessionFactory(
+                        for: factoryBinding
+                    )
                     _ = try worker.float32Operation(for: operationBinding)
+                    return try await worker.withAttempt(
+                        sessionFactory: factory,
+                        requirements: requirements,
+                        timeouts: timeouts
+                    ) { session in
+                        session.capabilities
+                    }
                 }
                 """
             )
             #expect(allowed.status == 0, Comment(rawValue: allowed.output))
+
+            let sessionSurface = try compiler.typecheck(
+                name: "AllowedWorkerSessionSurface",
+                source: """
+                import MojoRuntimeWorker
+
+                func useSession(
+                    _ session: MojoRuntimeWorkerSession,
+                    operation: MojoRuntimeWorkerFloat32Operation,
+                    input: [Float]
+                ) async throws -> [Float] {
+                    _ = session.capabilities
+                    _ = await session.isShutdown
+                    let output = try await session.invoke(
+                        operation,
+                        input: input,
+                        outputElementCount: 1,
+                        timeout: .seconds(1)
+                    )
+                    try await session.shutdown()
+                    return output
+                }
+                """
+            )
+            #expect(
+                sessionSurface.status == 0,
+                Comment(rawValue: sessionSurface.output)
+            )
 
             let tokenForgery = try compiler.typecheck(
                 name: "ForbiddenWorkerTokenForgery",
@@ -225,6 +293,27 @@ struct MojoRuntimeWorkerPublicSurfaceTests {
             )
             #expect(tokenForgery.status != 0)
             #expect(tokenForgery.output.contains("inaccessible"))
+
+            let sessionForgery = try compiler.typecheck(
+                name: "ForbiddenWorkerSessionForgery",
+                source: """
+                import MojoRuntimeWorker
+
+                func forgeSession() {
+                    _ = MojoRuntimeWorkerSession()
+                    _ = MojoRuntimeWorkerSessionFacade()
+                }
+                """
+            )
+            #expect(sessionForgery.status != 0)
+            #expect(
+                sessionForgery.output.contains("MojoRuntimeWorkerSession")
+            )
+            #expect(
+                sessionForgery.output.contains(
+                    "MojoRuntimeWorkerSessionFacade"
+                )
+            )
 
             let rawSurface = try compiler.typecheck(
                 name: "ForbiddenWorkerRawSurface",
