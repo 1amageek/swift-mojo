@@ -13,9 +13,9 @@ must still compile this target and report an unsupported platform at runtime.
 ## Responsibilities and Boundaries
 
 This target owns the C representation of file descriptors, advisory locks,
-`posix_spawn`, process-group signaling, `waitpid`, seek/read, error text, and
-process exit. It normalizes platform declarations and constants into fixed-width
-C values.
+`socketpair`, `posix_spawn`, descriptor mapping, bounded poll/read/write,
+process-group signaling, `waitpid`, seek/read, error text, and process exit. It
+normalizes platform declarations and constants into fixed-width C values.
 
 It does not own timeout policy, polling intervals, command construction,
 temporary paths, output decoding, artifact identity, or Swift error types. It
@@ -28,15 +28,16 @@ reused the descriptor.
 |---|---|---|---|---|
 | [`DESIGN.md`](../../DESIGN.md) | parent | Cross-platform authoring and consumer boundary | Defines the package-level portability and evidence boundary. | Device and product policy remain downstream. |
 | [`MojoPOSIXSupport`](../MojoPOSIXSupport/DESIGN.md) | used by | Fixed C functions and error codes | Converts this ABI into package-scoped Swift operations. | C pointers never escape the synchronous call. |
-| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | coordinates with | Process/descriptor ownership boundary | Reserves fd 3 for the later consumer-owned persistent-worker transport. | The current compiler-tool spawn closes fd 3 and is not a worker launcher. |
+| [`MojoRuntimeWorker`](../MojoRuntimeWorker/DESIGN.md) | used by | W3 socket/spawn/I/O/signal/wait primitives through the Swift adapter | Keeps raw platform state below the public worker client. | PIDs, descriptors, and pointers never cross W3's public boundary. |
+| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | coordinates with | Process/descriptor ownership boundary | Reserves fd 3 for W3's persistent-worker transport. | The compiler-tool and worker spawn ABIs remain distinct. |
 
 ## Architecture
 
 ```text
 Swift package-scoped adapter
     -> fixed-width C ABI
-        -> Darwin spawn, flock, wait, signal, file operations
-        -> glibc 2.34+ spawn, closefrom, flock, wait, signal, file operations
+        -> Darwin socket/spawn/fd-map, poll/I/O, flock, wait, signal, file operations
+        -> glibc 2.34+ socket/spawn/fd-map, poll/I/O, closefrom, flock, wait, signal, file operations
         -> unsupported implementation returning ENOTSUP
 ```
 
@@ -47,10 +48,16 @@ Swift package-scoped adapter
 - A successful spawn returns one child PID in a new session/process group,
   redirects stdout and stderr to the supplied descriptor, and prevents other
   descriptors from leaking into the child.
-- This spawn ABI deliberately does not preserve a protocol descriptor. It cannot
-  launch an ADR-0015 worker whose full-duplex endpoint must be mapped to fd 3.
-  That socketpair/mapping and attempt lifetime belong to the later client sprint,
-  not W1/W2 or this current tool-process ABI.
+- The existing tool-process spawn ABI deliberately preserves no protocol
+  descriptor and continues to close fd 3.
+- A distinct W3 worker-spawn ABI creates or accepts one socketpair, maps only the
+  child endpoint to descriptor 3, closes both unused endpoint copies in each
+  process, preserves diagnostic output separately, and closes other inherited
+  descriptors. It cannot execute an arbitrary path not supplied by W3's trusted
+  private-stage contract.
+- Worker read/write/poll operations report partial progress, EOF, timeout, and
+  interruption distinctly. They do not allocate from an untrusted frame length
+  or interpret protocol bytes.
 - Spawn returns distinct setup/control and executable-launch failure sentinels;
   the errno-compatible diagnostic remains in the error output.
 - Spawn setup objects do not own the child. Destroying those objects cannot turn
@@ -79,11 +86,21 @@ spawn request
 wait request
   -> waitpid(child, WNOHANG)
   -> running, reaped status, or errno
+
+worker spawn request
+  -> create socketpair and initialize worker-only file actions/attributes
+  -> map child endpoint to fd 3 and close unused descriptors
+  -> create new session/process group and publish parent endpoint + PID
+  -> destroy setup objects
+
+worker I/O request
+  -> bounded readiness wait
+  -> partial read/write, EOF, timeout, or errno result
 ```
 
 ## State, Ownership, and Lifecycle
 
-The caller owns every descriptor and PID. This target neither stores them nor
+The Swift adapter/W3 caller owns every descriptor and PID. This target neither stores them nor
 creates background work. Spawn action and attribute objects are local values and
 are destroyed before return. Buffers, strings, pointer arrays, and error outputs
 are borrowed only for one synchronous C call.
@@ -103,5 +120,6 @@ referencing an unavailable symbol.
 descendant termination, and reap behavior on Darwin and Linux. Changes to this
 ABI require rechecking `MojoPOSIXSupport`, `MojoCompilerCore`, output locking,
 the command executable, and the clean Linux/aarch64 consumer fixture.
-Adding a worker descriptor map would be a new ABI and requires ADR-0015 client
-lifecycle tests; it must not silently change current compiler child inheritance.
+The distinct worker descriptor-map ABI requires ADR-0015 W3 lifecycle tests for
+fd 3, unused-descriptor closure, partial I/O, timeout, process-group termination,
+and reap. It must not silently change current compiler child inheritance.

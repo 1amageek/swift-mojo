@@ -7,7 +7,7 @@ owns the direct-linked worker protocol's wire semantics. Its parent is
 [`DESIGN.md`](../../DESIGN.md); it has no child components and no public library
 product.
 
-It exists so `MojoArtifactCore` worker generation and the later client
+It exists so `MojoArtifactCore` worker generation and `MojoRuntimeWorker`
 implementation share one protocol-v1 authority. It contains immutable constants,
 payload schemas, validation, deterministic C rendering, and Swift codec/types,
 not a runtime transport.
@@ -27,9 +27,10 @@ no launcher.
 
 | Design | Relationship | Contract Used | Summary | Cautions |
 |---|---|---|---|---|
-| [`Swift Mojo`](../../DESIGN.md) | parent | Package ownership and evidence boundary | Places protocol semantics below artifact generation and above consumer transport. | Protocol compatibility is not runtime success. |
+| [`Swift Mojo`](../../DESIGN.md) | parent | Package ownership and evidence boundary | Places protocol semantics below artifact generation and above W3 transport. | Protocol compatibility is not runtime success. |
 | [`MojoArtifactCore`](../MojoArtifactCore/DESIGN.md) | used by | Canonical constants, schemas, validation, and C renderer | Generates the worker C endpoint and manifest from one authority. | ArtifactCore owns files and transactions, not this module. |
 | [`MojoRuntime`](../MojoRuntime/DESIGN.md) | used by | Immutable protocol schema projection | Reports the verified protocol identity to consumers. | It does not instantiate a codec or transport. |
+| [`MojoRuntimeWorker`](../MojoRuntimeWorker/DESIGN.md) | used by | Swift codec/types and validation | Owns W3 bounded fd-3 transport and lifecycle using this closed schema. | Raw protocol values are not re-exported publicly. |
 | [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements | Protocol-v1 wire contract | Defines header fields, frame kinds, lifecycle ordering, and evidence. | Any wire change requires a new protocol version. |
 
 ## Architecture
@@ -38,7 +39,7 @@ no launcher.
 ADR-0015 protocol v1
     -> immutable Swift schema + validator
         -> deterministic C worker codec/source renderer
-        -> Swift codec/types for the later client implementation
+        -> Swift codec/types for the MojoRuntimeWorker W3 implementation
         -> protocol schema digest for RuntimeWorkerBundle.json
 ```
 
@@ -78,7 +79,7 @@ frame bytes
 
 Encoding performs the inverse transformation and must reproduce the canonical
 bytes exactly. Stream fragmentation and transport reads/writes are handled by
-the later client and generated worker owners, outside this pure codec contract.
+`MojoRuntimeWorker` and the generated worker, outside this pure codec contract.
 
 ## State, Ownership, and Lifecycle
 
@@ -102,5 +103,5 @@ Differential tests must feed C-rendered frames to the Swift decoder and
 Swift-encoded frames to the C decoder.
 
 Any change requires rechecking ADR-0015, `MojoArtifactCore` worker generation,
-`MojoRuntime` projection, later client fixtures, Apple/NVIDIA worker
+`MojoRuntime` projection, `MojoRuntimeWorker` client fixtures, Apple/NVIDIA worker
 bundles, and downstream typed transport integration.

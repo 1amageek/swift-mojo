@@ -116,5 +116,7 @@ signing, redistribution, or native Linux behavior.
    lifecycle, and execution on
    native Linux ARM64.
 
-Product worker protocols, concrete kernels, and hardware qualification remain
-downstream responsibilities.
+ADR-0015's generic worker protocol and `MojoRuntimeWorker` process/session
+lifecycle remain `swift-mojo` responsibilities. Product-specific binding
+mapping, concrete kernels, attempt policy/evidence, and hardware qualification
+remain downstream responsibilities.

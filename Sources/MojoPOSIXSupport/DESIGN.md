@@ -10,12 +10,13 @@ design is [`DESIGN.md`](../../DESIGN.md); it has no child components.
 
 This target owns Swift string/environment marshalling, temporary C-string
 storage, `Data` collection for process output, fixed-width PID/descriptor values,
-platform capability checks, wait-status decoding, and typed package-internal
-errors.
+socket-endpoint marshalling, bounded partial-I/O results, platform capability
+checks, wait-status decoding, and typed package-internal errors.
 
-It does not own process timeouts, termination escalation, output-lock paths,
-artifact transactions, command exit policy, or user-facing error projection.
-Those decisions remain in their semantic owners.
+It does not own process timeouts, cancellation policy, termination escalation,
+output-lock paths, artifact transactions, command exit policy, or user-facing
+error projection. Those decisions remain in their semantic owners. It exposes
+no public product or filesystem, PID, descriptor, or raw-frame contract.
 
 ## Related Designs
 
@@ -23,12 +24,13 @@ Those decisions remain in their semantic owners.
 |---|---|---|---|---|
 | [`DESIGN.md`](../../DESIGN.md) | parent | Cross-platform authoring and consumer boundary | Defines which package paths consume this adapter. | Linux authoring remains unsupported. |
 | [`CMojoPOSIXSupport`](../CMojoPOSIXSupport/DESIGN.md) | depends on | Fixed C ABI and errno output | Supplies the platform-specific operations. | Never expose borrowed C pointers beyond one call. |
-| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | coordinates with | Attempt-owned fd-3 boundary | Defines a later client transport separate from authoring-tool processes. | This adapter exposes no worker launcher and its current spawn closes fd 3. |
+| [`MojoRuntimeWorker`](../MojoRuntimeWorker/DESIGN.md) | used by | Package-scoped worker spawn and bounded I/O | Owns the public generic worker client and consumes this target only as an internal platform adapter. | Worker attempt policy and lifecycle stay in `MojoRuntimeWorker`. |
+| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | coordinates with | Attempt-owned fd-3 boundary | Separates the worker transport from authoring-tool processes. | The existing tool-spawn ABI and the worker-spawn ABI remain distinct. |
 
 ## Architecture
 
 ```text
-MojoCompilerCore / MojoArtifactCore / swift-mojo executable
+MojoCompilerCore / MojoArtifactCore / swift-mojo executable / MojoRuntimeWorker
     -> MojoPOSIXSupport typed package API
         -> owned C-string arrays and scoped buffers
             -> CMojoPOSIXSupport fixed C ABI
@@ -51,6 +53,12 @@ MojoCompilerCore / MojoArtifactCore / swift-mojo executable
 - Current spawn is only the compiler/linker/inspector tool-process contract. It
   does not create a socketpair or map a child protocol endpoint to fd 3 and must
   not be presented as ADR-0015 worker launch support.
+- The distinct package-internal worker-spawn operation creates one socketpair,
+  maps only the child endpoint to fd 3, closes unused inherited endpoints, and
+  returns the parent endpoint plus owned child PID to `MojoRuntimeWorker`.
+- Worker reads, writes, and readiness waits report bounded progress, EOF,
+  interruption, timeout, and platform failure without treating a partial frame
+  as completion.
 - Exit status decoding maps normal exit to its exact code and signal termination
   to `128 + signal`.
 - The adapter does not silently substitute Foundation `Process`, a no-op lock,
@@ -70,14 +78,26 @@ Swift output read
   -> seek descriptor to zero
   -> append bounded chunks until EOF
   -> return owned Data
+
+Swift worker spawn
+  -> receive a verified private-stage executable from MojoRuntimeWorker
+  -> create socketpair and map the child endpoint to fd 3
+  -> close unused endpoints in each process
+  -> return the parent endpoint and owned PID
+
+Swift worker I/O
+  -> poll for readiness within the caller-provided bound
+  -> read or write a bounded byte region
+  -> report exact progress or typed terminal status
 ```
 
 ## State, Ownership, and Lifecycle
 
 The adapter has no global mutable state. `MojoPOSIXCStringArray` owns only its
 allocated strings and trailing null entry for one call. Descriptors and child
-PIDs are returned to the calling owner; the adapter never closes, signals, or
-reaps them implicitly.
+PIDs are returned to the calling owner. For worker attempts that owner is
+`MojoRuntimeWorker`, which closes, signals, and reaps them through explicit
+package-scoped operations; the adapter performs no implicit lifecycle action.
 
 ## Failure, Concurrency, and Constraints
 
@@ -87,11 +107,12 @@ public Mojo and artifact contracts cannot acquire platform-specific types.
 
 ## Verification and Change Impact
 
-`MojoPOSIXSupportTests` verifies host support, exclusive locking, and status
-decoding. `MojoCompilerCoreTests` verifies the real process lifecycle. The build
-plugin integration test verifies that the adapter remains usable in the full
-package graph on both macOS and clean Linux/aarch64. Changes require rechecking
-the C design, all direct callers, and both platform paths.
-The later worker-client sprint owns any distinct fd-3 spawn adapter, full-duplex
-I/O, deadlines, and attempt lifecycle; adding it requires a separate contract and
-must not broaden `MojoRuntime` into a public launcher.
+`MojoPOSIXSupportTests` verifies host support, exclusive locking, status decoding,
+worker descriptor mapping, partial I/O, EOF, interruption, and timeout results.
+`MojoCompilerCoreTests` verifies the existing tool-process lifecycle.
+`MojoRuntimeWorker` acceptance verifies the distinct worker lifecycle on macOS
+and native Linux/aarch64. The build-plugin integration test verifies that the
+adapter remains usable in the full package graph on both hosts. Changes require
+rechecking the C design, all direct callers, and both platform paths.
+`MojoRuntimeWorker` owns fd-3 full-duplex I/O policy, deadlines, cancellation,
+and attempt lifecycle; `MojoRuntime` remains a read-only verifier.

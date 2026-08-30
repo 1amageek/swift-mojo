@@ -29,7 +29,8 @@ acceptance. It exposes no public launcher.
 | [`Swift Mojo`](../../DESIGN.md) | parent | Public runtime ownership boundary | Defines what downstream consumers may learn from artifact preflight. | Verification evidence is not execution evidence. |
 | [`MojoArtifactCore`](../MojoArtifactCore/DESIGN.md) | depends on | Package-scoped closed-manifest verifier engines | Performs the actual tree, digest, target, and closure verification. | Internal manifests and builders are not re-exported. |
 | [`MojoRuntimeProtocolCore`](../MojoRuntimeProtocolCore/DESIGN.md) | depends on | Immutable protocol schema identity | Supplies the canonical protocol metadata checked by the worker verifier. | Codec and transport are not public runtime APIs. |
-| [ADR-0012](../../docs/ADR-0012-PUBLIC-RUNTIME-VERIFICATION.md) | implements | Read-only executable-bundle preflight | Defines the existing public verification boundary. | Verification-to-spawn staging remains consumer-owned. |
+| [`MojoRuntimeWorker`](../MojoRuntimeWorker/DESIGN.md) | used by | Trusted immutable worker projection | Supplies W3's only accepted artifact input and re-verifies its private copy. | This module itself retains no attempt or process state. |
+| [ADR-0012](../../docs/ADR-0012-PUBLIC-RUNTIME-VERIFICATION.md) | implements | Read-only executable-bundle preflight | Defines the existing public verification boundary. | Verification-to-spawn staging belongs to W3, not this verifier. |
 | [ADR-0013](../../docs/ADR-0013-CALLABLE-RUNTIME-LIBRARY-BUNDLES.md) | implements | Read-only callable-bundle preflight | Keeps executable and callable bundle types distinct. | It grants no library loading authority. |
 | [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements | W2 worker-bundle preflight | Adds immutable worker semantic/target/protocol identity. | It does not implement the worker transport or lifecycle. |
 
@@ -40,7 +41,8 @@ consumer expected identity + staged managed root
     -> public verifier protocol
         -> MojoArtifactCore fresh closed-tree verifier
             -> immutable public verification projection
-                -> consumer admission or typed rejection
+                -> consumer artifact selection or typed rejection
+                -> MojoRuntimeWorker private-copy re-verification
 ```
 
 ## Contracts and Invariants
@@ -91,7 +93,7 @@ Malformed/unsupported schema, missing or extra files, symlinks, digest or target
 drift, closure drift, unsupported inspection, and worker metadata mismatch are
 typed failures. No failure becomes an empty successful result or selects a
 fallback artifact. Calls share no mutable verifier state and may run
-concurrently, but the consumer must prevent mutation of its private staged root.
+concurrently. W3 exclusively owns and protects its private staged root.
 
 ## Verification and Change Impact
 
@@ -102,5 +104,6 @@ loading, raw-handle, and launcher APIs. A real relocated bundle is required for
 each claimed target; fixture-only tests do not prove actual target closure.
 
 Changes require rechecking `MojoArtifactCore` manifest/verifier behavior,
-ADR-0012/0013/0015, downstream admission compile fixtures, and the package root
-design. Process lifecycle and hardware execution remain separate consumer gates.
+`MojoRuntimeWorker`, ADR-0012/0013/0015, downstream admission compile fixtures,
+and the package root design. Process lifecycle belongs to W3; hardware execution
+and qualification remain separate consumer gates.

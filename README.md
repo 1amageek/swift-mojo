@@ -338,22 +338,30 @@ crash relies on OS process reclamation, rejects partial output, and requires a
 clean next attempt rather than claiming a destructor ran. This ADR-0015 path is
 designed but not yet implemented.
 
-Downstream launchers import the read-only `MojoRuntime` product and call a
-`MojoRuntimeBundleVerifying` implementation before accepting or spawning a
-relocated bundle. `FileSystemMojoRuntimeBundleVerifier` returns only immutable
+Artifact selectors import the read-only `MojoRuntime` product and call a
+`MojoRuntimeBundleVerifying` implementation before accepting a relocated bundle.
+`FileSystemMojoRuntimeBundleVerifier` returns only immutable
 verified identity, target, executable, library, and loader metadata; it does
 not expose source paths, mutate the bundle, or launch accelerator code. Callable
 library bundles have a separate `MojoRuntimeLibraryBundleVerifying` contract and
-`FileSystemMojoRuntimeLibraryBundleVerifier`, so launchers cannot confuse an
+`FileSystemMojoRuntimeLibraryBundleVerifier`, so consumers cannot confuse an
 executable worker with a loadable ABI library. See
 `docs/ADR-0012-PUBLIC-RUNTIME-VERIFICATION.md`.
 
-ADR-0015 will add a third, worker-specific read-only verifier. Artifact
-generation is W1 (`MojoArtifactCore`) and immutable verification is W2
-(`MojoRuntime`); neither exposes a public launcher, transport, raw handle, or
-application operation. The consuming package owns private attempt staging,
-spawn, typed fd-3 transport, cancellation/kill, budgets, telemetry, and
-checkpoint admission. See
+ADR-0015 separates persistent-worker support into three phases. W1 generates the
+protocol endpoint and dispatch from the canonical input graph. W2 compiles,
+direct-links, packages, and exposes a worker-specific immutable projection
+through `MojoRuntime`; W1 and W2 expose no launcher. W3 adds the public
+`MojoRuntimeWorker` product, which accepts only that verified projection and owns
+private attempt staging with a fresh verification, fd-3 socketpair/spawn,
+bounded protocol I/O, generic create/invoke/shutdown, and termination/reaping.
+Its safe API exposes no filesystem path, POSIX value, PID, descriptor, or raw
+frame and is not an arbitrary executable launcher.
+
+The consuming package selects an allowed verified artifact, maps domain
+operations to verified binding IDs, and owns attempt policy, budgets, telemetry,
+checkpoint admission, and hardware qualification. It does not implement worker
+transport or process lifecycle. See
 `docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md`.
 
 ## Author and consumer experience
@@ -397,7 +405,13 @@ ComputeProduct package
 └── Tests/                    product-specific acceptance
 ```
 
-`swift-mojo` provides the language and artifact bridge plus a generic synchronous session owner. The consuming package owns domain semantics, data compatibility, behavior tests, hardware qualification, and its Mojo create/use/shutdown implementations. The application owns product selection, external resource location, policy, and UI.
+`swift-mojo` provides the language and artifact bridge, a generic synchronous
+session owner for statically linked APIs, and the generic isolated
+`MojoRuntimeWorker` attempt client for verified executable workers. The consuming
+package owns domain semantics, allowed-artifact selection, binding mapping, data
+compatibility, attempt policy, budgets, telemetry, checkpoints, behavior tests,
+hardware qualification, and its Mojo create/use/shutdown implementations. The
+application owns product policy and UI, not worker filesystem or POSIX details.
 
 The borrowed `Float` slices prove synchronous non-owning data paths, while the opaque session slice proves Mojo-created state surviving across calls with exactly-once destruction. Owned device tensors and async execution still require later generic ABI families; concrete product operations remain downstream.
 
@@ -596,7 +610,8 @@ The committed [`Examples/ExternalMojo`](Examples/ExternalMojo) fixture intention
 | `MojoCompilerCore` | Mojo executable discovery, version inspection, and target-aware object generation |
 | `MojoArtifactCore` | Input graphs, source maps, artifact sets, preparation, inspection, doctor checks, build verification, and release gates |
 | `MojoRuntimeProtocolCore` | Planned package-internal authority for protocol-v1 constants, payload schemas, validation, generated C endpoint rendering, and Swift codec/types; no public product or launcher |
-| `MojoRuntime` | Public read-only verification and immutable projections for executable and callable bundles; planned worker verification adds no launcher or loading authority |
+| `MojoRuntime` | Public read-only verification and immutable projections for executable, callable, and worker bundles; it has no launcher or loading authority |
+| `MojoRuntimeWorker` | Planned public generic client for verified worker projections; owns private staging/reverification, fd-3 process transport, bounded generic session invocation, graceful shutdown, and terminate/reap recovery without exposing filesystem or POSIX details |
 | `MojoCommandCore` | Testable command parsing, text/JSON output, and Core orchestration |
 | internal `swift-mojo` target | Private process adapter used by both plugins; it is not an executable product users install |
 | `MojoCommandPlugin` | Exposes authoring commands as `swift package --allow-writing-to-package-directory mojo ...` |

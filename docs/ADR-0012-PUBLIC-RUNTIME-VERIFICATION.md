@@ -66,7 +66,7 @@ through the public API. The opt-in test completed fresh verification in 1.48
 seconds and returned the expected executable and four-library closure.
 
 This proves downstream-readable macOS preflight. It does not prove staging
-race resistance by a downstream launcher, worker protocol behavior, compute,
+race resistance, worker protocol behavior, compute,
 cancellation, signing, redistribution permission, or native Linux behavior.
 
 ADR-0015 adds a distinct read-only worker verifier and immutable
@@ -75,12 +75,18 @@ but cannot be confused with either the generic executable result or ADR-0013's
 callable-library result. It adds no public launcher, transport, loader, or raw
 handle authority.
 
-## Downstream contract
+## Execution composition
 
-A consuming launcher must stage an executable bundle as one immutable root,
-preserve its relative executable/library layout, verify both source and staged
-roots, and require an exact expected identity before spawning. Launcher policy,
-attempt lifecycle, and product behavior are not `swift-mojo` acceptance gates.
-For ADR-0015 the private staged root also contains the worker manifest, whose
-digest binds this runtime bundle and receipt; the compiled `ready` identity must
-match the worker verification before `createSession` is sent.
+This read-only verifier never owns process state. A separately designed
+non-worker executable consumer must preserve the relative executable/library
+layout and reverify its own immutable staging before launch.
+
+ADR-0015 worker execution has a narrower composition: the public
+`MojoRuntimeWorker` product is the only owner of private worker staging,
+verification-to-spawn, fd-3 transport, and process/session lifecycle. Its staged
+root also contains the worker manifest, whose digest binds this runtime bundle
+and receipt; W3 requires the compiled `ready` identity to match the worker
+projection before `createSession`. Consuming packages retain artifact
+allowlisting, binding mapping, attempt policy, budgets, telemetry, checkpoints,
+and product evidence without receiving filesystem, POSIX, or raw protocol
+authority.

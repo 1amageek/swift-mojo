@@ -15,9 +15,9 @@ direct-linked persistent worker bundle selected by
 
 The module owns `MojoInputGraph`, deterministic renderers and pipeline identity,
 compiler inputs, native link/inspection policy, closed manifests, managed output
-transactions, and fresh artifact verification. For the ADR-0015 W1 boundary it
-will generate the Mojo ABI and C worker dispatch/main from one input graph and
-directly link both objects into an executable bundle.
+transactions, and fresh artifact verification. In ADR-0015 W1 it renders the
+Mojo ABI and C worker dispatch/main from one input graph. In W2 it compiles,
+direct-links, packages, and verifies both objects as an executable bundle.
 
 It does not own public process launch, IPC lifetime, application attempts,
 model/training semantics, checkpoints, budgets, telemetry, device selection, or
@@ -29,12 +29,13 @@ hardware acceptance. It never treats a backend name as artifact identity.
 |---|---|---|---|---|
 | [`Swift Mojo`](../../DESIGN.md) | parent | Package artifact and identity boundary | Defines the system-level authoring, distribution, and evidence contracts. | Static and runtime-dependent adapters remain distinct. |
 | [`MojoRuntime`](../MojoRuntime/DESIGN.md) | used by | Closed manifests and package-scoped verifier engines | Projects fresh verification through a public read-only API. | Public verification cannot construct, mutate, load, or launch artifacts. |
+| [`MojoRuntimeWorker`](../MojoRuntimeWorker/DESIGN.md) | used by | Private-copy verifier engine | Revalidates W3 private attempt staging before spawn. | ArtifactCore never owns the running process or public lifecycle. |
 | [`MojoRuntimeProtocolCore`](../MojoRuntimeProtocolCore/DESIGN.md) | depends on | Protocol constants, payload schemas, validation, C renderer, and Swift codec identity | Generates the worker C endpoint and binds the shared schema digest. | The protocol module owns no files, process, or session state. |
 | [`MojoPOSIXSupport`](../MojoPOSIXSupport/DESIGN.md) | depends on | Package-scoped process and descriptor primitives | Supports compiler, linker, inspector, and transaction tooling. | The current spawn closes fd 3 and is not an ADR-0015 launcher. |
 | [ADR-0010](../../docs/ADR-0010-ACCELERATOR-RUNTIME-RECEIPTS.md) | coordinates with | Exact runtime closure receipt | Binds target objects to their declared runtime libraries. | Receipt verification is not execution evidence. |
 | [ADR-0011](../../docs/ADR-0011-ISOLATED-RUNTIME-BUNDLES.md) | coordinates with | Direct executable link and exact runtime closure | Supplies the executable deployment primitive used by worker bundles. | ADR-0015 adds a distinct closed worker manifest/tree. |
 | [ADR-0013](../../docs/ADR-0013-CALLABLE-RUNTIME-LIBRARY-BUNDLES.md) | coordinates with | Callable-library packaging | Retains a separate verified library adapter. | It is not the persistent-worker implementation. |
-| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements | Worker schema/protocol/lifecycle design | Defines W1 generation and verification requirements. | No `dlopen`/`dlsym`/`dlclose` worker path is permitted. |
+| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements | Worker schema/protocol/lifecycle design | Defines W1 rendering and W2 bundle/verification requirements. | No `dlopen`/`dlsym`/`dlclose` worker path is permitted. |
 
 ## Architecture
 
@@ -100,8 +101,8 @@ canonical input graph + protocol-core schema
 ```
 
 The module does not execute the committed worker. Runtime framing and session
-lifecycle occur inside the generated executable; application supervision is a
-consumer responsibility.
+lifecycle occur inside the generated executable and public
+`MojoRuntimeWorker`; consuming packages receive only that generic typed client.
 
 ## State, Ownership, and Lifecycle
 
@@ -122,7 +123,8 @@ are not copied into artifact identity.
 
 ## Verification and Change Impact
 
-Artifact tests own graph/render/source-map/manifest mutation, managed-transaction
+Artifact tests own W1 graph/render/source-map mutation and W2 manifest,
+managed-transaction
 rollback, object/link/closure inspection, exact layout, relocation, and target
 identity evidence. ADR-0015 implementation additionally requires two-object
 direct-link evidence, no dynamic symbol-loader surface, closed protocol metadata,
@@ -131,5 +133,6 @@ drifts.
 
 Changes to input identity, renderer versions, manifests, runtime closure policy,
 or worker protocol require rechecking `MojoBindingCore`, `MojoCompilerCore`,
-`MojoRuntime`, command projections, package integration fixtures, and the root
-design. Actual hardware behavior remains downstream evidence.
+`MojoRuntime`, `MojoRuntimeWorker`, command projections, package integration
+fixtures, and the root design. Actual hardware behavior remains downstream
+evidence.

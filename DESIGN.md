@@ -51,17 +51,20 @@ current sourceではこのsurfaceとexternal package bindingを実装してい�
 | Accelerator deployment is an exact managed bundle | schema-1 bundle manifests bind the linked executable、receipt、copied closure、relative loader root、direct system dependencies、and Linux interpreter; final imports are re-derived before atomic commit |
 | Runtime-linked generated ABI is a separate exact bundle | schema-3 runtime-library manifests bind compiler/input-graph/generated-source/source-map provenance、typed binding IDs/signatures/session-factory relationships、the primary dylib/shared library、generated header/module map、exact exports、receipt closure、`@loader_path`/`$ORIGIN`、and all file digests; relocation and invocation pass with an empty environment fixture. This callable adapter is not the persistent-worker implementation |
 | Direct-linked persistent worker is the selected accelerator design | ADR-0015 requires one input graph to generate the Mojo object and C worker object, links both directly into an ADR-0011 executable, and reserves fd 3 for bounded protocol-v1 frames. Implementation is pending |
-| Runtime preflight is consumable without the authoring CLI | the public read-only `MojoRuntime` product distinguishes executable and callable-library bundles through `MojoRuntimeBundleVerifying` and `MojoRuntimeLibraryBundleVerifying`; ADR-0015 adds a distinct worker verifier. Construction, mutation, loading, launch, and execution remain outside those APIs |
+| Runtime preflight is consumable without the authoring CLI | the public read-only `MojoRuntime` product distinguishes executable, callable-library, and planned worker bundles through separate verifier contracts. Construction, mutation, loading, launch, and execution remain outside those W2 APIs |
+| Generic worker execution is a distinct public boundary | planned W3 product `MojoRuntimeWorker` accepts only a W2-trusted worker projection and owns private staging/reverification, fd-3 process transport, bounded generic session calls, graceful shutdown, hard termination, and reap without exposing POSIX/filesystem/protocol state |
 | Linux packaging is an independent adapter | schema 5 records an SE-0482 `staticLibrary` artifact bundle; real Mojo aarch64 ELF cross-compilation, KGEN-free archive inspection, and a clean native Linux ARM64 Swift 6.2.4 scalar plus owned-session create/use/shutdown consumer pass |
 
 ## Responsibilities and Boundaries
 
 `swift-mojo` owns versioned binding semantics, generated C ABI surfaces,
 canonical artifact identity, compiler process control, prepared native artifact
-packaging, build-time verification, and generic synchronous session ownership.
+packaging, build-time verification, generic synchronous session ownership, and
+the generic isolated worker-attempt client/lifecycle.
 
 It does not own model architecture, model weights, learning policy, application
-lifecycle, device selection, deployment orchestration, or product safety policy.
+attempt policy, device selection, deployment selection, checkpoint publication,
+evidence admission, or product safety policy.
 Those concerns consume only the package's public contracts. Platform-specific
 POSIX declarations remain internal implementation details and cannot flow into
 public Mojo, compiler, artifact, command, or runtime APIs.
@@ -74,6 +77,7 @@ public Mojo, compiler, artifact, command, or runtime APIs.
 | [`MojoArtifactCore`](Sources/MojoArtifactCore/DESIGN.md) | child | Canonical graph, render, package, and verification transactions | Owns static and runtime-dependent artifact generation and the ADR-0015 W1 boundary. | It does not launch deployed workers or own application semantics. |
 | [`MojoRuntimeProtocolCore`](Sources/MojoRuntimeProtocolCore/DESIGN.md) | child | Package-internal worker protocol semantics and endpoint generation | Owns protocol-v1 constants, payload layouts, validation, C rendering, and Swift codec/types. | It has no public product, transport I/O, or mutable runtime state. |
 | [`MojoRuntime`](Sources/MojoRuntime/DESIGN.md) | child | Public read-only bundle verification | Projects freshly verified artifact identity without exposing builders, loaders, or launchers. | A successful projection is artifact evidence, not execution evidence. |
+| [`MojoRuntimeWorker`](Sources/MojoRuntimeWorker/DESIGN.md) | child | Public generic worker attempt/session client | Owns private verified staging, fd-3 transport, generic lifecycle, termination, and reap. | It accepts only W2-trusted worker projections and owns no domain policy or hardware claim. |
 | [`CMojoPOSIXSupport`](Sources/CMojoPOSIXSupport/DESIGN.md) | child | Fixed-width C POSIX ABI | Normalizes Darwin and glibc process, descriptor, lock, signal, wait, and exit operations. | Unsupported hosts fail explicitly; C pointers do not escape one call. |
 | [`MojoPOSIXSupport`](Sources/MojoPOSIXSupport/DESIGN.md) | child | Typed package-scoped Swift adapter | Owns Swift marshalling, capability checks, status decoding, and typed adapter errors. | It does not own timeouts, artifact policy, or user-facing errors. |
 
@@ -112,6 +116,7 @@ flowchart TB
         Receipt["ADR-0010 runtime receipt"]
         WorkerLink["ADR-0011 direct executable link"]
         WorkerVerify["ADR-0015 worker verification"]
+        WorkerClient["MojoRuntimeWorker W3<br/>private stage + fd 3 lifecycle"]
     end
 
     Swift --> IR
@@ -129,6 +134,7 @@ flowchart TB
     Renderer --> WorkerLink
     WorkerC --> WorkerLink
     Receipt --> WorkerLink --> WorkerVerify
+    WorkerVerify --> WorkerClient
 ```
 
 | Owner | Generates/holds | Consumed by | Failure contract |
@@ -142,7 +148,8 @@ flowchart TB
 | internal `swift-mojo` target | standard streams and process exit status | SwiftPM plugins only | no public executable product、business logic、artifact ownership |
 | `MojoBuildPlugin` | verifier command | SwiftPM/Xcode | missing required inputs or verifier failure stops build |
 | generated Registry | internal scalar/buffer/session call thunk and exact static-artifact attestation | expanded Swift body and `@mojoStaticArtifactAttestation` | ABI/input-graph/binding mismatch is cached before invocation; buffer/session/attestation failures throw typed errors |
-| planned generated worker | direct-linked Mojo ABI + C protocol endpoint + one runtime session | consuming package through bounded fd-3 frames | preflight mismatch invokes no session; graceful teardown is exact; crash recovery is process-boundary evidence |
+| planned generated worker | direct-linked Mojo ABI + C protocol endpoint + one runtime session | `MojoRuntimeWorker` through bounded fd-3 frames | preflight mismatch invokes no session; graceful teardown is exact; crash recovery is process-boundary evidence |
+| planned `MojoRuntimeWorker` | W2-trusted projection, private staged bundle, process/descriptor owner, bounded generic session client | consuming package through typed operations | arbitrary executable/path/protocol access is absent; termination reaps the process group and failed workers are never reused |
 
 ## Runtime Flows
 
@@ -414,7 +421,7 @@ export allowlist、header、module mapは同じ`MojoInputGraph`とartifact ident
 
 runtime-dependentなpersistent sessionは、同じ`MojoInputGraph`と
 `MojoRuntimeProtocolCore`からgenerated Mojo ABIとC worker dispatch/mainを生成し、
-protocol coreのSwift codec/typesをlater clientが共有します。両native objectを
+protocol coreのSwift codec/typesをW3 `MojoRuntimeWorker`が共有します。両native objectを
 verified receipt closureと
 ともにADR-0011 executableへ直接linkします。worker-specific schema 1は共通の
 semantic identity、target別closure、protocol v1、fd 3、bounded frame limit、全binding
@@ -424,14 +431,19 @@ recordをclosed recordとして固定します。
 one canonical input graph
   -> generated Mojo object + generated C worker object
   -> direct executable link + exact target runtime closure
-  -> W1 closed worker bundle
-  -> W2 fresh read-only verification
-  -> consumer-owned private staging, spawn, and typed fd-3 transport
+  -> W1 protocol/render authority
+  -> W2 closed worker bundle + CLI + fresh read-only verification
+  -> W3 MojoRuntimeWorker private staging/reverification + typed fd-3 lifecycle
+  -> consumer-owned binding mapping, policy, budget, telemetry, checkpoint/evidence
 ```
 
 worker内にcallable primary library、`dlopen`、`dlsym`、`dlclose`は存在しません。
-W1 `MojoArtifactCore`は生成・link・package・verification、W2 `MojoRuntime`は
-immutable read-only projectionだけを所有し、いずれもpublic launcherを持ちません。
+W1の`MojoRuntimeProtocolCore`/`MojoArtifactCore` rendererはprotocolと両generated side、
+W2の`MojoArtifactCore`/CLI/`MojoRuntime`はbundle transactionとimmutable read-only
+projectionを所有し、いずれもpublic launcherを持ちません。W3のpublic
+`MojoRuntimeWorker`だけがW2-trusted projectionからgeneric worker attemptを生成し、
+private staging、fd-3 I/O、session lifecycle、termination/reapを所有します。これは任意
+executable launcherではなく、filesystem/POSIX/raw protocolをconsumerへ公開しません。
 AppleとNVIDIA artifactはsource/input graph、ABI、protocol、binding semanticsを共有し、
 target/compiler/object/runtime/executable closureを分離します。worker execution契約は
 `RuntimeWorkerBundle.json`が一意に所有し、nested `RuntimeBundle.json`と
@@ -451,8 +463,8 @@ schema、protocol、TOCTOU、lifecycle、evidence契約は
 | manifest | preparer | generated directory | artifact version | immutable `Codable` value | schema/content mismatch |
 | plugin Registry source | verifier | SwiftPM plugin work dir | one build graph | build system ownership | command failure stops compile |
 | static artifact | linker/process | executable image | process lifetime | immutable code/data | link failure or invariant trap |
-| worker bundle | W1 managed transaction | consuming package | one immutable deployment revision | closed tree + fresh W2 verification | schema/tree/closure drift is typed failure |
-| worker process/session | consuming attempt / generated worker | one attempt-owned process | preflight through graceful exit or hard termination | process boundary + serial protocol-v1 admission | graceful destroys live handles exactly once; hard failure relies on OS reclamation and requires a clean next attempt |
+| worker bundle | W2 managed transaction | consuming package selects its trusted projection | one immutable deployment revision | closed tree + fresh W2 verification | schema/tree/closure drift is typed failure |
+| worker private stage/process/session | W3 `MojoRuntimeWorker` attempt / generated worker | W3 attempt owner | private-copy verification through graceful exit or hard termination/reap | isolated process boundary + serial protocol-v1 admission | graceful destroys live handles exactly once; hard failure relies on OS reclamation and requires a clean next attempt |
 | borrowed `[Float]` storage | Swift caller | Swift `Array` | synchronous `withUnsafeBufferPointer` closure | immutable borrow; no shared mutation | empty buffer is typed failure |
 | buffer result value | Swift caller | returned `Float` | value lifetime | immutable value | no separate status channel in the current signature family |
 | mutable output `[Float]` storage | Swift caller | Swift `Array` | nested synchronous `withUnsafeMutableBufferPointer` closure | exclusive mutable borrow during call | empty output or nonzero Mojo status is typed failure; content after failure is unspecified |
@@ -476,6 +488,7 @@ scalar/borrowed-buffer runtimeに共有可変ownership stateはありません�
 | mutable-output runtime | caller-owned output mutation + `Void` | cached artifact errors; per-call empty input/output errors; nonzero Mojo status with binding ID |
 | opaque-session runtime | typed capabilities + factory-domain-bound `MojoSessionOwner` | create/status/schema/capability errors; busy、shutdown、domain mismatch; paired cleanup after rejected creation |
 | session-owned Float32 buffer | typed `MojoFloat32BufferOwner` | missing capability、byte-count overflow、status/missing handle、busy/resource shutdown/active-resource errors; paired cleanup after rejected creation |
+| persistent worker client | typed generic attempt/session result | untrusted projection、private-stage、spawn、protocol、busy、deadline、cancellation、shutdown、signal/reap、cleanup errors; partial output never succeeds |
 
 scalar runtimeで `throws` にしないのは、toolchain/artifact failureをprepare/build gateへ移した静的設計だからです。immutable borrowed-buffer sliceはdirect-return ABIとtyped Swift validation errorの最小形です。mutable-output sliceはrecoverable Mojo-side statusを追加しましたが、owned diagnostic payloadやtransactional output rollbackは持ちません。opaque session/resource sliceはMojo-created stateのlifetimeを跨ぎますが、operationは同期かつsingle-leaseです。Accelerator availability、device execution、async completionはcapability spellingから推測せず、downstream adapterの実行証拠を要求します。
 
@@ -492,7 +505,7 @@ scalar runtimeで `throws` にしないのは、toolchain/artifact failureをpre
 | build plugin | leaf/directory inputs + `verify` | committed schema-5 mixed fixture verifies and links on macOS/Linux, returns scalar `42`, creates and uses an owned session, shuts it down, and rejects use after shutdown; verifier/release suites cover wrong target、stale、missing/corrupt nested inputs |
 | static artifact | Apple XCFramework + Linux static-library artifact bundle + generated Registry | corrupt archive/header/metadata tests、Mach-O and ELF archive inspection |
 | relocation | static executable | artifact copy outside build location returns scalar `42` and buffer `10.0` without Mojo installed |
-| planned persistent worker | generated Mojo+C objects + ADR-0011 direct link + worker schema/protocol 1 + W2 verifier | direct-link/no-loader inspection、closed manifest mutation、fragmented/oversized frame、zero-session preflight mismatch、graceful exactly-once teardown、hard-kill app survival/process reap/clean-next-attempt、actual Apple and NVIDIA target receipts |
+| planned persistent worker | generated Mojo+C objects + ADR-0011 direct link + worker schema/protocol 1 + W2 verifier + W3 public client | direct-link/no-loader inspection、closed manifest/private-stage mutation、trusted-projection-only construction、public POSIX/path/raw-frame absence、fragmented/oversized frame、zero-session preflight mismatch、graceful exactly-once teardown、hard-kill app survival/process reap/clean-next-attempt、actual Apple and NVIDIA target receipts |
 
 Changes to canonical identity or generated ABI require the binding, artifact,
 plugin, release-verifier, and compiler-free consumer tests. Changes to process,

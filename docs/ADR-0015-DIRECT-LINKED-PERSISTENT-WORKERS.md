@@ -31,19 +31,20 @@ not an application loading API.
 
 | Owner | Responsibility | Does not own |
 |---|---|---|
-| W1: `MojoArtifactCore` | Render the Mojo ABI and C worker from one immutable input graph; compile, link, package, and verify the exact worker bundle | Process launch, application attempts, model operations, budgets, telemetry |
-| W2: `MojoRuntime` | Fresh read-only verification and immutable projection of the worker manifest and target closure | Construction, mutation, loading, launch, IPC, session creation |
-| `MojoRuntimeProtocolCore` | Canonical protocol-v1 constants, wire/payload schemas, validation, deterministic C rendering, and Swift codec/types | Public product, transport I/O, process/session state, model semantics |
+| W1: protocol and render (`MojoRuntimeProtocolCore` + `MojoArtifactCore`) | Own protocol-v1 constants/codecs and render the Mojo ABI plus C worker endpoint from one immutable input graph | Bundle publication, process launch, application attempts, model operations, budgets, telemetry |
+| W2: bundle and verification (`MojoArtifactCore` + CLI + `MojoRuntime`) | Compile, direct-link, package, inspect, and transactionally verify the exact worker bundle; expose only fresh read-only public verification and immutable projection | Staging a running attempt, launch, IPC, session creation, application policy |
+| W3: public `MojoRuntimeWorker` product | Accept a W2-trusted worker projection, create and reverify private attempt staging, map a socketpair endpoint to child fd 3, spawn one process, perform bounded protocol I/O, expose generic create/invoke/shutdown, and terminate/reap on timeout, cancellation, or crash | Artifact selection policy, model operation meaning, budgets, telemetry interpretation, checkpoint commit, target qualification |
 | Generated worker executable | Protocol-v1 frame loop, generated binding dispatch, one session, and runtime-side graceful teardown | Checkpoint policy, retry, product safety, target selection |
-| Consuming package | Private attempt staging, one worker process per attempt, fd-3 transport, operation mapping, deadlines, cancellation/kill, checkpoint commit, and evidence admission | Raw Mojo symbols or runtime-library loading |
+| Consuming package | Select an allowed verified artifact, map domain operations to verified bindings, and own attempt policy, budgets, telemetry interpretation, checkpoint commit, and evidence admission | Private staging, POSIX, file descriptors, raw frames/codecs, process signaling/reaping, raw Mojo symbols, runtime-library loading |
 
 W1 and W2 expose no public launcher. `MojoRuntimeProtocolCore` is a planned
 package target with no library product. It is the single semantic authority used
-by W1 and the later client implementation; the generated C endpoint and Swift
-codec/types therefore share one constant/payload definition without exposing a
-generic runtime or launcher product. The protocol contract is canonical here,
-W1 generates only its C endpoint and manifest, W2 verifies its immutable
-description, and the consuming package owns typed transport I/O and lifetime.
+by W1 and W3; the generated C endpoint and Swift codec/types therefore share one
+constant/payload definition. W3 is the sole public runtime-execution product,
+but it is not an arbitrary executable launcher: it accepts only the trusted
+worker projection created by W2, hides staging/POSIX/protocol state, and exposes
+the closed generic worker operations. The consuming package remains the domain
+policy and evidence owner.
 
 ```mermaid
 flowchart LR
@@ -56,9 +57,10 @@ flowchart LR
     CO --> L
     R["ADR-0010 exact runtime closure"] --> L
     L --> B["ADR-0011 executable worker bundle<br/>RuntimeWorkerBundle schema 1"]
-    B --> V["W2 read-only verification"]
-    V --> S["Consumer private attempt staging + spawn"]
-    S --> IPC["Persistent fd 3 protocol v1"]
+    B --> V["W2 bundle verification + immutable projection"]
+    V --> W3["W3 MojoRuntimeWorker<br/>private stage + reverify + spawn"]
+    W3 --> IPC["Persistent bounded fd 3 protocol v1"]
+    IPC --> D["Consumer binding map + policy/evidence"]
 ```
 
 The worker link contains both objects directly. The worker route never produces
@@ -155,7 +157,7 @@ Protocol v1 has this closed message-kind table:
 
 | Message | Contract |
 |---|---|
-| `ready` | First worker frame, request ID zero. Carries the compiled `executionContractDigest`, ABI/input-graph identity, complete binding-table digest, protocol limits, and target compile identity. It never carries a worker/runtime manifest or executable digest. The consumer admits no later request until every expected value matches the W2 projection. |
+| `ready` | First worker frame, request ID zero. Carries the compiled `executionContractDigest`, ABI/input-graph identity, complete binding-table digest, protocol limits, and target compile identity. It never carries a worker/runtime manifest or executable digest. W3 admits no later request until every expected value matches the W2 projection. |
 | `createSession` | First consumer request after admitted `ready`; carries the generated session configuration payload and succeeds at most once. |
 | `sessionCreated` | Pairs the create request and carries the generated session capability/result payload. |
 | `invokeFloat32` | Carries the protocol-core Float32 invocation payload and generated operation binding ID; valid only for the live session. |
@@ -167,31 +169,33 @@ Protocol v1 has this closed message-kind table:
 | `failure` | Pairs the triggering request, or uses request ID zero for startup failure, and carries one closed typed failure code plus bounded diagnostic bytes before terminal close. |
 
 Wire constants and Float32 payload layouts come from
-`MojoRuntimeProtocolCore`, which renders the C endpoint and provides the Swift
-codec/types; binding IDs and payload membership are generated from
+`MojoRuntimeProtocolCore`, which renders the C endpoint and provides W3 with the
+Swift codec/types; binding IDs and payload membership are generated from
 the same sorted binding table, and their canonical digest is part of
 `semanticIdentity`. The protocol does not
 name models, optimizers, checkpoints, Apple Metal, CUDA, Jetson, or any product
-operation. A consuming package maps its typed operations to verified binding
-IDs and owns its budgets and telemetry.
+operation. W3 owns frame transport and generic session lifecycle. A consuming
+package maps its typed operations to W2-verified binding IDs and owns its budgets
+and telemetry interpretation.
 
 ### Preflight and TOCTOU boundary
 
 The generated worker publishes `ready` only after checking its compiled protocol
-version, ABI version, input-graph identifier, and every binding record. The
-consumer compares that identity with the freshly verified W2 projection before
-sending `createSession`. Any worker-side inconsistency or consumer mismatch
-terminates with zero session invocations.
+version, ABI version, input-graph identifier, and every binding record. W3
+compares that identity with the freshly verified W2 projection before sending
+`createSession`. Any worker-side inconsistency or projection mismatch terminates
+with zero session invocations.
 
 Direct linking removes the callable-library lookup race, symbol-signature cast,
 and unload ordering entirely. W2 still cannot make a filesystem path immutable
-or launch it atomically. Therefore a consumer must copy the verified bundle to
-an attempt-owned directory that is not writable by other principals, verify
-that private copy, spawn only its verified relative executable, and require the
-compiled preflight response before session creation. This closes accidental
-staging mutation within the declared trust boundary. Signing and resistance to
-a malicious publisher remain release-policy concerns, as in ADR-0011 and
-ADR-0012.
+or launch it atomically. Therefore W3 copies the W2-selected bundle to an
+attempt-owned directory that is not writable by other principals, freshly
+verifies that private copy, spawns only its verified relative executable, and
+requires the compiled preflight response before session creation. The public W3
+surface does not expose that directory, executable path, PID, descriptor, or raw
+frame. This closes accidental staging mutation within the declared trust
+boundary. Signing and resistance to a malicious publisher remain release-policy
+concerns, as in ADR-0011 and ADR-0012.
 
 ### Lifecycle
 
@@ -207,11 +211,11 @@ spawn -> preflight -> create once -> invoke serially -> graceful shutdown
                                                                   -> next clean attempt
 ```
 
-- A cooperative cancellation observed between calls follows graceful shutdown;
+- A cooperative cancellation observed by W3 between calls follows graceful shutdown;
   live session/device handles are destroyed exactly once before the success
   acknowledgement and normal exit.
 - A hard deadline during a call, protocol corruption, EOF, signal termination,
-  or worker crash cannot promise that user-space destructors ran. The consumer
+  or worker crash cannot promise that user-space destructors ran. W3
   terminates and reaps the process group, relies on the OS process boundary for
   resource reclamation, keeps the application alive, rejects partial output,
   and starts the next attempt from independently admitted state.
@@ -227,7 +231,8 @@ spawn -> preflight -> create once -> invoke serially -> graceful shutdown
 | Put MAX runtime symbols in the static XCFramework/archive | The inspected accelerator objects are not link-closed and the current static policy correctly rejects them. |
 | ADR-0013 library plus worker `dlopen`/`dlsym` | Adds path TOCTOU, raw signature casts, and unload ordering that direct linking removes. |
 | Load accelerator code in the application process | Reverses the process-isolation boundary and lets a runtime crash terminate the application. |
-| Public `swift-mojo` launcher | W1/W2 own artifact construction and read-only verification, not application attempt policy or transport lifetime. |
+| Give W1/W2 launch authority | Artifact construction and read-only verification must not retain attempt/process state or become code-loading APIs. |
+| Let every consuming package implement staging/POSIX/fd-3 transport | Duplicates the security and lifecycle boundary and leaks filesystem, descriptor, and process semantics into Manas/Kuyu. W3 owns this once as a typed generic client. |
 | Python MAX runtime | Adds a second runtime/packaging authority and is outside the Swift/Mojo artifact contract. |
 | Backend name in semantic identity | A backend string is runtime evidence and can differ without changing model/training semantics. |
 
@@ -244,15 +249,20 @@ spawn -> preflight -> create once -> invoke serially -> graceful shutdown
 | Graceful lifecycle | Repeated normal, error, and cooperative-cancel paths observe one create and exactly one session/device destruction. |
 | Hard lifecycle | In-flight forced kill proves application survival, process-group reap/OS reclamation boundary, rejection of partial output, and a clean next attempt; it does not assert destructor invocation. |
 | Read-only W2 | Public construction, mutation, loading, launcher, raw handle, and raw symbol surfaces are absent; manifest/file mutation fails fresh verification. |
+| Generic W3 client | Only a W2-trusted worker projection can create an attempt; the public surface exposes no arbitrary executable, staging root, PID, descriptor, raw frame, codec, signal, or wait status. Private-copy mutation fails revalidation before spawn/session. |
+| W3 lifecycle | Fragmented I/O and cancellation/deadline races preserve one in-flight request, terminate and reap the complete process group once, reject partial output, and allow one clean next attempt. |
+| Downstream boundary | Manas/Kuyu fixtures compile and execute through typed W3 operations without importing POSIX support, accessing worker files, or constructing protocol frames; they retain artifact allowlisting, verified binding mapping, budgets, telemetry, checkpoints, and acceptance policy. |
 | Cross-target identity | Apple and NVIDIA bundles have equal semantic identity and distinct target closures; each is compiled, linked, inspected, relocated, and protocol-executed on its actual host. |
 | Evidence boundary | Actual target receipts record observed MAX backend and device/kernel evidence separately; neither bundle verification nor a backend string alone is accepted as execution evidence. |
 
 ## Consequences
 
 Implementation must add the internal `MojoRuntimeProtocolCore` target, its Swift
-codec/types and generated C endpoint, a worker renderer, a two-object executable link, a
-worker-specific builder/verifier, and a read-only W2 projection. The current
-package-scoped POSIX spawn closes descriptor 3 and is not this worker launcher;
-consumer launch support must provide an explicit fd-3 mapping without widening
-W1/W2 into a public launcher. ADR-0013 fixtures remain valid evidence for that
-separate callable adapter but cannot satisfy any ADR-0015 worker gate.
+codec/types and generated C endpoint, a worker renderer, a two-object executable
+link, a worker-specific builder/verifier and CLI projection, the read-only W2
+projection, and the public `MojoRuntimeWorker` W3 product. W3 uses a distinct
+package-internal POSIX worker-spawn ABI that preserves a socketpair endpoint as
+child descriptor 3 without changing the compiler-tool spawn contract. W1/W2
+remain launcher-free; W3 hides staging, POSIX, raw framing, and process lifecycle
+behind generic typed operations. ADR-0013 fixtures remain valid evidence for
+that separate callable adapter but cannot satisfy any ADR-0015 worker gate.

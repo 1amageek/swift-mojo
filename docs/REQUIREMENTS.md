@@ -2,7 +2,9 @@
 
 ## 1. Scope and status
 
-この文書は、`swift-mojo` が担う言語bridge、生成tooling、artifact検証の要件を定義します。UI、画面描画、vendor framework lifecycleはscope外です。
+この文書は、`swift-mojo` が担う言語bridge、生成tooling、artifact検証、
+およびverified executable workerのgeneric attempt client要件を定義します。
+UI、画面描画、model semantics、vendor framework lifecycleはscope外です。
 
 | State | Meaning |
 |---|---|
@@ -39,13 +41,14 @@ schema-3 P1はarm64 macOS向けscalar経路、schema 4はApple単一artifactのh
 | F-020 | Linux ARM64 native artifactをcompiler-freeに配布する | Verified for generic static CPU session | schema 5 manifest、SE-0482 static-library artifact bundle、platform-conditioned binary target wiring、real Mojo aarch64 ELF cross-compile、KGEN-free archive、clean native Linux ARM64 Swift consumerのplugin verification/static link/scalar invoke/session create-use-shutdown/no-Mojo-dylibを検証する |
 | F-021 | accelerator runtime dependencyをworker用receiptとして固定する | Implemented on macOS; native Linux acceptance pending | object/library SHA-256、target、architecture、install name/SONAME、exact symbol provider、Mach-O/ELF dynamic closure、system dependencyをschema 1へ記録し、全入力を再inspectionして一致を検証する。static artifactのreject policyは維持する |
 | F-022 | receiptからambient searchのないworker bundleを構築する | Implemented on macOS; native Linux acceptance pending | managed transactionでexact `bin/` + `lib/` treeを作り、object digestをlink前後に確認し、Apple `@executable_path/../lib` / Linux `$ORIGIN/../lib`、ELF interpreter、executable bit、final imports、全file digestを再検証する |
-| F-023 | downstream launcherがbundleをspawn前にfresh verificationできる | Implemented and verified on macOS | public `MojoRuntimeBundleVerifying` はread-only verificationを行い、bundle/receipt digest、target、relative executable、library closure、loader metadataのみをimmutable valueとして返す。検証APIはbundleを変更または実行せず、downstream stagingはbridge acceptanceに含めない |
-| F-024 | persistent workerの両generated sideを一つのinput graphから作る | Designed in ADR-0015; implementation pending | exact `MojoInputGraph`と内部`MojoRuntimeProtocolCore`からMojo ABI objectとC worker dispatch/mainを生成し、protocol coreがlater client向けSwift codec/typesを同じ正本から提供する。source map、pipeline、generated source/object digest、protocol schema、全bindingを`RuntimeWorkerBundle.json` schema 1へ固定し、一方だけのmutationはprepare/verifyを失敗させる |
+| F-023 | artifact selectorとgeneric worker clientがfresh verificationを共有できる | Implemented and verified on macOS for executable-bundle projection | public `MojoRuntimeBundleVerifying` はread-only verificationを行い、bundle/receipt digest、target、relative executable、library closure、loader metadataのみをimmutable valueとして返す。検証APIはbundleを変更または実行せず、W3だけがworker-specific trusted projectionをprivate stagingへ消費する |
+| F-024 | persistent workerの両generated sideを一つのinput graphから作る | Designed in ADR-0015; implementation pending | exact `MojoInputGraph`と内部`MojoRuntimeProtocolCore`からMojo ABI objectとC worker dispatch/mainを生成し、protocol coreがW3 `MojoRuntimeWorker`向けSwift codec/typesを同じ正本から提供する。source map、pipeline、generated source/object digest、protocol schema、全bindingを`RuntimeWorkerBundle.json` schema 1へ固定し、一方だけのmutationはprepare/verifyを失敗させる |
 | F-025 | runtime-dependent workerをdirect-linked executableとして構築する | Designed in ADR-0015; implementation pending | 両objectをADR-0010 receipt closureとともにADR-0011 executableへ直接linkし、worker treeにcallable primary libraryを置かず、final executableとsourceに`dlopen`/`dlsym`/`dlclose`経路がないことを検証する |
 | F-026 | bounded worker protocol v1をfd 3へ固定する | Designed in ADR-0015; implementation pending | 32-byte little-endian header `UInt32 magic/UInt16 version/UInt16 kind/UInt64 requestID/UInt64 payloadByteCount/UInt64 zero reserved`、manifest-bound payload ceiling、one in-flight request、partial I/O、strict pairing、closed `ready/createSession/sessionCreated/invokeFloat32/invocationResult/shutdownSession/sessionShutdown/shutdownWorker/workerShutdown/failure` kindsを実装し、oversize/truncation/unknown/reorder/trailing dataをdispatch前に拒否する |
-| F-027 | W1/W2を生成とread-only verificationへ限定する | Designed in ADR-0015; implementation pending | `MojoArtifactCore`はworker生成・package・verification、`MojoRuntime`はpublic immutable verificationだけを公開し、public launcher、transport、mutation、loader、raw symbol/handle、application semanticsを持たない。worker verification valueはpublic construction/decodingを許さない |
-| F-028 | worker lifecycleとcross-target evidenceを分離する | Designed in ADR-0015; implementation pending | graceful/cooperative shutdownはlive session/device handleをexactly onceでdestroyする。in-flight hard deadline/crashはdestructor実行を主張せずOS process reclamation、app survival、partial output rejection、clean next attemptを証明する。同一semantic identityからApple/NVIDIA別target closureを作りactual hostで別々に実行し、MAX backend名はtarget evidenceのみに使う |
+| F-027 | W1/W2を生成とread-only verificationへ限定する | Designed in ADR-0015; implementation pending | `MojoArtifactCore`はworker生成・package・verification、`MojoRuntime`はpublic immutable verificationだけを公開し、launcher、transport、mutation、loader、raw symbol/handle、application semanticsを持たない。worker verification valueはpublic construction/decodingを許さない |
+| F-028 | W3 lifecycleとcross-target evidenceを分離する | Designed in ADR-0015; implementation pending | `MojoRuntimeWorker`のgraceful/cooperative shutdownはlive session/device handleをexactly onceでdestroyする。in-flight hard deadline/crashはdestructor実行を主張せずprocess group termination/reaping、OS process reclamation、app survival、partial output rejection、clean next attemptを証明する。同一semantic identityからApple/NVIDIA別target closureを作りactual hostで別々に実行し、MAX backend名はtarget evidenceのみに使う |
 | F-029 | startup identityをpost-link digestから非循環に分離する | Designed in ADR-0015; implementation pending | protocol/ABI/input graph/bindings/target/compiler/source map/digestを含まないMojo generated source・object/receipt closureからC rendering前に`executionContractDigest`を作りworkerへembedする。C worker source/object、target-closure、executable、manifest digestは必ず除外する。`RuntimeWorkerBundle.json`はexecution contractをそれらのpost-render/link identityへbindし、`ready`はexecution contractとgraph/binding/targetだけを返す |
+| F-030 | W3がgeneric public worker clientとprivate process boundaryを所有する | Designed in ADR-0015; implementation pending | public `MojoRuntimeWorker` productはW2が生成したtrusted worker projectionだけを受理し、private copy後のfresh verification、fd-3 socketpair/spawn、bounded protocol I/O、startup preflight、generic create/invoke/shutdown、deadline/cancel時のterminate/reapを所有する。public APIへpath、filesystem、POSIX、PID、descriptor、raw frame、arbitrary executable launch、model/application semanticsを公開しない |
 
 ## 3. Current scalar contract
 
@@ -430,6 +433,7 @@ runtime performance budgetの計測は `Benchmarks/RuntimeBridge` のRelease har
 | Validation | generic conformance fixtureをCPU referenceと比較する |
 | Worker artifact | same input graphからMojo+C worker objectを生成し、runtime closureとdirect linkしたADR-0015 executable bundleを使う |
 | Worker protocol | fd 3のclosed bounded binary protocol v1、one in-flight request、session前のABI/input graph/all-binding preflightを使う |
+| Worker client | public `MojoRuntimeWorker`がverified projectionからprivate attemptを所有し、consumerにはtyped generic session/invocationだけを公開する |
 | Target parity | Apple/NVIDIAはsemantic identityを共有しtarget closureを分離する。各targetのcompile/link/protocol execution receiptを他targetへ一般化しない |
 | Runtime evidence | MAX backend名はobserved target evidenceとして記録し、artifact identity、device選択、kernel実行成功の代替にしない |
 | Lifecycle | graceful teardownのexactly-onceとhard crash時のOS reclamation/next-attempt recoveryを別の証拠で検証する |
@@ -437,10 +441,13 @@ runtime performance budgetの計測は `Benchmarks/RuntimeBridge` のRelease har
 ADR-0015 is the sole persistent-worker architecture: generated Mojo and C
 objects are directly linked into the attempt executable. ADR-0013 remains a
 separate callable-library adapter and is not loaded by the worker. W1/W2 expose
-artifact generation and read-only verification only; private staging, process
-launch, typed transport, model operations, target-device performance, UI
-integration, and hardware qualification are downstream scope. Generic
-accelerator buffer and synchronization semantics remain future bridge scope.
+artifact generation and read-only verification only. W3 `MojoRuntimeWorker`
+owns private staging with fresh verification, fd-3 process launch, bounded typed
+transport, generic session/invocation/shutdown, and terminate/reap recovery.
+Model operations, artifact allowlisting, attempt policy, budgets, telemetry,
+checkpoint admission, target-device performance, UI integration, and hardware
+qualification remain consumer scope. Generic accelerator buffer and
+synchronization semantics remain future bridge scope.
 
 ## 12. Model package requirements
 
