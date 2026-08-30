@@ -50,6 +50,77 @@ int32_t swift_mojo_posix_spawn(
     int32_t *error_code
 );
 
+enum {
+    SWIFT_MOJO_POSIX_WORKER_SPAWN_SUCCEEDED = 0,
+    SWIFT_MOJO_POSIX_WORKER_SPAWN_SETUP_FAILED = -1,
+    SWIFT_MOJO_POSIX_WORKER_SPAWN_LAUNCH_FAILED = -2,
+};
+
+enum {
+    SWIFT_MOJO_POSIX_WORKER_INTEREST_READ = 1,
+    SWIFT_MOJO_POSIX_WORKER_INTEREST_WRITE = 2,
+};
+
+enum {
+    SWIFT_MOJO_POSIX_WORKER_EVENT_PROTOCOL_READABLE = 1,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_PROTOCOL_WRITABLE = 2,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_DIAGNOSTIC_READABLE = 4,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_WAKEUP_READABLE = 8,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_PROTOCOL_HANGUP = 16,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_DIAGNOSTIC_HANGUP = 32,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_WAKEUP_HANGUP = 64,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_PROTOCOL_ERROR = 128,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_DIAGNOSTIC_ERROR = 256,
+    SWIFT_MOJO_POSIX_WORKER_EVENT_WAKEUP_ERROR = 512,
+};
+
+int32_t swift_mojo_posix_worker_platform_supported(void);
+
+int32_t swift_mojo_posix_worker_spawn(
+    const char *executable,
+    char *const arguments[],
+    char *const environment[],
+    int32_t *protocol_descriptor,
+    int32_t *diagnostic_descriptor,
+    int32_t *process_id,
+    int32_t *error_code
+);
+
+int32_t swift_mojo_posix_worker_create_wakeup(
+    int32_t *read_descriptor,
+    int32_t *write_descriptor,
+    int32_t *error_code
+);
+
+int32_t swift_mojo_posix_worker_signal_wakeup(
+    int32_t write_descriptor,
+    int32_t *error_code
+);
+
+int32_t swift_mojo_posix_worker_poll(
+    int32_t protocol_descriptor,
+    int32_t diagnostic_descriptor,
+    int32_t wakeup_descriptor,
+    int32_t interests,
+    int32_t timeout_milliseconds,
+    int32_t *event_mask,
+    int32_t *error_code
+);
+
+int64_t swift_mojo_posix_worker_read(
+    int32_t descriptor,
+    void *buffer,
+    int64_t count,
+    int32_t *error_code
+);
+
+int64_t swift_mojo_posix_worker_write(
+    int32_t descriptor,
+    const void *buffer,
+    int64_t count,
+    int32_t *error_code
+);
+
 int32_t swift_mojo_posix_wait_nohang(
     int32_t process_id,
     int32_t *wait_status,
@@ -79,6 +150,10 @@ int64_t swift_mojo_posix_read(
 );
 
 int32_t swift_mojo_posix_error_is_no_child(int32_t error_code);
+
+int32_t swift_mojo_posix_error_is_interrupted(int32_t error_code);
+
+int32_t swift_mojo_posix_error_is_would_block(int32_t error_code);
 
 int32_t swift_mojo_posix_termination_signal(void);
 
