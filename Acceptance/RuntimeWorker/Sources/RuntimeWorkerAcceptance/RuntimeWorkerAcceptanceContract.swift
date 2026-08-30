@@ -2,7 +2,7 @@ import Foundation
 import MojoRuntime
 
 /// The closed schema-1 receipt for an actual-host worker process/protocol run.
-public struct RuntimeWorkerAcceptanceContract: Codable, Equatable, Sendable {
+public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
     public static let currentSchemaVersion = 1
     public static let evidenceScopeValue = "actualHostProcessProtocol"
 
@@ -1666,109 +1666,12 @@ public struct RuntimeWorkerAcceptanceContract: Codable, Equatable, Sendable {
         )
     }
 
-    private enum CodingKeys: String, CodingKey, CaseIterable {
-        case schemaVersion
-        case status
-        case evidenceScope
-        case claims
-        case swiftMojoRevision
-        case acceptanceSourceDigest
-        case host
-        case artifact
-        case protocolRecord = "protocol"
-        case consumerBoundary
-        case executionEnvironment
-        case lifecycle
-        case failure
-    }
-
-    public init(from decoder: Decoder) throws {
-        try requireExactKeys(CodingKeys.self, from: decoder)
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let schemaVersion = try container.decode(
-            Int.self,
-            forKey: .schemaVersion
-        )
-        guard schemaVersion == Self.currentSchemaVersion else {
-            throw RuntimeWorkerAcceptanceError.invalidContract(
-                "unsupported receipt schema version (schemaVersion)"
-            )
-        }
-        let evidenceScope = try container.decode(
-            EvidenceScope.self,
-            forKey: .evidenceScope
-        )
-        guard evidenceScope == .actualHostProcessProtocol else {
-            throw RuntimeWorkerAcceptanceError.invalidContract(
-                "unsupported receipt evidence scope"
-            )
-        }
-        try self.init(
-            status: container.decode(Status.self, forKey: .status),
-            claims: container.decode(Claims.self, forKey: .claims),
-            swiftMojoRevision: container.decode(
-                String.self,
-                forKey: .swiftMojoRevision
-            ),
-            acceptanceSourceDigest: container.decode(
-                String.self,
-                forKey: .acceptanceSourceDigest
-            ),
-            host: container.decode(Host.self, forKey: .host),
-            artifact: container.decode(Artifact.self, forKey: .artifact),
-            protocolRecord: container.decode(
-                ProtocolRecord.self,
-                forKey: .protocolRecord
-            ),
-            consumerBoundary: container.decode(
-                ConsumerBoundary.self,
-                forKey: .consumerBoundary
-            ),
-            executionEnvironment: container.decode(
-                ExecutionEnvironment.self,
-                forKey: .executionEnvironment
-            ),
-            lifecycle: container.decode(Lifecycle.self, forKey: .lifecycle),
-            failure: container.decodeIfPresent(
-                Failure.self,
-                forKey: .failure
-            )
-        )
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(schemaVersion, forKey: .schemaVersion)
-        try container.encode(status, forKey: .status)
-        try container.encode(evidenceScope, forKey: .evidenceScope)
-        try container.encode(claims, forKey: .claims)
-        try container.encode(swiftMojoRevision, forKey: .swiftMojoRevision)
-        try container.encode(
-            acceptanceSourceDigest,
-            forKey: .acceptanceSourceDigest
-        )
-        try container.encode(host, forKey: .host)
-        try container.encode(artifact, forKey: .artifact)
-        try container.encode(protocolRecord, forKey: .protocolRecord)
-        try container.encode(consumerBoundary, forKey: .consumerBoundary)
-        try container.encode(
-            executionEnvironment,
-            forKey: .executionEnvironment
-        )
-        try container.encode(lifecycle, forKey: .lifecycle)
-        if let failure {
-            try container.encode(failure, forKey: .failure)
-        } else {
-            try container.encodeNil(forKey: .failure)
-        }
-    }
-
     /// Returns compact sorted-key JSON and validates the complete contract first.
     public func encoded() throws -> Data {
         try validate()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return try encoder.encode(self)
+        return try encoder.encode(RuntimeWorkerAcceptanceWireReceipt(self))
     }
 
     /// Decodes only the exact canonical bytes emitted by `encoded()`.
@@ -1780,7 +1683,11 @@ public struct RuntimeWorkerAcceptanceContract: Codable, Equatable, Sendable {
         }
         let value: Self
         do {
-            value = try JSONDecoder().decode(Self.self, from: data)
+            let wire = try JSONDecoder().decode(
+                RuntimeWorkerAcceptanceWireReceipt.self,
+                from: data
+            )
+            value = try wire.contract()
         } catch let error as RuntimeWorkerAcceptanceError {
             throw error
         } catch {
@@ -1841,6 +1748,173 @@ public struct RuntimeWorkerAcceptanceContract: Codable, Equatable, Sendable {
                     "failed receipt has no typed failure or inconsistent claims"
                 )
             }
+        }
+    }
+}
+
+/// Internal wire representation used by the canonical receipt codec.
+///
+/// The public receipt intentionally does not conform to Codable. Keeping this
+/// DTO private makes `encoded()` and `decodeCanonical(_:)` the only receipt
+/// serialization authority exposed to consumers.
+private struct RuntimeWorkerAcceptanceWireReceipt: Codable {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case schemaVersion
+        case status
+        case evidenceScope
+        case claims
+        case swiftMojoRevision
+        case acceptanceSourceDigest
+        case host
+        case artifact
+        case protocolRecord = "protocol"
+        case consumerBoundary
+        case executionEnvironment
+        case lifecycle
+        case failure
+    }
+
+    let schemaVersion: Int
+    let status: RuntimeWorkerAcceptanceContract.Status
+    let evidenceScope: RuntimeWorkerAcceptanceContract.EvidenceScope
+    let claims: RuntimeWorkerAcceptanceContract.Claims
+    let swiftMojoRevision: String
+    let acceptanceSourceDigest: String
+    let host: RuntimeWorkerAcceptanceContract.Host
+    let artifact: RuntimeWorkerAcceptanceContract.Artifact
+    let protocolRecord: RuntimeWorkerAcceptanceContract.ProtocolRecord
+    let consumerBoundary: RuntimeWorkerAcceptanceContract.ConsumerBoundary
+    let executionEnvironment:
+        RuntimeWorkerAcceptanceContract.ExecutionEnvironment
+    let lifecycle: RuntimeWorkerAcceptanceContract.Lifecycle
+    let failure: RuntimeWorkerAcceptanceContract.Failure?
+
+    init(_ receipt: RuntimeWorkerAcceptanceContract) {
+        self.schemaVersion = receipt.schemaVersion
+        self.status = receipt.status
+        self.evidenceScope = receipt.evidenceScope
+        self.claims = receipt.claims
+        self.swiftMojoRevision = receipt.swiftMojoRevision
+        self.acceptanceSourceDigest = receipt.acceptanceSourceDigest
+        self.host = receipt.host
+        self.artifact = receipt.artifact
+        self.protocolRecord = receipt.protocolRecord
+        self.consumerBoundary = receipt.consumerBoundary
+        self.executionEnvironment = receipt.executionEnvironment
+        self.lifecycle = receipt.lifecycle
+        self.failure = receipt.failure
+    }
+
+    init(from decoder: Decoder) throws {
+        try requireExactKeys(CodingKeys.self, from: decoder)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let schemaVersion = try container.decode(
+            Int.self,
+            forKey: .schemaVersion
+        )
+        guard schemaVersion == RuntimeWorkerAcceptanceContract.currentSchemaVersion
+        else {
+            throw RuntimeWorkerAcceptanceError.invalidContract(
+                "unsupported receipt schema version (schemaVersion)"
+            )
+        }
+        let evidenceScope = try container.decode(
+            RuntimeWorkerAcceptanceContract.EvidenceScope.self,
+            forKey: .evidenceScope
+        )
+        guard evidenceScope == .actualHostProcessProtocol else {
+            throw RuntimeWorkerAcceptanceError.invalidContract(
+                "unsupported receipt evidence scope"
+            )
+        }
+        self.schemaVersion = schemaVersion
+        self.status = try container.decode(
+            RuntimeWorkerAcceptanceContract.Status.self,
+            forKey: .status
+        )
+        self.evidenceScope = evidenceScope
+        self.claims = try container.decode(
+            RuntimeWorkerAcceptanceContract.Claims.self,
+            forKey: .claims
+        )
+        self.swiftMojoRevision = try container.decode(
+            String.self,
+            forKey: .swiftMojoRevision
+        )
+        self.acceptanceSourceDigest = try container.decode(
+            String.self,
+            forKey: .acceptanceSourceDigest
+        )
+        self.host = try container.decode(
+            RuntimeWorkerAcceptanceContract.Host.self,
+            forKey: .host
+        )
+        self.artifact = try container.decode(
+            RuntimeWorkerAcceptanceContract.Artifact.self,
+            forKey: .artifact
+        )
+        self.protocolRecord = try container.decode(
+            RuntimeWorkerAcceptanceContract.ProtocolRecord.self,
+            forKey: .protocolRecord
+        )
+        self.consumerBoundary = try container.decode(
+            RuntimeWorkerAcceptanceContract.ConsumerBoundary.self,
+            forKey: .consumerBoundary
+        )
+        self.executionEnvironment = try container.decode(
+            RuntimeWorkerAcceptanceContract.ExecutionEnvironment.self,
+            forKey: .executionEnvironment
+        )
+        self.lifecycle = try container.decode(
+            RuntimeWorkerAcceptanceContract.Lifecycle.self,
+            forKey: .lifecycle
+        )
+        self.failure = try container.decodeIfPresent(
+            RuntimeWorkerAcceptanceContract.Failure.self,
+            forKey: .failure
+        )
+    }
+
+    func contract() throws -> RuntimeWorkerAcceptanceContract {
+        try RuntimeWorkerAcceptanceContract(
+            status: status,
+            claims: claims,
+            swiftMojoRevision: swiftMojoRevision,
+            acceptanceSourceDigest: acceptanceSourceDigest,
+            host: host,
+            artifact: artifact,
+            protocolRecord: protocolRecord,
+            consumerBoundary: consumerBoundary,
+            executionEnvironment: executionEnvironment,
+            lifecycle: lifecycle,
+            failure: failure
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(status, forKey: .status)
+        try container.encode(evidenceScope, forKey: .evidenceScope)
+        try container.encode(claims, forKey: .claims)
+        try container.encode(swiftMojoRevision, forKey: .swiftMojoRevision)
+        try container.encode(
+            acceptanceSourceDigest,
+            forKey: .acceptanceSourceDigest
+        )
+        try container.encode(host, forKey: .host)
+        try container.encode(artifact, forKey: .artifact)
+        try container.encode(protocolRecord, forKey: .protocolRecord)
+        try container.encode(consumerBoundary, forKey: .consumerBoundary)
+        try container.encode(
+            executionEnvironment,
+            forKey: .executionEnvironment
+        )
+        try container.encode(lifecycle, forKey: .lifecycle)
+        if let failure {
+            try container.encode(failure, forKey: .failure)
+        } else {
+            try container.encodeNil(forKey: .failure)
         }
     }
 }

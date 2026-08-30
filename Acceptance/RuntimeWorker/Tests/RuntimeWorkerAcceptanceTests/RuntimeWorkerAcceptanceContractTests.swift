@@ -18,6 +18,22 @@ struct RuntimeWorkerAcceptanceContractTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func publicReceiptExposesOnlyCanonicalCodecMethods() throws {
+        let receipt = try ReceiptFixture.passed()
+
+        // An external consumer must not be able to bypass the canonical codec
+        // with JSONEncoder or JSONDecoder on the public receipt type.
+        #expect(!((receipt as Any) is any Encodable))
+        #expect(!((receipt as Any) is any Decodable))
+
+        let encoded = try receipt.encoded()
+        #expect(
+            try RuntimeWorkerAcceptanceContract.decodeCanonical(encoded)
+                == receipt
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func emitsOnlyTheClosedTopLevelKeySet() throws {
         let encoded = try ReceiptFixture.passed().encoded()
         let object = try #require(
@@ -58,6 +74,34 @@ struct RuntimeWorkerAcceptanceContractTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func protocolRecordUsesTheIndependentSchemaOneOracle() throws {
+        let record = try ReceiptFixture.protocolRecord()
+        let expectedKinds = [
+            "1:ready",
+            "2:createSession",
+            "3:sessionCreated",
+            "4:invokeFloat32",
+            "5:invocationResult",
+            "6:shutdownSession",
+            "7:sessionShutdown",
+            "8:shutdownWorker",
+            "9:workerShutdown",
+            "10:failure",
+        ]
+
+        #expect(record.version == 1)
+        #expect(record.descriptor == 3)
+        #expect(record.headerByteCount == 32)
+        #expect(record.byteOrder == "little-endian")
+        #expect(record.maximumFramePayloadBytes == 65_536)
+        #expect(record.maximumInFlightRequests == 1)
+        #expect(
+            record.messageKinds.map { "\($0.rawValue):\($0.name)" }
+                == expectedKinds
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func rejectsUnknownAndMissingTopLevelKeys() throws {
         let encoded = try ReceiptFixture.passed().encoded()
         let text = String(decoding: encoded, as: UTF8.self)
@@ -76,21 +120,233 @@ struct RuntimeWorkerAcceptanceContractTests {
     func rejectsUnknownAndMissingNestedKeys() throws {
         let encoded = try ReceiptFixture.passed().encoded()
         let text = String(decoding: encoded, as: UTF8.self)
-        let withUnknownKey = Data(
-            text.replacingOccurrences(
-                of: "\"compilerVersion\":\"mojo 1.0\"",
-                with: "\"compilerVersion\":\"mojo 1.0\",\"unknown\":true"
-            ).utf8
-        )
-        let withoutNestedKey = Data(
-            text.replacingOccurrences(
-                of: "\"compilerVersion\":\"mojo 1.0\",",
-                with: ""
-            ).utf8
-        )
+        let mutations: [(String, Data, Data)] = [
+            (
+                "claims",
+                mutation(
+                    text,
+                    replacing: "\"performance\":false",
+                    with: "\"performance\":false,\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"performance\":false,",
+                    with: ""
+                )
+            ),
+            (
+                "host",
+                mutation(
+                    text,
+                    replacing: "\"cpu\":\"apple-m4\"",
+                    with: "\"cpu\":\"apple-m4\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"cpu\":\"apple-m4\",",
+                    with: ""
+                )
+            ),
+            (
+                "artifact",
+                mutation(
+                    text,
+                    replacing: "\"bundleDigest\":\"\(ReceiptFixture.digest(0))\"",
+                    with: "\"bundleDigest\":\"\(ReceiptFixture.digest(0))\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"bundleDigest\":\"\(ReceiptFixture.digest(0))\",",
+                    with: ""
+                )
+            ),
+            (
+                "semanticIdentity",
+                mutation(
+                    text,
+                    replacing: "\"workerABIVersion\":1",
+                    with: "\"workerABIVersion\":1,\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"workerABIVersion\":1",
+                    with: ""
+                )
+            ),
+            (
+                "generatedInputs",
+                mutation(
+                    text,
+                    replacing: "\"compilerVersion\":\"mojo 1.0\"",
+                    with: "\"compilerVersion\":\"mojo 1.0\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"compilerVersion\":\"mojo 1.0\",",
+                    with: ""
+                )
+            ),
+            (
+                "runtimeBundle",
+                mutation(
+                    text,
+                    replacing: "\"loaderSearchPath\":\"lib\"",
+                    with: "\"loaderSearchPath\":\"lib\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"loaderSearchPath\":\"lib\",",
+                    with: ""
+                )
+            ),
+            (
+                "targetClosure",
+                mutation(
+                    text,
+                    replacing: "\"targetAccelerator\":\"metal\"",
+                    with: "\"targetAccelerator\":\"metal\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"targetAccelerator\":\"metal\",",
+                    with: ""
+                )
+            ),
+            (
+                "protocol",
+                mutation(
+                    text,
+                    replacing: "\"byteOrder\":\"little-endian\"",
+                    with: "\"byteOrder\":\"little-endian\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"byteOrder\":\"little-endian\",",
+                    with: ""
+                )
+            ),
+            (
+                "consumerBoundary",
+                mutation(
+                    text,
+                    replacing: "\"rawPOSIXImports\":false",
+                    with: "\"rawPOSIXImports\":false,\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"rawPOSIXImports\":false,",
+                    with: ""
+                )
+            ),
+            (
+                "executionEnvironment",
+                mutation(
+                    text,
+                    replacing: "\"cleanEnvironmentObserved\":true",
+                    with: "\"cleanEnvironmentObserved\":true,\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"cleanEnvironmentObserved\":true,",
+                    with: ""
+                )
+            ),
+            (
+                "lifecycle",
+                mutation(
+                    text,
+                    replacing: "\"cleanNextAttemptObserved\":true",
+                    with: "\"cleanNextAttemptObserved\":true,\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"cleanNextAttemptObserved\":true,",
+                    with: ""
+                )
+            ),
+        ]
 
-        expectContractFailure(withUnknownKey)
-        expectContractFailure(withoutNestedKey)
+        for (category, unknown, missing) in mutations {
+            expectContractFailure(unknown, context: "\(category) unknown key")
+            expectContractFailure(missing, context: "\(category) missing key")
+        }
+
+        let deepMutations: [(String, Data, Data)] = [
+            (
+                "binding",
+                mutation(
+                    text,
+                    replacing: "\"sessionFactoryFunctionName\":null",
+                    with: "\"sessionFactoryFunctionName\":null,\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"sessionFactoryFunctionName\":null,",
+                    with: ""
+                )
+            ),
+            (
+                "file",
+                mutation(
+                    text,
+                    replacing: "\"relativePath\":\"bin/manas-worker\"",
+                    with: "\"relativePath\":\"bin/manas-worker\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"relativePath\":\"bin/manas-worker\",",
+                    with: ""
+                )
+            ),
+            (
+                "artifactIdentity",
+                mutation(
+                    text,
+                    replacing: "\"targetName\":\"ManasRuntime\"",
+                    with: "\"targetName\":\"ManasRuntime\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"targetName\":\"ManasRuntime\"",
+                    with: ""
+                )
+            ),
+            (
+                "messageKind",
+                mutation(
+                    text,
+                    replacing: "\"name\":\"ready\"",
+                    with: "\"name\":\"ready\",\"unknown\":true"
+                ),
+                mutation(
+                    text,
+                    replacing: "\"name\":\"ready\",",
+                    with: ""
+                )
+            ),
+        ]
+
+        for (category, unknown, missing) in deepMutations {
+            expectContractFailure(unknown, context: "\(category) unknown key")
+            expectContractFailure(missing, context: "\(category) missing key")
+        }
+
+        let failedText = String(
+            decoding: try ReceiptFixture.failed().encoded(),
+            as: UTF8.self
+        )
+        let failureUnknown = mutation(
+            failedText,
+            replacing: "\"message\":\"protocol exchange did not complete\"",
+            with: "\"message\":\"protocol exchange did not complete\",\"unknown\":true"
+        )
+        let failureMissing = mutation(
+            failedText,
+            replacing: "\"message\":\"protocol exchange did not complete\"",
+            with: ""
+        )
+        expectContractFailure(failureUnknown, context: "failure unknown key")
+        expectContractFailure(failureMissing, context: "failure missing key")
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -101,24 +357,76 @@ struct RuntimeWorkerAcceptanceContractTests {
         let withDuplicateKey = Data(
             (text.dropLast() + ",\"status\":\"passed\"}").utf8
         )
+        let withReorderedNestedKeys = mutation(
+            text,
+            replacing: "\"name\":\"ready\",\"rawValue\":1",
+            with: "\"rawValue\":1,\"name\":\"ready\""
+        )
 
         expectContractFailure(withWhitespace)
         expectContractFailure(withDuplicateKey)
+        expectContractFailure(withReorderedNestedKeys)
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func rejectsPassWithoutActualHostObservation() throws {
+    func rejectsPassWithoutCausallyValidHostObservations() throws {
         let encoded = try ReceiptFixture.passed().encoded()
-        let mutation = Data(
-            String(decoding: encoded, as: UTF8.self)
-                .replacingOccurrences(
-                    of: "\"nativeTargetObserved\":true",
-                    with: "\"nativeTargetObserved\":false"
-                )
-                .utf8
+        let text = String(decoding: encoded, as: UTF8.self)
+        let noNativeWithoutProcess = String(
+            decoding: mutation(
+                text,
+                replacing: "\"nativeTargetObserved\":true",
+                with: "\"nativeTargetObserved\":false"
+            ),
+            as: UTF8.self
+        )
+        let noNativeText = String(
+            decoding: mutation(
+                noNativeWithoutProcess,
+                replacing: "\"processLaunchObserved\":true",
+                with: "\"processLaunchObserved\":false"
+            ),
+            as: UTF8.self
+        )
+        let noNativeTarget = mutation(
+            noNativeText,
+            replacing: "\"protocolExchangeObserved\":true",
+            with: "\"protocolExchangeObserved\":false"
+        )
+        let noProcessText = String(
+            decoding: mutation(
+                text,
+                replacing: "\"processLaunchObserved\":true",
+                with: "\"processLaunchObserved\":false"
+            ),
+            as: UTF8.self
+        )
+        let noProcess = mutation(
+            noProcessText,
+            replacing: "\"protocolExchangeObserved\":true",
+            with: "\"protocolExchangeObserved\":false"
+        )
+        let noProtocol = mutation(
+            text,
+            replacing: "\"protocolExchangeObserved\":true",
+            with: "\"protocolExchangeObserved\":false"
         )
 
-        expectContractFailure(mutation)
+        expectContractFailureContaining(
+            noNativeTarget,
+            "a passed receipt requires actual host process and protocol observations",
+            context: "native target, process, and protocol are absent"
+        )
+        expectContractFailureContaining(
+            noProcess,
+            "a passed receipt requires actual host process and protocol observations",
+            context: "process and protocol are absent"
+        )
+        expectContractFailureContaining(
+            noProtocol,
+            "a passed receipt requires actual host process and protocol observations",
+            context: "protocol exchange is absent"
+        )
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -164,6 +472,85 @@ struct RuntimeWorkerAcceptanceContractTests {
 
         expectContractFailure(artifactMutation)
         expectContractFailure(boundaryMutation)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func rejectsDirtyEnvironmentAndEveryNonPublicBoundary() throws {
+        let text = String(
+            decoding: try ReceiptFixture.passed().encoded(),
+            as: UTF8.self
+        )
+        let environmentMutations = [
+            mutation(
+                text,
+                replacing: "\"compilerAvailableDuringExecution\":false",
+                with: "\"compilerAvailableDuringExecution\":true"
+            ),
+            mutation(
+                text,
+                replacing: "\"pythonAvailableDuringExecution\":false",
+                with: "\"pythonAvailableDuringExecution\":true"
+            ),
+            mutation(
+                text,
+                replacing: "\"ambientLoaderVariableNames\":[]",
+                with: "\"ambientLoaderVariableNames\":[\"DYLD_LIBRARY_PATH\"]"
+            ),
+            mutation(
+                text,
+                replacing: "\"cleanEnvironmentObserved\":true",
+                with: "\"cleanEnvironmentObserved\":false"
+            ),
+        ]
+        for value in environmentMutations {
+            expectContractFailure(value, context: "dirty execution environment")
+        }
+
+        let boundaryMutations = [
+            mutation(
+                text,
+                replacing: "\"publicRuntimeProjectionUsed\":true",
+                with: "\"publicRuntimeProjectionUsed\":false"
+            ),
+            mutation(
+                text,
+                replacing: "\"publicWorkerAPIUsed\":true",
+                with: "\"publicWorkerAPIUsed\":false"
+            ),
+            mutation(
+                text,
+                replacing: "\"filesystemAccessOutsideWorker\":false",
+                with: "\"filesystemAccessOutsideWorker\":true"
+            ),
+            mutation(
+                text,
+                replacing: "\"processLaunchOutsideWorker\":false",
+                with: "\"processLaunchOutsideWorker\":true"
+            ),
+            mutation(
+                text,
+                replacing: "\"runtimeLoaderOutsideWorker\":false",
+                with: "\"runtimeLoaderOutsideWorker\":true"
+            ),
+            mutation(
+                text,
+                replacing: "\"rawPOSIXImports\":false",
+                with: "\"rawPOSIXImports\":true"
+            ),
+            mutation(
+                text,
+                replacing: "\"rawProtocolImports\":false",
+                with: "\"rawProtocolImports\":true"
+            ),
+            mutation(
+                text,
+                replacing: "\"workerSPIImports\":false",
+                with: "\"workerSPIImports\":true"
+            ),
+        ]
+        for value in boundaryMutations {
+            expectContractFailure(value, context: "non-public consumer boundary")
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -254,7 +641,7 @@ private enum ReceiptFixture {
     static func host(
         allObserved: Bool
     ) throws -> RuntimeWorkerAcceptanceContract.Host {
-        try .init(
+        try RuntimeWorkerAcceptanceContract.Host(
             platform: .macOS,
             architecture: "arm64",
             targetTriple: targetTriple,
@@ -332,15 +719,31 @@ private enum ReceiptFixture {
     static func protocolRecord() throws
         -> RuntimeWorkerAcceptanceContract.ProtocolRecord
     {
-        try .init(
+        let kinds: [(UInt16, String)] = [
+            (1, "ready"),
+            (2, "createSession"),
+            (3, "sessionCreated"),
+            (4, "invokeFloat32"),
+            (5, "invocationResult"),
+            (6, "shutdownSession"),
+            (7, "sessionShutdown"),
+            (8, "shutdownWorker"),
+            (9, "workerShutdown"),
+            (10, "failure"),
+        ]
+        return try RuntimeWorkerAcceptanceContract.ProtocolRecord(
             version: 1,
             descriptor: 3,
             headerByteCount: 32,
             byteOrder: "little-endian",
             maximumFramePayloadBytes: 65_536,
             maximumInFlightRequests: 1,
-            messageKinds: RuntimeWorkerAcceptanceContract.ProtocolRecord
-                .expectedMessageKinds
+            messageKinds: try kinds.map {
+                try RuntimeWorkerAcceptanceContract.ProtocolRecord.MessageKind(
+                    rawValue: $0.0,
+                    name: $0.1
+                )
+            }
         )
     }
 
@@ -443,11 +846,58 @@ private enum ReceiptFixture {
     }
 }
 
-private func expectContractFailure(_ data: Data, sourceLocation: SourceLocation = #_sourceLocation) {
+private func mutation(
+    _ text: String,
+    replacing needle: String,
+    with replacement: String,
+    sourceLocation: SourceLocation = #_sourceLocation
+) -> Data {
+    let occurrences = text.components(separatedBy: needle).count - 1
+    #expect(
+        occurrences == 1,
+        "Expected one mutation site for '\(needle)', found \(occurrences)",
+        sourceLocation: sourceLocation
+    )
+    return Data(text.replacingOccurrences(of: needle, with: replacement).utf8)
+}
+
+private func expectContractFailure(
+    _ data: Data,
+    context: String = "",
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    let contextSuffix = context.isEmpty ? "" : " (\(context))"
     #expect(
         throws: RuntimeWorkerAcceptanceError.self,
+        "Expected contract failure\(contextSuffix)",
         sourceLocation: sourceLocation
     ) {
         try RuntimeWorkerAcceptanceContract.decodeCanonical(data)
+    }
+}
+
+private func expectContractFailureContaining(
+    _ data: Data,
+    _ expectedDetail: String,
+    context: String,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        _ = try RuntimeWorkerAcceptanceContract.decodeCanonical(data)
+        Issue.record(
+            "Expected contract failure (\(context))",
+            sourceLocation: sourceLocation
+        )
+    } catch let error as RuntimeWorkerAcceptanceError {
+        #expect(
+            error.description.contains(expectedDetail),
+            "Unexpected failure for \(context): \(error)",
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(
+            "Unexpected error for \(context): \(error)",
+            sourceLocation: sourceLocation
+        )
     }
 }

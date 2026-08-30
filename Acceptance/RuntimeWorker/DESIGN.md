@@ -11,6 +11,9 @@ This component owns one closed schema-1 receipt. The receipt canonicalizes a
 public W2 `MojoRuntimeWorkerBundleVerification`, the protocol limits and
 message-kind table, host/process observations, consumer-boundary observations,
 the clean execution environment, and the required success/failure lifecycle.
+The public receipt is intentionally not `Codable`: a private closed wire DTO
+is used so `encoded()` and `decodeCanonical(_:)` remain the only receipt codec
+authority.
 It does not launch a worker, read an artifact, run a compiler, inspect a
 device, or decide model/training/performance/HIL readiness.
 
@@ -60,7 +63,8 @@ flowchart LR
     C["Public consumer-boundary observation"] --> R
     E["Clean execution environment observation"] --> R
     L["Success + forced-failure + clean-retry lifecycle"] --> R
-    R --> J["Canonical schema-1 JSON receipt"]
+    R --> D["Private closed wire DTO"]
+    D --> J["Canonical schema-1 JSON receipt"]
 ```
 
 The data flow is intentionally one-way:
@@ -101,6 +105,11 @@ Schema version is `1`. Status is `passed` or `failed`. Evidence scope is the
 literal `actualHostProcessProtocol`. A passed receipt has `failure: null`; a
 failed receipt has one typed failure record. Unknown, missing, duplicate, or
 noncanonical keys are rejected at every nested record.
+
+`RuntimeWorkerAcceptanceContract` does not conform to `Codable` or expose
+`init(from:)`/`encode(to:)`. The private wire DTO is the only type passed to
+`JSONEncoder` or `JSONDecoder`; public callers must use `encoded()` and
+`decodeCanonical(_:)`, which validate the contract and compare canonical bytes.
 
 Claims are closed and contain exactly:
 
@@ -231,7 +240,11 @@ Focused tests must prove:
 - rejection of altered fixed claims, protocol kinds/limits, artifact fields,
   consumer boundary, clean environment, and lifecycle evidence;
 - rejection of a passed receipt without host/process/protocol observations;
-- projection mapping from every public W2 field;
+- the canonical codec is the only public receipt serialization path;
+- projection mapping from every public W2 field. The one-to-one integration
+  proof using a filesystem verifier-produced public W2 projection is owned by
+  RT4.B; this package does not fabricate a verifier projection or use
+  `@testable` access to parent internals;
 - absence of public imports from `MojoRuntimeWorker` internals or POSIX support.
 
 Changes to this schema require ADR-0015, the parent design index, and all host
