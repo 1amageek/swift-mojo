@@ -19,80 +19,46 @@ package enum MojoRuntimeLibraryBindingTable {
                 "runtime library binding table must not be empty"
             )
         }
-        let sorted = bindings.sorted(
-            by: MojoRuntimeLibraryBundleManifest.bindingPrecedes
-        )
-        var bindingIDs: Set<UInt64> = []
-        var functionSignatures: Set<String> = []
-        var sessionFactories: Set<String> = []
 
-        for binding in sorted {
-            guard bindingIDs.insert(binding.bindingID).inserted else {
-                throw ValidationError(
-                    "runtime library binding ID \(binding.bindingID) is duplicated"
-                )
-            }
-            guard MojoRuntimeLoaderPolicy.isPortableCSymbol(
-                binding.functionName
-            ) else {
-                throw ValidationError(
-                    "runtime library binding function '\(binding.functionName)' is not portable"
-                )
-            }
-            guard let signature = MojoBinding.Signature(
-                rawValue: binding.signature
-            ) else {
-                throw ValidationError(
-                    "runtime library binding '\(binding.functionName)' has unsupported signature '\(binding.signature)'"
-                )
-            }
-            let signatureKey = "\(binding.functionName)|\(binding.signature)"
-            guard functionSignatures.insert(signatureKey).inserted else {
-                throw ValidationError(
-                    "runtime library binding '\(binding.functionName)' has a duplicated signature"
-                )
-            }
-
-            switch signature {
-            case .sessionFloat32BufferFactory,
-                 .sessionBorrowedMutableFloat32Buffers:
-                guard let factory = binding.sessionFactoryFunctionName,
-                      MojoRuntimeLoaderPolicy.isPortableCSymbol(factory) else {
+        let genericBindings: [MojoRuntimeWorkerBinding]
+        do {
+            genericBindings = try bindings.map { binding in
+                guard let signature = MojoBinding.Signature(
+                    rawValue: binding.signature
+                ) else {
                     throw ValidationError(
-                        "runtime library binding '\(binding.functionName)' requires a portable session factory function"
+                        "runtime library binding '\(binding.functionName)' has unsupported signature '\(binding.signature)'"
                     )
                 }
-            case .int32Binary,
-                 .borrowedFloat32Buffer,
-                 .borrowedMutableFloat32Buffers,
-                 .borrowedMutableFloat64Buffers,
-                 .runtimeSessionFactory:
-                guard binding.sessionFactoryFunctionName == nil else {
-                    throw ValidationError(
-                        "runtime library binding '\(binding.functionName)' cannot declare a session factory"
-                    )
-                }
+                return MojoRuntimeWorkerBinding(
+                    bindingID: binding.bindingID,
+                    functionName: binding.functionName,
+                    signature: signature,
+                    sessionFactoryFunctionName:
+                        binding.sessionFactoryFunctionName
+                )
             }
-
-            if signature == .runtimeSessionFactory {
-                guard sessionFactories.insert(binding.functionName).inserted else {
-                    throw ValidationError(
-                        "runtime library session factory '\(binding.functionName)' is ambiguous"
-                    )
-                }
-            }
+        } catch let error as ValidationError {
+            throw error
+        } catch let error as MojoRuntimeWorkerBindingTable.ValidationError {
+            throw ValidationError(error.description)
         }
 
-        for binding in sorted {
-            guard let factory = binding.sessionFactoryFunctionName else {
-                continue
-            }
-            guard sessionFactories.contains(factory) else {
-                throw ValidationError(
-                    "runtime library binding '\(binding.functionName)' references missing session factory '\(factory)'"
+        do {
+            let table = try MojoRuntimeWorkerBindingTable(
+                bindings: genericBindings
+            )
+            return table.bindings.map {
+                MojoRuntimeLibraryBundleManifest.Binding(
+                    bindingID: $0.bindingID,
+                    functionName: $0.functionName,
+                    signature: $0.signature.rawValue,
+                    sessionFactoryFunctionName:
+                        $0.sessionFactoryFunctionName
                 )
             }
+        } catch let error as MojoRuntimeWorkerBindingTable.ValidationError {
+            throw ValidationError(error.description)
         }
-        return sorted
     }
 }

@@ -71,18 +71,27 @@ let package = Package(
             exclude: ["DESIGN.md"]
         ),
         .target(
+            name: "MojoRuntimeProtocolCore",
+            dependencies: [
+                .product(name: "Crypto", package: "swift-crypto"),
+            ],
+            exclude: ["DESIGN.md"]
+        ),
+        .target(
             name: "MojoArtifactCore",
             dependencies: [
                 "MojoBindingCore",
                 "MojoCompilerCore",
                 "MojoPOSIXSupport",
+                "MojoRuntimeProtocolCore",
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(
                     name: "SwiftParserDiagnostics",
                     package: "swift-syntax"
                 ),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["DESIGN.md"]
         ),
         .target(
             name: "MojoCommandCore",
@@ -90,7 +99,8 @@ let package = Package(
         ),
         .target(
             name: "MojoRuntime",
-            dependencies: ["MojoArtifactCore"]
+            dependencies: ["MojoArtifactCore"],
+            exclude: ["DESIGN.md"]
         ),
         .binaryTarget(
             name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",
@@ -163,6 +173,10 @@ let package = Package(
         .testTarget(
             name: "MojoPOSIXSupportTests",
             dependencies: ["MojoPOSIXSupport"]
+        ),
+        .testTarget(
+            name: "MojoRuntimeProtocolCoreTests",
+            dependencies: ["MojoRuntimeProtocolCore"]
         ),
         .testTarget(
             name: "MojoBindingCoreTests",
