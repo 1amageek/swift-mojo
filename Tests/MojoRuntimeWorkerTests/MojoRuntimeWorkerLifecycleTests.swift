@@ -152,6 +152,45 @@ struct MojoRuntimeWorkerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func scopeFinalizationJoinsAnEscapedChainedShutdown() async throws {
+        let fixture = try ScopedAttemptFixture.make(
+            behavior: .pauseAtSessionShutdownAcknowledgement
+        )
+        defer { fixture.removeSource() }
+        let escapedStore = LifecycleEscapedShutdownTaskStore()
+
+        let result = try await fixture.withAttempt { session in
+            let escaped = Task {
+                try await session.shutdown()
+            }
+            escapedStore.store(escaped)
+            try await waitForTrace(
+                fixture,
+                containing: "session_shutdown_ack_boundary"
+            )
+            return 42
+        }
+
+        #expect(result == 42)
+        guard let escaped = escapedStore.task() else {
+            Issue.record("The escaped shutdown was not recorded")
+            return
+        }
+        switch await escaped.result {
+        case .success:
+            break
+        case .failure(let error):
+            Issue.record("Unexpected escaped-shutdown error: \(error)")
+        }
+        let trace = try fixture.traceLines()
+        #expect(trace.filter { $0 == "destroy" }.count == 1)
+        #expect(trace.filter { $0 == "worker_shutdown" }.count == 1)
+        #expect(trace.last == "exit:0")
+        #expect(!FileManager.default.fileExists(atPath: fixture.stageRoot.path))
+        try fixture.expectObservedProcessReaped()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func cancellationDuringAdmissionStopsBeforeSessionCreation() async throws {
         let fixture = try ScopedAttemptFixture.make(
             behavior: .hangBeforeReady,
@@ -320,8 +359,13 @@ struct MojoRuntimeWorkerLifecycleTests {
                     description: sentinel.description
                 )
             )
-            #expect(failures.first == .processReapFailed)
-            #expect(failures.last == .privateStageRetained)
+            #expect(
+                failures == [
+                    .processGroupTerminationFailed,
+                    .processReapFailed,
+                    .privateStageRetained,
+                ]
+            )
         } catch {
             Issue.record("Unexpected composed failure: \(error)")
         }
@@ -519,6 +563,60 @@ struct MojoRuntimeWorkerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func lateFailedInvocationResponsesExpireAndCannotReuseWorker()
+        async throws
+    {
+        for behavior in [
+            LifecycleFixtureBehavior.delayedInvocationFailure,
+            LifecycleFixtureBehavior.delayedRemoteFailure,
+        ] {
+            let fixture = try AttemptFixture.make(behavior: behavior)
+            defer { fixture.removeSource() }
+            _ = try await fixture.createSession()
+
+            var observedError: MojoRuntimeWorkerError?
+            do {
+                _ = try await fixture.actor.invoke(
+                    fixture.operation,
+                    input: [1],
+                    outputElementCount: 1,
+                    timeout: .milliseconds(50)
+                )
+                Issue.record("A late failed response completed successfully")
+            } catch let error as MojoRuntimeWorkerError {
+                observedError = error
+            } catch {
+                Issue.record("Unexpected late-response error: \(error)")
+            }
+            #expect(observedError == .invocationTimedOut)
+
+            do {
+                _ = try await fixture.actor.invoke(
+                    fixture.operation,
+                    input: [2],
+                    outputElementCount: 1,
+                    timeout: .seconds(1)
+                )
+                Issue.record(
+                    "A worker was reused after a late failed response"
+                )
+            } catch let error as MojoRuntimeWorkerError {
+                #expect(error == .attemptClosed)
+            } catch {
+                Issue.record("Unexpected terminal-attempt error: \(error)")
+            }
+
+            _ = await fixture.actor.finishAttempt()
+            #expect(
+                !FileManager.default.fileExists(
+                    atPath: fixture.stageRoot.path
+                )
+            )
+            expectReaped(fixture.processID)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func crashEOFAndRemoteFailureStayTypedAndTerminal() async throws {
         let crashed = try AttemptFixture.make(behavior: .crashOnInvoke)
         defer { crashed.removeSource() }
@@ -604,11 +702,14 @@ private enum LifecycleFixtureBehavior: String {
     case partialResult
     case crashOnInvoke
     case remoteFailure
+    case delayedInvocationFailure
+    case delayedRemoteFailure
     case hangAfterWorkerShutdown
     case hangBeforeReady
     case delayedSessionCreated
     case delayedShutdown
     case wrongOutputCount
+    case pauseAtSessionShutdownAcknowledgement
 }
 
 private struct AttemptFixture: Sendable {
@@ -964,6 +1065,15 @@ private struct AttemptFixture: Sendable {
                     fail(request_id, 5, "fixture-remote-failure")
                     while True:
                         time.sleep(1)
+                elif BEHAVIOR == "delayedRemoteFailure":
+                    time.sleep(0.2)
+                    fail(request_id, 5, "fixture-remote-failure")
+                    while True:
+                        time.sleep(1)
+                elif BEHAVIOR == "delayedInvocationFailure":
+                    time.sleep(0.2)
+                    send(5, request_id, struct.pack("<iQ", 17, 0))
+                    continue
                 result_count = output_count
                 if BEHAVIOR == "wrongOutputCount":
                     result_count += 1
@@ -985,7 +1095,11 @@ private struct AttemptFixture: Sendable {
                     time.sleep(0.2)
                 session_live = False
                 record("destroy")
+                if BEHAVIOR == "pauseAtSessionShutdownAcknowledgement":
+                    record("session_shutdown_ack_boundary")
                 send(7, request_id)
+                if BEHAVIOR == "pauseAtSessionShutdownAcknowledgement":
+                    time.sleep(0.2)
             elif kind == 8:
                 if payload or session_live:
                     fail(request_id, 6, "invalid-worker-shutdown")
@@ -1244,6 +1358,20 @@ private final class LifecycleEscapedTaskStore: Sendable {
     }
 
     func task() -> LifecycleInvocationTask? {
+        storage.withLock { $0 }
+    }
+}
+
+private typealias LifecycleShutdownTask = Task<Void, any Error>
+
+private final class LifecycleEscapedShutdownTaskStore: Sendable {
+    private let storage = Mutex<LifecycleShutdownTask?>(nil)
+
+    func store(_ task: LifecycleShutdownTask) {
+        storage.withLock { $0 = task }
+    }
+
+    func task() -> LifecycleShutdownTask? {
         storage.withLock { $0 }
     }
 }

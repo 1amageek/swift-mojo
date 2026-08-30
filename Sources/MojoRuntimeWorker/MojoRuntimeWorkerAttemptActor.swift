@@ -53,6 +53,8 @@ package actor MojoRuntimeWorkerAttemptActor {
     private var capabilities: MojoSessionCapabilities?
     private var terminalizationTask:
         Task<[MojoRuntimeWorkerCleanupFailure], Never>?
+    private var gracefulShutdownTask:
+        Task<MojoRuntimeWorkerError?, Never>?
     private var terminalPrimary: MojoRuntimeWorkerError?
     private var terminalError: MojoRuntimeWorkerError?
 
@@ -75,6 +77,7 @@ package actor MojoRuntimeWorkerAttemptActor {
         self.inFlightTask = nil
         self.inFlightCompletion = nil
         self.inFlightCompletionContinuation = nil
+        self.gracefulShutdownTask = nil
     }
 
     package func createSession(
@@ -104,6 +107,10 @@ package actor MojoRuntimeWorkerAttemptActor {
             let response = try await awaitExchange(exchange)
             try ensurePending(exchange)
             try sequence.accept(response.frame, direction: .incoming)
+            try commitResponse(
+                exchange,
+                timeoutError: .sessionCreationTimedOut
+            )
             guard case .sessionCreated(let created) = response.frame.payload
             else {
                 throw workerError(for: response.frame.payload)
@@ -123,12 +130,6 @@ package actor MojoRuntimeWorkerAttemptActor {
             )
             guard actual.satisfies(requirements) else {
                 throw MojoRuntimeWorkerError.sessionCapabilitiesUnsatisfied
-            }
-            guard ContinuousClock().now < exchange.deadline else {
-                throw MojoRuntimeWorkerError.sessionCreationTimedOut
-            }
-            guard gate.commitResponse(for: exchange.lease) else {
-                throw MojoRuntimeWorkerError.cancellationRequested
             }
             finishExchange(exchange)
             capabilities = actual
@@ -200,14 +201,15 @@ package actor MojoRuntimeWorkerAttemptActor {
             let response = try await awaitExchange(exchange)
             try ensurePending(exchange)
             try sequence.accept(response.frame, direction: .incoming)
+            try commitResponse(
+                exchange,
+                timeoutError: .invocationTimedOut
+            )
             guard case .invocationResult(let result) = response.frame.payload
             else {
                 throw workerError(for: response.frame.payload)
             }
             guard result.status == 0 else {
-                guard gate.commitResponse(for: exchange.lease) else {
-                    throw MojoRuntimeWorkerError.cancellationRequested
-                }
                 finishExchange(exchange)
                 throw MojoRuntimeWorkerError.invocationFailed(
                     status: result.status
@@ -217,13 +219,6 @@ package actor MojoRuntimeWorkerAttemptActor {
                     == UInt64(outputElementCount),
                   response.output.count == outputElementCount else {
                 throw MojoRuntimeWorkerError.responseMismatch
-            }
-            let clock = ContinuousClock()
-            guard clock.now < exchange.deadline else {
-                throw MojoRuntimeWorkerError.invocationTimedOut
-            }
-            guard gate.commitResponse(for: exchange.lease) else {
-                throw MojoRuntimeWorkerError.cancellationRequested
             }
             finishExchange(exchange)
             return response.output
@@ -253,6 +248,9 @@ package actor MojoRuntimeWorkerAttemptActor {
         if phase == .terminalizing {
             return await awaitTerminalization()
         }
+        if let gracefulShutdownTask {
+            return await gracefulShutdownTask.value
+        }
         if let pending {
             phase = .closing
             let completion = inFlightCompletion
@@ -267,6 +265,66 @@ package actor MojoRuntimeWorkerAttemptActor {
         guard phase == .live else {
             return await terminalize(primary: primary, mode: .hard)
         }
+        return await beginGracefulShutdown(primary: primary).value
+    }
+
+    package func explicitShutdown() async throws {
+        if phase == .terminal {
+            if let terminalError {
+                throw terminalError
+            }
+            return
+        }
+        if phase == .terminalizing {
+            if let terminalError = await awaitTerminalization() {
+                throw terminalError
+            }
+            return
+        }
+        if let gracefulShutdownTask {
+            if let error = await gracefulShutdownTask.value {
+                throw error
+            }
+            return
+        }
+        guard phase == .live, pending == nil else {
+            throw MojoRuntimeWorkerError.operationInProgress
+        }
+        if let error = await beginGracefulShutdown(primary: nil).value {
+            throw error
+        }
+    }
+
+    package func isShutdown() -> Bool {
+        switch phase {
+        case .idle, .live:
+            return false
+        case .closing, .terminalizing, .terminal:
+            return true
+        }
+    }
+
+    package func hasInFlightExchange() -> Bool {
+        pending != nil
+    }
+
+    private func beginGracefulShutdown(
+        primary: MojoRuntimeWorkerError?
+    ) -> Task<MojoRuntimeWorkerError?, Never> {
+        if let gracefulShutdownTask {
+            return gracefulShutdownTask
+        }
+        phase = .closing
+        let task = Task {
+            await completeGracefulShutdown(primary: primary)
+        }
+        gracefulShutdownTask = task
+        return task
+    }
+
+    private func completeGracefulShutdown(
+        primary: MojoRuntimeWorkerError?
+    ) async -> MojoRuntimeWorkerError? {
         do {
             let clock = ContinuousClock()
             let gracefulDeadline = clock.now.advanced(
@@ -290,58 +348,6 @@ package actor MojoRuntimeWorkerAttemptActor {
         }
     }
 
-    package func explicitShutdown() async throws {
-        if phase == .terminal {
-            if let terminalError {
-                throw terminalError
-            }
-            return
-        }
-        if phase == .terminalizing {
-            if let terminalError = await awaitTerminalization() {
-                throw terminalError
-            }
-            return
-        }
-        guard phase == .live, pending == nil else {
-            throw MojoRuntimeWorkerError.operationInProgress
-        }
-        do {
-            let clock = ContinuousClock()
-            let gracefulDeadline = clock.now.advanced(
-                by: timeouts.gracefulShutdown
-            )
-            try await shutdownGracefully(until: gracefulDeadline)
-            if let terminalError = await terminalize(
-                primary: nil,
-                mode: .graceful,
-                gracefulDeadline: gracefulDeadline
-            ) {
-                throw terminalError
-            }
-        } catch {
-            let primary = workerError(error, context: .shutdown)
-            let terminalError = await terminalize(
-                primary: primary,
-                mode: .hard
-            )
-            throw terminalError ?? primary
-        }
-    }
-
-    package func isShutdown() -> Bool {
-        switch phase {
-        case .idle, .live:
-            return false
-        case .closing, .terminalizing, .terminal:
-            return true
-        }
-    }
-
-    package func hasInFlightExchange() -> Bool {
-        pending != nil
-    }
-
     private func shutdownGracefully(
         until deadline: ContinuousClock.Instant
     ) async throws {
@@ -356,14 +362,12 @@ package actor MojoRuntimeWorkerAttemptActor {
             let response = try await awaitExchange(sessionExchange)
             try ensurePending(sessionExchange)
             try sequence.accept(response.frame, direction: .incoming)
+            try commitResponse(
+                sessionExchange,
+                timeoutError: .shutdownTimedOut
+            )
             guard case .sessionShutdown = response.frame.payload else {
                 throw workerError(for: response.frame.payload)
-            }
-            guard ContinuousClock().now < sessionExchange.deadline else {
-                throw MojoRuntimeWorkerError.shutdownTimedOut
-            }
-            guard gate.commitResponse(for: sessionExchange.lease) else {
-                throw MojoRuntimeWorkerError.cancellationRequested
             }
             finishExchange(sessionExchange)
         } catch {
@@ -381,14 +385,12 @@ package actor MojoRuntimeWorkerAttemptActor {
             let response = try await awaitExchange(workerExchange)
             try ensurePending(workerExchange)
             try sequence.accept(response.frame, direction: .incoming)
+            try commitResponse(
+                workerExchange,
+                timeoutError: .shutdownTimedOut
+            )
             guard case .workerShutdown = response.frame.payload else {
                 throw workerError(for: response.frame.payload)
-            }
-            guard ContinuousClock().now < workerExchange.deadline else {
-                throw MojoRuntimeWorkerError.shutdownTimedOut
-            }
-            guard gate.commitResponse(for: workerExchange.lease) else {
-                throw MojoRuntimeWorkerError.cancellationRequested
             }
             finishExchange(workerExchange)
         } catch {
@@ -506,6 +508,18 @@ package actor MojoRuntimeWorkerAttemptActor {
         guard pendingMatches(exchange), phase != .terminalizing,
               phase != .terminal else {
             throw MojoRuntimeWorkerError.attemptClosed
+        }
+    }
+
+    private func commitResponse(
+        _ exchange: PendingExchange,
+        timeoutError: MojoRuntimeWorkerError
+    ) throws {
+        guard ContinuousClock().now < exchange.deadline else {
+            throw timeoutError
+        }
+        guard gate.commitResponse(for: exchange.lease) else {
+            throw MojoRuntimeWorkerError.cancellationRequested
         }
     }
 

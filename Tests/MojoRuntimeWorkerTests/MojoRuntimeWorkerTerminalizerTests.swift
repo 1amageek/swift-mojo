@@ -1,6 +1,7 @@
 import Foundation
 import MojoPOSIXSupport
 import MojoRuntimeWorker
+import Synchronization
 import Testing
 
 @Suite("Mojo runtime worker terminalizer", .serialized)
@@ -317,6 +318,223 @@ struct MojoRuntimeWorkerTerminalizerTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.stageRoot.path))
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func processGroupSignalsAlwaysPrecedeTheExactChildReap() throws {
+        let log = TerminalizerProcessControlLog(
+            groupStates: [.alive, .alive, .gone]
+        )
+        let control = MojoRuntimeWorkerProcessControl(
+            observeChild: { _ in
+                log.record("observe")
+                return .running
+            },
+            inspectGroup: { _ in log.nextGroupState() },
+            signalGroup: { _, signal in
+                log.record("signal:\(signal)")
+            },
+            reapChild: { _ in
+                log.record("reap")
+                return 0
+            }
+        )
+        let deadline = ContinuousClock().now
+
+        let outcome = MojoRuntimeWorkerTerminalizer.completeProcessLifetime(
+            processID: 42,
+            mode: .hard,
+            gracefulDeadline: deadline,
+            terminationDeadline: deadline,
+            forcedCleanupDeadline: deadline,
+            processControl: control
+        )
+
+        #expect(outcome.reaped)
+        #expect(outcome.groupTerminationConfirmed)
+        #expect(outcome.failures.isEmpty)
+        let events = log.events()
+        let reapIndex = try #require(events.firstIndex(of: "reap"))
+        let terminationIndex = try #require(
+            events.firstIndex(
+                of: "signal:\(MojoPOSIXSupport.terminationSignal)"
+            )
+        )
+        let killIndex = try #require(
+            events.firstIndex(
+                of: "signal:\(MojoPOSIXSupport.killSignal)"
+            )
+        )
+        #expect(
+            terminationIndex < reapIndex
+        )
+        #expect(
+            killIndex < reapIndex
+        )
+        #expect(events.last == "reap")
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func outsideOwnerReapForbidsEveryLaterProcessGroupSignal() {
+        let log = TerminalizerProcessControlLog(groupStates: [.alive])
+        let control = MojoRuntimeWorkerProcessControl(
+            observeChild: { _ in
+                log.record("observe")
+                throw MojoPOSIXSupportError.childAlreadyReaped
+            },
+            inspectGroup: { _ in
+                log.record("inspect")
+                return .alive
+            },
+            signalGroup: { _, signal in
+                log.record("signal:\(signal)")
+            },
+            reapChild: { _ in
+                log.record("reap")
+                return 0
+            }
+        )
+        let deadline = ContinuousClock().now
+
+        let outcome = MojoRuntimeWorkerTerminalizer.completeProcessLifetime(
+            processID: 42,
+            mode: .hard,
+            gracefulDeadline: deadline,
+            terminationDeadline: deadline,
+            forcedCleanupDeadline: deadline,
+            processControl: control
+        )
+
+        #expect(!outcome.reaped)
+        #expect(!outcome.groupTerminationConfirmed)
+        #expect(outcome.failures == [.processInspectionFailed])
+        #expect(log.events() == ["observe"])
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func indeterminateGroupInspectionCannotAuthorizeStageRemoval() throws {
+        let log = TerminalizerProcessControlLog(
+            groupStates: [.indeterminate]
+        )
+        let control = MojoRuntimeWorkerProcessControl(
+            observeChild: { _ in .running },
+            inspectGroup: { _ in log.nextGroupState() },
+            signalGroup: { _, signal in
+                log.record("signal:\(signal)")
+            },
+            reapChild: { _ in
+                log.record("reap")
+                return 0
+            }
+        )
+        let deadline = ContinuousClock().now
+        let outcome = MojoRuntimeWorkerTerminalizer.completeProcessLifetime(
+            processID: 42,
+            mode: .hard,
+            gracefulDeadline: deadline,
+            terminationDeadline: deadline,
+            forcedCleanupDeadline: deadline,
+            processControl: control
+        )
+
+        #expect(outcome.reaped)
+        #expect(!outcome.groupTerminationConfirmed)
+        #expect(outcome.failures.contains(.processInspectionFailed))
+
+        let stageRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: stageRoot,
+            withIntermediateDirectories: false
+        )
+        defer { removeRoot(stageRoot) }
+        let stageFailure = MojoRuntimeWorkerArtifactAdmission
+            .finalizePrivateStage(
+                at: stageRoot,
+                processLifetimeEnded:
+                    outcome.reaped && outcome.groupTerminationConfirmed
+            )
+        #expect(stageFailure == .privateStageRetained)
+        #expect(FileManager.default.fileExists(atPath: stageRoot.path))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func transientIndeterminateInspectionCannotAuthorizeStageRemoval() throws {
+        let log = TerminalizerProcessControlLog(
+            groupStates: [.indeterminate, .gone]
+        )
+        let control = MojoRuntimeWorkerProcessControl(
+            observeChild: { _ in .running },
+            inspectGroup: { _ in log.nextGroupState() },
+            signalGroup: { _, signal in
+                log.record("signal:\(signal)")
+            },
+            reapChild: { _ in
+                log.record("reap")
+                return 0
+            }
+        )
+        let deadline = ContinuousClock().now
+        let outcome = MojoRuntimeWorkerTerminalizer.completeProcessLifetime(
+            processID: 42,
+            mode: .hard,
+            gracefulDeadline: deadline,
+            terminationDeadline: deadline,
+            forcedCleanupDeadline: deadline,
+            processControl: control
+        )
+
+        #expect(outcome.reaped)
+        #expect(!outcome.groupTerminationConfirmed)
+        #expect(outcome.failures.contains(.processInspectionFailed))
+
+        let stageRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: stageRoot,
+            withIntermediateDirectories: false
+        )
+        defer { removeRoot(stageRoot) }
+        let stageFailure = MojoRuntimeWorkerArtifactAdmission
+            .finalizePrivateStage(
+                at: stageRoot,
+                processLifetimeEnded:
+                    outcome.reaped && outcome.groupTerminationConfirmed
+            )
+        #expect(stageFailure == .privateStageRetained)
+        #expect(FileManager.default.fileExists(atPath: stageRoot.path))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func indeterminateEscalationInspectionRemainsFailClosedAfterGone() {
+        let log = TerminalizerProcessControlLog(
+            groupStates: [.alive, .indeterminate, .gone]
+        )
+        let control = MojoRuntimeWorkerProcessControl(
+            observeChild: { _ in .running },
+            inspectGroup: { _ in log.nextGroupState() },
+            signalGroup: { _, signal in
+                log.record("signal:\(signal)")
+            },
+            reapChild: { _ in
+                log.record("reap")
+                return 0
+            }
+        )
+        let deadline = ContinuousClock().now
+
+        let outcome = MojoRuntimeWorkerTerminalizer.completeProcessLifetime(
+            processID: 42,
+            mode: .hard,
+            gracefulDeadline: deadline,
+            terminationDeadline: deadline,
+            forcedCleanupDeadline: deadline,
+            processControl: control
+        )
+
+        #expect(outcome.reaped)
+        #expect(!outcome.groupTerminationConfirmed)
+        #expect(outcome.failures.contains(.processInspectionFailed))
+    }
+
     private func terminalize(
         _ fixture: TerminalizerFixture,
         mode: MojoRuntimeWorkerTerminalizer.Mode,
@@ -617,5 +835,40 @@ private struct TerminalizerFixtureError: Error, CustomStringConvertible {
 
     init(_ description: String) {
         self.description = description
+    }
+}
+
+private final class TerminalizerProcessControlLog: Sendable {
+    private struct State: Sendable {
+        var events: [String] = []
+        var groupStates: [MojoPOSIXProcessGroupState]
+        var nextGroupStateIndex = 0
+    }
+
+    private let state: Mutex<State>
+
+    init(groupStates: [MojoPOSIXProcessGroupState]) {
+        state = Mutex(State(groupStates: groupStates))
+    }
+
+    func record(_ event: String) {
+        state.withLock { $0.events.append(event) }
+    }
+
+    func nextGroupState() -> MojoPOSIXProcessGroupState {
+        state.withLock { state in
+            state.events.append("inspect")
+            guard !state.groupStates.isEmpty else { return .indeterminate }
+            let index = min(
+                state.nextGroupStateIndex,
+                state.groupStates.count - 1
+            )
+            state.nextGroupStateIndex += 1
+            return state.groupStates[index]
+        }
+    }
+
+    func events() -> [String] {
+        state.withLock { $0.events }
     }
 }

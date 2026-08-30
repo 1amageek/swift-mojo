@@ -45,6 +45,10 @@ package final class MojoRuntimeWorkerAdmittedProcess: Sendable {
 }
 
 package struct MojoRuntimeWorkerArtifactAdmission {
+    package typealias CopyItem = (
+        _ sourceURL: URL,
+        _ destinationURL: URL
+    ) throws -> Void
     package typealias Verify = (URL) throws
         -> MojoRuntimeWorkerBundleVerification
     package typealias Spawn = (
@@ -63,8 +67,10 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         _ deadline: ContinuousClock.Instant
     ) throws -> MojoRuntimeWorkerStartupResult
     package typealias MakeStageRoot = () -> URL
+    package typealias RemoveItem = (_ url: URL) throws -> Void
 
     private let fileManager: FileManager
+    private let copyItem: CopyItem
     private let verify: Verify
     private let spawn: Spawn
     private let readStartup: ReadStartup
@@ -74,6 +80,9 @@ package struct MojoRuntimeWorkerArtifactAdmission {
     package init() {
         let fileManager = FileManager.default
         self.fileManager = fileManager
+        copyItem = { sourceURL, destinationURL in
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        }
         verify = { bundleURL in
             try FileSystemMojoRuntimeWorkerBundleVerifier()
                 .verifyWorkerBundle(at: bundleURL)
@@ -106,12 +115,16 @@ package struct MojoRuntimeWorkerArtifactAdmission {
 
     package init(
         fileManager: FileManager,
+        copyItem: CopyItem? = nil,
         verify: @escaping Verify,
         spawn: @escaping Spawn,
         readStartup: @escaping ReadStartup,
         makeStageRoot: MakeStageRoot? = nil
     ) {
         self.fileManager = fileManager
+        self.copyItem = copyItem ?? { sourceURL, destinationURL in
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        }
         self.verify = verify
         self.spawn = spawn
         self.readStartup = readStartup
@@ -123,12 +136,16 @@ package struct MojoRuntimeWorkerArtifactAdmission {
 
     package init(
         fileManager: FileManager,
+        copyItem: CopyItem? = nil,
         verify: @escaping Verify,
         spawn: @escaping Spawn,
         readStartupAtDeadline: @escaping ReadStartupAtDeadline,
         makeStageRoot: MakeStageRoot? = nil
     ) {
         self.fileManager = fileManager
+        self.copyItem = copyItem ?? { sourceURL, destinationURL in
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        }
         self.verify = verify
         self.spawn = spawn
         self.readStartup = { process, verification, timeout in
@@ -152,13 +169,14 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         terminationGracePeriod: Duration,
         forcedCleanup: Duration
     ) throws -> MojoRuntimeWorkerAdmittedProcess {
+        try Self.requireAdmissionActive(until: startupDeadline)
         let stageRoot = makeStageRoot()
         var ownsStageRoot = false
         var stage: MojoRuntimeWorkerPrivateStage?
         var process: MojoPOSIXWorkerProcess?
 
         do {
-            try Self.requireNotCancelled()
+            try Self.requireAdmissionActive(until: startupDeadline)
             do {
                 try fileManager.createDirectory(
                     at: stageRoot,
@@ -169,11 +187,12 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             } catch {
                 throw MojoRuntimeWorkerError.privateStageCreationFailed
             }
+            try Self.requireAdmissionActive(until: startupDeadline)
             try Self.verifyPrivatePermissions(
                 at: stageRoot,
                 fileManager: fileManager
             )
-            try Self.requireNotCancelled()
+            try Self.requireAdmissionActive(until: startupDeadline)
 
             let bundleURL = stageRoot.appendingPathComponent(
                 "bundle",
@@ -184,14 +203,14 @@ package struct MojoRuntimeWorkerArtifactAdmission {
                 bundleURL: bundleURL
             )
             do {
-                try fileManager.copyItem(
-                    at: trustedVerification.verifiedBundleURL,
-                    to: bundleURL
+                try copyItem(
+                    trustedVerification.verifiedBundleURL,
+                    bundleURL
                 )
             } catch {
                 throw MojoRuntimeWorkerError.privateStageCopyFailed
             }
-            try Self.requireNotCancelled()
+            try Self.requireAdmissionActive(until: startupDeadline)
 
             let stagedVerification: MojoRuntimeWorkerBundleVerification
             do {
@@ -199,19 +218,22 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             } catch {
                 throw MojoRuntimeWorkerError.stagedVerificationFailed
             }
+            try Self.requireAdmissionActive(until: startupDeadline)
             guard trustedVerification.hasSameRuntimeSemantics(
                 as: stagedVerification
             ) else {
                 throw MojoRuntimeWorkerError.stagedProjectionMismatch
             }
-            try Self.requireNotCancelled()
+            try Self.requireAdmissionActive(until: startupDeadline)
             try Self.verifyPrivatePermissions(
                 at: stageRoot,
                 fileManager: fileManager
             )
+            try Self.requireAdmissionActive(until: startupDeadline)
             let executableURL = try Self.verifiedExecutableURL(
                 in: stagedVerification
             )
+            try Self.requireAdmissionActive(until: startupDeadline)
 
             do {
                 process = try spawn(executableURL.path, [], [:])
@@ -221,7 +243,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             guard let process else {
                 throw MojoRuntimeWorkerError.workerSpawnFailed
             }
-            try Self.requireNotCancelled()
+            try Self.requireAdmissionActive(until: startupDeadline)
             let startup: MojoRuntimeWorkerStartupResult
             if let readStartupAtDeadline {
                 startup = try readStartupAtDeadline(
@@ -241,7 +263,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
                     remaining
                 )
             }
-            try Self.requireNotCancelled()
+            try Self.requireAdmissionActive(until: startupDeadline)
             let limits = try MojoRuntimeProtocolLimits(
                 maximumFramePayloadBytes:
                     stagedVerification.maximumFramePayloadBytes
@@ -347,6 +369,15 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         }
     }
 
+    private static func requireAdmissionActive(
+        until deadline: ContinuousClock.Instant
+    ) throws {
+        try requireNotCancelled()
+        guard ContinuousClock().now < deadline else {
+            throw MojoRuntimeWorkerError.startupTimedOut
+        }
+    }
+
     private func rollback(
         process: MojoPOSIXWorkerProcess?,
         stageRoot: URL?,
@@ -361,8 +392,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
                 forcedCleanup: forcedCleanup
             )
         }
-        guard let stageRoot,
-              fileManager.fileExists(atPath: stageRoot.path) else {
+        guard let stageRoot else {
             return []
         }
         return Self.finalizePrivateStage(
@@ -375,18 +405,25 @@ package struct MojoRuntimeWorkerArtifactAdmission {
     package static func finalizePrivateStage(
         at stageRoot: URL,
         processLifetimeEnded: Bool,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        removeItem: RemoveItem? = nil
     ) -> MojoRuntimeWorkerCleanupFailure? {
-        guard fileManager.fileExists(atPath: stageRoot.path) else {
-            return nil
-        }
         guard processLifetimeEnded else {
             return .privateStageRetained
         }
         do {
-            try fileManager.removeItem(at: stageRoot)
+            if let removeItem {
+                try removeItem(stageRoot)
+            } else {
+                try fileManager.removeItem(at: stageRoot)
+            }
             return nil
         } catch {
+            let cocoaError = error as NSError
+            if cocoaError.domain == NSCocoaErrorDomain,
+               cocoaError.code == NSFileNoSuchFileError {
+                return nil
+            }
             return .privateStageRemovalFailed
         }
     }

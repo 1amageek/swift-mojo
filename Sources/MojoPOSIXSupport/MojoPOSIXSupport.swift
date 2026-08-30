@@ -1,4 +1,3 @@
-import CMojoPOSIXSupport
 import Foundation
 
 package enum MojoPOSIXSupportError: Error, Equatable, CustomStringConvertible {
@@ -21,8 +20,20 @@ package enum MojoPOSIXSupportError: Error, Equatable, CustomStringConvertible {
     }
 }
 
+package enum MojoPOSIXChildObservation: Equatable, Sendable {
+    case running
+    case exited(status: Int32)
+}
+
+package enum MojoPOSIXProcessGroupState: Equatable, Sendable {
+    case alive
+    case gone
+    case indeterminate
+}
+
 package enum MojoPOSIXSupport {
     package typealias ProcessID = Int32
+    package static let processGroupInspectionEntryLimit: Int32 = 4_096
 
     package static var isSupported: Bool {
         swift_mojo_posix_platform_supported() == 1
@@ -155,6 +166,25 @@ package enum MojoPOSIXSupport {
         throw failure(operation: "wait for process", code: errorCode)
     }
 
+    package static func observeChild(
+        processID: ProcessID
+    ) throws -> MojoPOSIXChildObservation {
+        try requireSupported(operation: "observe child process")
+        var exitStatus: Int32 = 0
+        var errorCode: Int32 = 0
+        let result = swift_mojo_posix_observe_child_nohang(
+            processID,
+            &exitStatus,
+            &errorCode
+        )
+        if result == 1 { return .exited(status: exitStatus) }
+        if result == 0 { return .running }
+        if swift_mojo_posix_error_is_no_child(errorCode) == 1 {
+            throw MojoPOSIXSupportError.childAlreadyReaped
+        }
+        throw failure(operation: "observe child process", code: errorCode)
+    }
+
     package static func signalProcessGroup(
         processID: ProcessID,
         signal: Int32
@@ -171,7 +201,24 @@ package enum MojoPOSIXSupport {
     }
 
     package static func processGroupIsAlive(_ processID: ProcessID) -> Bool {
-        swift_mojo_posix_process_group_alive(processID) == 1
+        processGroupState(processID) != .gone
+    }
+
+    package static func processGroupState(
+        _ processID: ProcessID,
+        maximumEntries: Int32 = processGroupInspectionEntryLimit
+    ) -> MojoPOSIXProcessGroupState {
+        switch swift_mojo_posix_process_group_state(
+            processID,
+            maximumEntries
+        ) {
+        case 1:
+            return .alive
+        case 0:
+            return .gone
+        default:
+            return .indeterminate
+        }
     }
 
     package static func processIsAlive(_ processID: ProcessID) -> Bool {

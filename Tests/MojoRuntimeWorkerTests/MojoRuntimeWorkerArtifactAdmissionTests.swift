@@ -174,6 +174,95 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func slowPrivateCopyExpiresBeforeFreshVerificationOrSpawn() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let stageRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { removeIfPresent(stageRoot) }
+        var verificationCount = 0
+        var spawnCount = 0
+        let admission = MojoRuntimeWorkerArtifactAdmission(
+            fileManager: .default,
+            copyItem: { sourceURL, destinationURL in
+                Thread.sleep(forTimeInterval: 0.05)
+                try FileManager.default.copyItem(
+                    at: sourceURL,
+                    to: destinationURL
+                )
+            },
+            verify: { stagedURL in
+                verificationCount += 1
+                return MojoRuntimeWorkerTestFixture.rebased(
+                    fixture.verification,
+                    to: stagedURL
+                )
+            },
+            spawn: { _, _, _ in
+                spawnCount += 1
+                throw AdmissionTestFailure("Expired copy reached spawn")
+            },
+            readStartup: { _, _, _ in
+                throw AdmissionTestFailure("Expired copy reached startup")
+            },
+            makeStageRoot: { stageRoot }
+        )
+
+        #expect(throws: MojoRuntimeWorkerError.startupTimedOut) {
+            try admit(
+                admission,
+                verification: fixture.verification,
+                timeout: .milliseconds(10)
+            )
+        }
+        #expect(verificationCount == 0)
+        #expect(spawnCount == 0)
+        #expect(!FileManager.default.fileExists(atPath: stageRoot.path))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func slowFreshVerificationExpiresBeforeSpawn() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let stageRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { removeIfPresent(stageRoot) }
+        var spawnCount = 0
+        let admission = MojoRuntimeWorkerArtifactAdmission(
+            fileManager: .default,
+            verify: { stagedURL in
+                Thread.sleep(forTimeInterval: 0.05)
+                return MojoRuntimeWorkerTestFixture.rebased(
+                    fixture.verification,
+                    to: stagedURL
+                )
+            },
+            spawn: { _, _, _ in
+                spawnCount += 1
+                throw AdmissionTestFailure(
+                    "Expired fresh verification reached spawn"
+                )
+            },
+            readStartup: { _, _, _ in
+                throw AdmissionTestFailure(
+                    "Expired fresh verification reached startup"
+                )
+            },
+            makeStageRoot: { stageRoot }
+        )
+
+        #expect(throws: MojoRuntimeWorkerError.startupTimedOut) {
+            try admit(
+                admission,
+                verification: fixture.verification,
+                timeout: .milliseconds(10)
+            )
+        }
+        #expect(spawnCount == 0)
+        #expect(!FileManager.default.fileExists(atPath: stageRoot.path))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func readyMismatchRollsBackProcessDescriptorsAndPrivateStage() throws {
         let baseFixture = try makeFixture()
         defer { baseFixture.remove() }
@@ -308,6 +397,34 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
         )
         #expect(removed == nil)
         #expect(!FileManager.default.fileExists(atPath: stageRoot.path))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func absentPrivateStageIsTheOnlyRemovalErrorTreatedAsAlreadyClean() {
+        let stageRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        let result = MojoRuntimeWorkerArtifactAdmission.finalizePrivateStage(
+            at: stageRoot,
+            processLifetimeEnded: true
+        )
+
+        #expect(result == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func privateStageRemovalErrorCannotMasqueradeAsAnAbsentStage() {
+        let stageRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let expectedError = AdmissionTestFailure("stage removal denied")
+
+        let result = MojoRuntimeWorkerArtifactAdmission.finalizePrivateStage(
+            at: stageRoot,
+            processLifetimeEnded: true,
+            removeItem: { _ in throw expectedError }
+        )
+
+        #expect(result == .privateStageRemovalFailed)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -541,6 +658,15 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             try FileManager.default.removeItem(at: admitted.stage.rootURL)
         } catch {
             Issue.record("Failed to remove admitted stage: \(error)")
+        }
+    }
+
+    private func removeIfPresent(_ url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            Issue.record("Failed to remove deadline fixture: \(error)")
         }
     }
 

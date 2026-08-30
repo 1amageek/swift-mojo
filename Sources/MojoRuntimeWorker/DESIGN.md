@@ -136,7 +136,8 @@ MojoRuntimeWorker.withAttempt
         -> MojoRuntimeWorkerTransport (bounded detached exchange)
         -> MojoRuntimeProtocolCore segmented prefix codec
         -> MojoRuntimeWorkerTerminalizer
-            -> close / TERM / grace drain / KILL / reap / group confirmation
+            -> close / non-reaping child observation / TERM / KILL
+            -> bounded final group observation / exact child reap
             -> private stage removal
 ```
 
@@ -177,6 +178,15 @@ binding as a model, optimizer, checkpoint, Metal, CUDA, or Jetson operation.
   or a hard deadline during a call, protocol failure, EOF, signal, or crash
   terminates and reaps the process group, rejects partial output, relies on OS
   resource reclamation, and never claims user-space destructors ran.
+- The direct child remains unreaped while any process-group signal can still be
+  issued. This preserves the child PID as the process-group identity and
+  prevents a reused numeric PID/PGID from receiving a late TERM or KILL. The
+  terminalizer observes exit without consuming it, completes every required
+  group signal and bounded liveness check, and then reaps the exact child once.
+- Process-group liveness has `alive`, `gone`, and `indeterminate` outcomes.
+  Platform enumeration has a fixed work ceiling; an inspection error or ceiling
+  hit is not treated as absence and retains the private stage with a typed
+  cleanup failure.
 - A failed or terminated worker is never reused. A later attempt starts with a
   new private stage, process, protocol sequence, and session.
 - Application budget values and runtime telemetry remain generic payload or
@@ -256,11 +266,15 @@ trusted W2 projection
 between-call cancel or normal close
   -> shutdownSession -> sessionShutdown
   -> shutdownWorker -> workerShutdown
-  -> close + reap + remove private stage
+  -> close + observe without reap
+  -> final bounded group observation -> exact reap
+  -> remove private stage only when group disappearance was conclusive
 
 in-flight deadline / protocol failure / EOF / crash
-  -> terminate process group -> bounded escalation -> reap
-  -> reject partial result -> remove private stage
+  -> observe child without reap -> bounded process-group escalation
+  -> final bounded group observation -> exact child reap
+  -> reject partial result
+  -> remove private stage only when group disappearance was conclusive
   -> next attempt independently verifies and starts clean
 ```
 
@@ -270,7 +284,7 @@ in-flight deadline / protocol failure / EOF / crash
 |---|---|---|---|
 | Trusted worker projection | caller, borrowed by attempt creation | Selection through private-copy verification | Never mutated or treated as execution evidence |
 | Private staged bundle | W3 attempt | Before spawn through terminal cleanup | Removed after child reap; never exposed publicly |
-| Parent protocol descriptor and child PID/process group | W3 attempt | Successful spawn through reap | Closed/signaled/reaped exactly once by W3 |
+| Parent protocol descriptor and child PID/process group | W3 attempt | Successful spawn through final group signal and exact reap | Child remains unreaped until no later group signal is possible; closed/signaled/reaped exactly once by W3 |
 | Protocol sequence and bounded buffers | W3 attempt isolation | Ready through terminal frame/close | Never shared across attempts |
 | Worker session lease | generated worker, represented by W3 typed session | `sessionCreated` through graceful shutdown or process death | Graceful destroy exactly once; hard death relies on OS reclamation |
 | Domain policy/evidence | consuming package | Product-defined | Never stored or interpreted by W3 |
@@ -294,20 +308,23 @@ reclaimed.
 
 The terminalizer has one claim gate and two explicit modes. A graceful close
 first completes `shutdownSession` and `shutdownWorker`, closes the protocol
-descriptor, drains diagnostics, and waits for the worker's normal exit through
-the graceful absolute deadline. Only if that normal exit fails does it signal
-the process group with TERM, wait through the bounded escalation interval, and
-then use KILL. If the leader exits while a descendant keeps the process group
-alive, both cleanup modes apply the same TERM/grace/diagnostic-drain sequence
-to the remaining group before KILL. A hard terminalization (in-flight cancellation/deadline,
-protocol error, EOF, crash, or partial output) closes the protocol descriptor,
-signals TERM immediately, waits through the bounded escalation interval, and
-then uses KILL. Both modes force-reap the direct child, confirm that no
-process-group member is live, close diagnostics and wakeup descriptors, and
-remove private staging only after the process lifetime is proven ended. The
-mode split prevents a worker that has already acknowledged graceful teardown
-but has not yet called `exit(0)` from being turned into an artificial signal
-failure. Cleanup is explicit and does not depend on a destructor.
+descriptor, drains diagnostics, and observes the worker's normal exit without
+reaping it through the graceful absolute deadline. Only if that normal exit or
+group exit is incomplete does it signal the process group with TERM, wait
+through the bounded escalation interval, and then use KILL. A hard
+terminalization (in-flight cancellation/deadline, protocol error, EOF, crash,
+or partial output) closes the protocol descriptor and starts that escalation
+immediately. Both modes retain the unreaped leader PID as the process-group
+identity until every possible signal has been issued, use bounded tri-state
+group inspection, and reap the exact child only after the final bounded group
+observation, when no later group signal can be issued. A live or indeterminate
+final group observation retains staging; any indeterminate observation also
+prevents later disappearance from authorizing stage removal. Diagnostics and
+wakeup descriptors are closed independently, and private staging is removed
+only after both child reap and conclusive group disappearance. The mode split
+prevents a worker that has already acknowledged graceful teardown but has not
+yet called `exit(0)` from being turned into an artificial signal failure.
+Cleanup is explicit and does not depend on a destructor.
 
 Only one request may be in flight. Concurrent public calls are serialized or
 rejected by the attempt owner; they cannot produce duplicate request IDs or
@@ -322,7 +339,8 @@ fragmented reads/writes, segmented prefix decoding, every malformed/oversized
 frame, ready mismatch with zero session calls, generic requirements/capabilities
 transfer, same-projection binding provenance, one-in-flight actor ordering,
 monotonic deadline and cancellation wakeup, graceful exactly-once destruction,
-forced in-flight termination/reap, partial-output rejection, cleanup-failure
+forced in-flight termination/reap, no signal after child reap, bounded
+tri-state group inspection, partial-output rejection, cleanup-failure
 composition, application survival, and clean next-attempt recovery.
 
 Real worker acceptance must execute the same client on macOS and native Linux;

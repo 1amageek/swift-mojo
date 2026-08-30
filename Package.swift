@@ -69,7 +69,10 @@ let package = Package(
         .target(
             name: "MojoPOSIXSupport",
             dependencies: ["CMojoPOSIXSupport"],
-            exclude: ["DESIGN.md"]
+            exclude: ["DESIGN.md"],
+            swiftSettings: [
+                .enableExperimentalFeature("Extern"),
+            ]
         ),
         .target(
             name: "MojoRuntimeProtocolCore",

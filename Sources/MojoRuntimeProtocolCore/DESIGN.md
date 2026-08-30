@@ -2,7 +2,7 @@
 
 ## Purpose and Scope
 
-`MojoRuntimeProtocolCore` is the planned package-internal SwiftPM target that
+`MojoRuntimeProtocolCore` is the package-internal SwiftPM target that
 owns the direct-linked worker protocol's wire semantics. Its parent is
 [`DESIGN.md`](../../DESIGN.md); it has no child components and no public library
 product.

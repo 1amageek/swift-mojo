@@ -324,6 +324,72 @@ struct MojoPOSIXWorkerSupportTests {
   }
 
   @Test(.timeLimit(.minutes(1)))
+  func childObservationPreservesTheExactChildUntilExplicitReap() throws {
+    let worker = try MojoPOSIXWorkerSupport.spawn(
+      executablePath: "/bin/sh",
+      arguments: ["-c", "exit 7"]
+    )
+    defer { cleanup(worker) }
+
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(3))
+    var observedStatus: Int32?
+    while clock.now < deadline, observedStatus == nil {
+      switch try MojoPOSIXSupport.observeChild(processID: worker.processID) {
+      case .running:
+        Thread.sleep(forTimeInterval: 0.001)
+      case .exited(let status):
+        observedStatus = status
+      }
+    }
+    #expect(observedStatus == 7)
+
+    let waitStatus = try waitForReap(worker.processID)
+    #expect(MojoPOSIXSupport.exitStatus(from: waitStatus) == 7)
+    #expect(throws: MojoPOSIXSupportError.childAlreadyReaped) {
+      try MojoPOSIXSupport.observeChild(processID: worker.processID)
+    }
+  }
+
+  @Test(.timeLimit(.minutes(1)))
+  func processGroupInspectionIsBoundedAndKeepsUncertaintyTyped() throws {
+    let worker = try MojoPOSIXWorkerSupport.spawn(
+      executablePath: "/bin/sh",
+      arguments: ["-c", "printf ready >&3; while :; do :; done"]
+    )
+    defer { cleanup(worker) }
+
+    _ = try readExactly(
+      descriptor: worker.protocolDescriptor,
+      count: 5
+    )
+    #expect(
+      MojoPOSIXSupport.processGroupState(worker.processID) == .alive
+    )
+    #expect(
+      MojoPOSIXSupport.processGroupState(
+        worker.processID,
+        maximumEntries: 0
+      ) == .indeterminate
+    )
+
+    try MojoPOSIXSupport.signalProcessGroup(
+      processID: worker.processID,
+      signal: MojoPOSIXSupport.killSignal
+    )
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(3))
+    while clock.now < deadline,
+          MojoPOSIXSupport.processGroupState(worker.processID) != .gone {
+      Thread.sleep(forTimeInterval: 0.001)
+    }
+    #expect(
+      MojoPOSIXSupport.processGroupState(worker.processID) == .gone
+    )
+    _ = try waitForReap(worker.processID)
+  }
+
+  @Test(.timeLimit(.minutes(1)))
   func workerSpawnDeliversTerminationToAChildInstalledHandler() throws {
     let worker = try MojoPOSIXWorkerSupport.spawn(
       executablePath: "/bin/sh",

@@ -1,4 +1,3 @@
-import CMojoPOSIXSupport
 import Foundation
 
 package struct MojoPOSIXWorkerProcess: Sendable {

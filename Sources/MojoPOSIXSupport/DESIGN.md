@@ -11,7 +11,8 @@ design is [`DESIGN.md`](../../DESIGN.md); it has no child components.
 This target owns Swift string/environment marshalling, temporary C-string
 storage, `Data` collection for process output, fixed-width PID/descriptor values,
 socket-endpoint marshalling, bounded partial-I/O results, platform capability
-checks, wait-status decoding, and typed package-internal errors.
+checks, non-reaping child observation, bounded process-group inspection,
+wait-status decoding, and typed package-internal errors.
 
 It does not own process timeouts, cancellation policy, termination escalation,
 output-lock paths, artifact transactions, command exit policy, or user-facing
@@ -33,7 +34,8 @@ no public product or filesystem, PID, descriptor, or raw-frame contract.
 MojoCompilerCore / MojoArtifactCore / swift-mojo executable / MojoRuntimeWorker
     -> MojoPOSIXSupport typed package API
         -> owned C-string arrays and scoped buffers
-            -> CMojoPOSIXSupport fixed C ABI
+            -> target-internal @_extern(c) declarations
+                -> CMojoPOSIXSupport private fixed C ABI
 ```
 
 ## Contracts and Invariants
@@ -46,8 +48,15 @@ MojoCompilerCore / MojoArtifactCore / swift-mojo executable / MojoRuntimeWorker
   and deallocated exactly once after the call.
 - Output descriptors are read from offset zero until EOF; no partial read is
   treated as completion.
-- `waitNoHang` distinguishes running, reaped status, outside-owner reap, and
-  platform failure.
+- `observeChild` uses a non-reaping exact-child wait and distinguishes running,
+  normal exit, signal exit, outside-owner reap, and inspection failure.
+- `waitNoHang` remains the only exact-child reap operation and distinguishes
+  running, reaped status, outside-owner reap, and platform failure.
+- Process-group inspection returns `alive`, `gone`, or `indeterminate` within a
+  fixed platform work ceiling. `indeterminate` is never projected as absence;
+  the compatibility Boolean treats it as alive.
+- Group signaling is a separate primitive. Its caller must first establish
+  exact-child ownership with `observeChild` and must never signal after reap.
 - Spawn distinguishes adapter/setup failures from an executable launch failure
   so the process owner can preserve its public error contract.
 - Current spawn is only the compiler/linker/inspector tool-process contract. It
@@ -96,6 +105,12 @@ Swift worker I/O
   -> read or write a bounded byte region
   -> report exact progress or typed terminal status
 
+Swift worker termination inspection
+  -> observe exact child without reaping
+  -> inspect process group with a fixed work ceiling
+  -> return typed child and tri-state group observations
+  -> caller completes every signal before exact-child reap
+
 Swift cancellation wakeup
   -> set cancellation state under the caller-owned Mutex
   -> best-effort write one coalesced wakeup token
@@ -115,12 +130,16 @@ package-scoped operations; the adapter performs no implicit lifecycle action.
 
 Errors preserve the semantic operation and platform diagnostic. Calls may run
 concurrently because no adapter state is shared. The API is package-scoped so
-public Mojo and artifact contracts cannot acquire platform-specific types.
+public Mojo and artifact contracts cannot acquire platform-specific types. The
+public Clang header contains no declarations; only the private C header and the
+target-internal Swift C-linkage declarations can name the raw ABI.
 
 ## Verification and Change Impact
 
-`MojoPOSIXSupportTests` verifies host support, exclusive locking, status decoding,
-worker descriptor mapping, partial I/O, EOF, interruption, and timeout results.
+`MojoPOSIXSupportTests` verifies host support, exclusive locking, typed
+non-reaping child observation, bounded tri-state group inspection, status
+decoding, worker descriptor mapping, partial I/O, EOF, interruption, and timeout
+results.
 `MojoCompilerCoreTests` verifies the existing tool-process lifecycle.
 `MojoRuntimeWorker` acceptance verifies the distinct worker lifecycle on macOS
 and native Linux/aarch64. The build-plugin integration test verifies that the

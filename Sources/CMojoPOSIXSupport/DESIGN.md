@@ -14,6 +14,7 @@ must still compile this target and report an unsupported platform at runtime.
 
 This target owns the C representation of file descriptors, advisory locks,
 `socketpair`, `posix_spawn`, descriptor mapping, bounded poll/read/write,
+non-reaping exact-child observation, bounded process-group enumeration,
 process-group signaling, `waitpid`, seek/read, error text, and process exit. It
 normalizes platform declarations and constants into fixed-width C values.
 
@@ -35,7 +36,8 @@ reused the descriptor.
 
 ```text
 Swift package-scoped adapter
-    -> fixed-width C ABI
+    -> target-internal Swift C-linkage declarations
+        -> private fixed-width C ABI
         -> Darwin socket/spawn/fd-map, poll/I/O, flock, wait, signal, file operations
         -> glibc 2.34+ socket/spawn/fd-map, poll/I/O, closefrom, flock, wait, signal, file operations
         -> unsupported implementation returning ENOTSUP
@@ -66,9 +68,19 @@ Swift package-scoped adapter
 - `close` is attempted exactly once.
 - `wait_nohang` reaps exactly the supplied child PID and returns its opaque POSIX
   wait status without interpreting it.
+- Exact-child observation uses `waitid` with `WEXITED | WNOHANG | WNOWAIT`,
+  preserves the waitable child, and reports running, normal exit, signal exit,
+  or an errno-compatible failure without projecting `ECHILD` as termination.
 - Signaling targets the whole process group; an already absent group is success.
-- Linux liveness checks use `/proc` to distinguish live processes from zombies;
-  zombies are already terminated and do not keep cleanup waiting indefinitely.
+- Process-group inspection returns alive, gone, or indeterminate and examines no
+  more than a fixed number of process records. Linux `/proc` and Darwin process
+  enumeration both stop at that ceiling; enumeration failure or ceiling
+  exhaustion is indeterminate rather than gone.
+- Group membership inspection excludes zombies from live members while the
+  direct-child observation continues to preserve the waitable PID identity.
+- The public Clang header is intentionally declaration-free. Raw declarations
+  live only in the target-private header and are consumed through target-internal
+  Swift C-linkage declarations.
 - Unsupported implementations return `ENOTSUP` and never report a successful
   no-op.
 
@@ -86,6 +98,12 @@ spawn request
 wait request
   -> waitpid(child, WNOHANG)
   -> running, reaped status, or errno
+
+termination observation
+  -> waitid(exact child, WEXITED | WNOHANG | WNOWAIT)
+  -> running, normal exit, signal exit, or errno
+  -> bounded group-member enumeration
+  -> alive, gone, or indeterminate
 
 worker spawn request
   -> create socketpair and initialize worker-only file actions/attributes

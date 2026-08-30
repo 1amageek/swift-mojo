@@ -1,8 +1,8 @@
 # ADR-0015: Direct-linked persistent accelerator workers
 
-- Status: Accepted; W1 protocol/render, W2 bundle/verification, and W3 private
-  startup admission implemented; W3 public session/lifecycle and host execution
-  pending
+- Status: Accepted; W1 protocol/render, W2 bundle/verification, and W3 public
+  session/lifecycle implemented; actual macOS and native Linux host execution
+  receipts pending
 - Date: 2026-08-30
 - Scope: Generated attempt-owned executable workers for runtime-dependent Mojo
   bindings
@@ -262,9 +262,10 @@ spawn -> preflight -> create once -> invoke serially -> graceful shutdown
 W1 and W2 implement the internal `MojoRuntimeProtocolCore` target, its Swift
 codec/types and generated C endpoint, the worker renderer, two-object executable
 link, closed worker builder/verifier and CLI, and the read-only W2 projection.
-W3 must add the public `MojoRuntimeWorker` product and uses a distinct
+W3 provides the public `MojoRuntimeWorker` product and uses a distinct
 package-internal POSIX worker-spawn ABI that preserves a socketpair endpoint as
 child descriptor 3 without changing the compiler-tool spawn contract. W1/W2
 remain launcher-free; W3 hides staging, POSIX, raw framing, and process lifecycle
-behind generic typed operations. ADR-0013 fixtures remain valid evidence for
-that separate callable adapter but cannot satisfy any ADR-0015 worker gate.
+behind generic typed operations. Actual host receipts remain separate evidence
+for macOS and native Linux execution. ADR-0013 fixtures remain valid evidence
+for that separate callable adapter but cannot satisfy any ADR-0015 worker gate.

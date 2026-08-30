@@ -1,8 +1,65 @@
 import Foundation
 import MojoPOSIXSupport
 
+package struct MojoRuntimeWorkerProcessControl: Sendable {
+    package typealias ObserveChild = @Sendable (
+        MojoPOSIXSupport.ProcessID
+    ) throws -> MojoPOSIXChildObservation
+    package typealias InspectGroup = @Sendable (
+        MojoPOSIXSupport.ProcessID
+    ) -> MojoPOSIXProcessGroupState
+    package typealias SignalGroup = @Sendable (
+        MojoPOSIXSupport.ProcessID,
+        Int32
+    ) throws -> Void
+    package typealias ReapChild = @Sendable (
+        MojoPOSIXSupport.ProcessID
+    ) throws -> Int32?
+
+    package let observeChild: ObserveChild
+    package let inspectGroup: InspectGroup
+    package let signalGroup: SignalGroup
+    package let reapChild: ReapChild
+
+    package init(
+        observeChild: @escaping ObserveChild,
+        inspectGroup: @escaping InspectGroup,
+        signalGroup: @escaping SignalGroup,
+        reapChild: @escaping ReapChild
+    ) {
+        self.observeChild = observeChild
+        self.inspectGroup = inspectGroup
+        self.signalGroup = signalGroup
+        self.reapChild = reapChild
+    }
+
+    package static let live = MojoRuntimeWorkerProcessControl(
+        observeChild: { processID in
+            try MojoPOSIXSupport.observeChild(processID: processID)
+        },
+        inspectGroup: { processID in
+            MojoPOSIXSupport.processGroupState(processID)
+        },
+        signalGroup: { processID, signal in
+            try MojoPOSIXSupport.signalProcessGroup(
+                processID: processID,
+                signal: signal
+            )
+        },
+        reapChild: { processID in
+            try MojoPOSIXSupport.waitNoHang(processID: processID)
+        }
+    )
+}
+
+package struct MojoRuntimeWorkerProcessLifetimeOutcome: Sendable {
+    package let reaped: Bool
+    package let groupTerminationConfirmed: Bool
+    package let failures: [MojoRuntimeWorkerCleanupFailure]
+}
+
 package enum MojoRuntimeWorkerTerminalizer {
-    package enum Mode: Sendable {
+    package enum Mode: Equatable, Sendable {
         case graceful
         case hard
     }
@@ -14,7 +71,8 @@ package enum MojoRuntimeWorkerTerminalizer {
         mode: Mode,
         gracefulDeadline: ContinuousClock.Instant,
         terminationDeadline: ContinuousClock.Instant,
-        forcedCleanupDeadline: ContinuousClock.Instant
+        forcedCleanupDeadline: ContinuousClock.Instant,
+        processControl: MojoRuntimeWorkerProcessControl = .live
     ) -> [MojoRuntimeWorkerCleanupFailure] {
         // Closing the protocol endpoint before escalation prevents a blocked
         // child write from surviving the owner's terminal transition. The
@@ -30,46 +88,16 @@ package enum MojoRuntimeWorkerTerminalizer {
         }
         failures.append(contentsOf: gate.close(deadline: forcedCleanupDeadline))
 
-        let initiallyReaped: Bool
-        switch mode {
-        case .graceful:
-            drainDiagnostics(
-                descriptor: process.diagnosticDescriptor,
-                deadline: gracefulDeadline
-            )
-            let result = waitForReap(
-                processID: process.processID,
-                until: gracefulDeadline,
-                diagnosticDescriptor: process.diagnosticDescriptor,
-                requireSuccessfulExit: true
-            )
-            failures.append(contentsOf: result.failures)
-            initiallyReaped = result.reaped
-        case .hard:
-            initiallyReaped = false
-        }
-
-        var reaped = initiallyReaped
-        if !reaped {
-            let termination = terminateWithEscalation(
-                processID: process.processID,
-                terminationDeadline: terminationDeadline,
-                forcedCleanupDeadline: forcedCleanupDeadline,
-                diagnosticDescriptor: process.diagnosticDescriptor
-            )
-            failures.append(contentsOf: termination.failures)
-            reaped = termination.reaped
-        }
-
-        // A direct child can be reaped while descendants remain in its
-        // process group. The stage is removable only after this confirmation.
-        let groupGone = terminateRemainingGroupIfNeeded(
+        let lifetime = completeProcessLifetime(
             processID: process.processID,
+            mode: mode,
+            gracefulDeadline: gracefulDeadline,
             terminationDeadline: terminationDeadline,
             forcedCleanupDeadline: forcedCleanupDeadline,
             diagnosticDescriptor: process.diagnosticDescriptor,
-            failures: &failures
+            processControl: processControl
         )
+        failures.append(contentsOf: lifetime.failures)
 
         do {
             try MojoPOSIXWorkerSupport.closeDescriptor(
@@ -79,7 +107,8 @@ package enum MojoRuntimeWorkerTerminalizer {
             failures.append(.diagnosticsCloseFailed)
         }
 
-        let processLifetimeEnded = reaped && groupGone
+        let processLifetimeEnded =
+            lifetime.reaped && lifetime.groupTerminationConfirmed
         if let stageFailure = MojoRuntimeWorkerArtifactAdmission
             .finalizePrivateStage(
                 at: stageRoot,
@@ -94,7 +123,8 @@ package enum MojoRuntimeWorkerTerminalizer {
         process: MojoPOSIXWorkerProcess,
         stageRoot: URL?,
         terminationGracePeriod: Duration,
-        forcedCleanup: Duration
+        forcedCleanup: Duration,
+        processControl: MojoRuntimeWorkerProcessControl = .live
     ) -> [MojoRuntimeWorkerCleanupFailure] {
         let clock = ContinuousClock()
         let terminationDeadline = clock.now.advanced(
@@ -111,20 +141,16 @@ package enum MojoRuntimeWorkerTerminalizer {
         } catch {
             failures.append(.transportCloseFailed)
         }
-        let termination = terminateWithEscalation(
+        let lifetime = completeProcessLifetime(
             processID: process.processID,
-            terminationDeadline: terminationDeadline,
-            forcedCleanupDeadline: forcedDeadline,
-            diagnosticDescriptor: process.diagnosticDescriptor
-        )
-        failures.append(contentsOf: termination.failures)
-        let groupGone = terminateRemainingGroupIfNeeded(
-            processID: process.processID,
+            mode: .hard,
+            gracefulDeadline: clock.now,
             terminationDeadline: terminationDeadline,
             forcedCleanupDeadline: forcedDeadline,
             diagnosticDescriptor: process.diagnosticDescriptor,
-            failures: &failures
+            processControl: processControl
         )
+        failures.append(contentsOf: lifetime.failures)
         do {
             try MojoPOSIXWorkerSupport.closeDescriptor(
                 process.diagnosticDescriptor
@@ -136,47 +162,162 @@ package enum MojoRuntimeWorkerTerminalizer {
            let stageFailure = MojoRuntimeWorkerArtifactAdmission
             .finalizePrivateStage(
                 at: stageRoot,
-                processLifetimeEnded: termination.reaped && groupGone
+                processLifetimeEnded:
+                    lifetime.reaped && lifetime.groupTerminationConfirmed
             ) {
             failures.append(stageFailure)
         }
         return failures
     }
 
-    private struct WaitOutcome {
-        let reaped: Bool
+    private struct ChildInspection {
+        let identityReserved: Bool
         let failures: [MojoRuntimeWorkerCleanupFailure]
     }
 
-    private static func waitForReap(
+    private struct GroupInspection {
+        let state: MojoPOSIXProcessGroupState
+        let sawIndeterminate: Bool
+    }
+
+    package static func completeProcessLifetime(
+        processID: MojoPOSIXSupport.ProcessID,
+        mode: Mode,
+        gracefulDeadline: ContinuousClock.Instant,
+        terminationDeadline: ContinuousClock.Instant,
+        forcedCleanupDeadline: ContinuousClock.Instant,
+        diagnosticDescriptor: Int32? = nil,
+        processControl: MojoRuntimeWorkerProcessControl = .live
+    ) -> MojoRuntimeWorkerProcessLifetimeOutcome {
+        let observationDeadline: ContinuousClock.Instant
+        switch mode {
+        case .graceful:
+            observationDeadline = gracefulDeadline
+        case .hard:
+            observationDeadline = ContinuousClock().now
+        }
+        let childInspection = inspectChild(
+            processID: processID,
+            until: observationDeadline,
+            diagnosticDescriptor: diagnosticDescriptor,
+            requireSuccessfulExit: mode == .graceful,
+            processControl: processControl
+        )
+        var failures = childInspection.failures
+        guard childInspection.identityReserved else {
+            return MojoRuntimeWorkerProcessLifetimeOutcome(
+                reaped: false,
+                groupTerminationConfirmed: false,
+                failures: failures
+            )
+        }
+
+        var group = GroupInspection(
+            state: processControl.inspectGroup(processID),
+            sawIndeterminate: false
+        )
+        if group.state == .indeterminate {
+            group = GroupInspection(
+                state: .indeterminate,
+                sawIndeterminate: true
+            )
+        }
+
+        if group.state != .gone {
+            signalGroup(
+                processID: processID,
+                signal: MojoPOSIXSupport.terminationSignal,
+                processControl: processControl,
+                failures: &failures
+            )
+            group = waitForGroupExit(
+                processID: processID,
+                until: terminationDeadline,
+                diagnosticDescriptor: diagnosticDescriptor,
+                processControl: processControl,
+                priorIndeterminate: group.sawIndeterminate
+            )
+        }
+
+        if group.state != .gone {
+            signalGroup(
+                processID: processID,
+                signal: MojoPOSIXSupport.killSignal,
+                processControl: processControl,
+                failures: &failures
+            )
+            group = waitForGroupExit(
+                processID: processID,
+                until: forcedCleanupDeadline,
+                diagnosticDescriptor: diagnosticDescriptor,
+                processControl: processControl,
+                priorIndeterminate: group.sawIndeterminate
+            )
+        }
+
+        if group.sawIndeterminate {
+            appendUnique(.processInspectionFailed, to: &failures)
+        }
+        switch group.state {
+        case .alive:
+            appendUnique(.processGroupTerminationFailed, to: &failures)
+        case .indeterminate:
+            appendUnique(.processInspectionFailed, to: &failures)
+        case .gone:
+            break
+        }
+
+        // No process-group signal is permitted below this point. Reaping the
+        // exact child releases the PID/PGID identity retained by WNOWAIT.
+        let reaped = reapChild(
+            processID: processID,
+            until: forcedCleanupDeadline,
+            diagnosticDescriptor: diagnosticDescriptor,
+            processControl: processControl,
+            failures: &failures
+        )
+        return MojoRuntimeWorkerProcessLifetimeOutcome(
+            reaped: reaped,
+            groupTerminationConfirmed:
+                group.state == .gone && !group.sawIndeterminate,
+            failures: failures
+        )
+    }
+
+    private static func inspectChild(
         processID: MojoPOSIXSupport.ProcessID,
         until deadline: ContinuousClock.Instant,
-        diagnosticDescriptor: Int32? = nil,
-        requireSuccessfulExit: Bool = false
-    ) -> WaitOutcome {
+        diagnosticDescriptor: Int32?,
+        requireSuccessfulExit: Bool,
+        processControl: MojoRuntimeWorkerProcessControl
+    ) -> ChildInspection {
         let clock = ContinuousClock()
-        var failures: [MojoRuntimeWorkerCleanupFailure] = []
-        while clock.now < deadline {
+        repeat {
             do {
-                if let waitStatus = try MojoPOSIXSupport.waitNoHang(
-                    processID: processID
-                ) {
-                    if requireSuccessfulExit,
-                       MojoPOSIXSupport.exitStatus(from: waitStatus) != 0 {
-                        failures.append(.processTerminationFailed)
+                let observation = try processControl.observeChild(processID)
+                if case .exited(let status) = observation {
+                    let failures: [MojoRuntimeWorkerCleanupFailure]
+                    if requireSuccessfulExit && status != 0 {
+                        failures = [.processTerminationFailed]
+                    } else {
+                        failures = []
                     }
-                    return WaitOutcome(reaped: true, failures: failures)
+                    return ChildInspection(
+                        identityReserved: true,
+                        failures: failures
+                    )
                 }
-            } catch let error as MojoPOSIXSupportError {
-                if error == .childAlreadyReaped {
-                    failures.append(.processInspectionFailed)
-                    return WaitOutcome(reaped: true, failures: failures)
+                guard clock.now < deadline else {
+                    return ChildInspection(
+                        identityReserved: true,
+                        failures: []
+                    )
                 }
-                failures.append(.processReapFailed)
-                return WaitOutcome(reaped: false, failures: failures)
             } catch {
-                failures.append(.processReapFailed)
-                return WaitOutcome(reaped: false, failures: failures)
+                return ChildInspection(
+                    identityReserved: false,
+                    failures: [.processInspectionFailed]
+                )
             }
             if let diagnosticDescriptor {
                 drainDiagnostics(
@@ -185,163 +326,45 @@ package enum MojoRuntimeWorkerTerminalizer {
                 )
             }
             Thread.sleep(forTimeInterval: 0.001)
-        }
-        return WaitOutcome(reaped: false, failures: failures)
-    }
-
-    private static func terminateWithEscalation(
-        processID: MojoPOSIXSupport.ProcessID,
-        terminationDeadline: ContinuousClock.Instant,
-        forcedCleanupDeadline: ContinuousClock.Instant,
-        diagnosticDescriptor: Int32? = nil
-    ) -> WaitOutcome {
-        var failures: [MojoRuntimeWorkerCleanupFailure] = []
-        var reaped = false
-
-        // A crashed worker can remain as a zombie while its process group is
-        // still observable. Reap the direct child before signalling the
-        // group; otherwise an already-ended worker can be reported as a
-        // signal failure.
-        do {
-            if try MojoPOSIXSupport.waitNoHang(processID: processID) != nil {
-                return WaitOutcome(reaped: true, failures: failures)
-            }
-        } catch let error as MojoPOSIXSupportError {
-            if error == .childAlreadyReaped {
-                failures.append(.processInspectionFailed)
-                return WaitOutcome(reaped: true, failures: failures)
-            }
-            failures.append(.processReapFailed)
-        } catch {
-            failures.append(.processReapFailed)
-        }
-
-        if !MojoPOSIXSupport.processGroupIsAlive(processID) {
-            let result = waitForReap(
-                processID: processID,
-                until: forcedCleanupDeadline,
-                diagnosticDescriptor: diagnosticDescriptor
-            )
-            return result
-        }
-
-        do {
-            try MojoPOSIXSupport.signalProcessGroup(
-                processID: processID,
-                signal: MojoPOSIXSupport.terminationSignal
-            )
-        } catch {
-            if MojoPOSIXSupport.processGroupIsAlive(processID) {
-                failures.append(.processTerminationFailed)
-            }
-        }
-
-        let graceful = waitForReap(
-            processID: processID,
-            until: terminationDeadline,
-            diagnosticDescriptor: diagnosticDescriptor
+        } while clock.now < deadline
+        return ChildInspection(
+            identityReserved: true,
+            failures: []
         )
-        failures.append(contentsOf: graceful.failures)
-        reaped = graceful.reaped
-
-        if reaped && MojoPOSIXSupport.processGroupIsAlive(processID) {
-            waitForGroupExit(
-                processID: processID,
-                until: terminationDeadline,
-                diagnosticDescriptor: diagnosticDescriptor
-            )
-        }
-
-        if !reaped || MojoPOSIXSupport.processGroupIsAlive(processID) {
-            do {
-                try MojoPOSIXSupport.signalProcessGroup(
-                    processID: processID,
-                    signal: MojoPOSIXSupport.killSignal
-                )
-            } catch {
-                if MojoPOSIXSupport.processGroupIsAlive(processID) {
-                    failures.append(.processTerminationFailed)
-                }
-            }
-            if reaped {
-                waitForGroupExit(
-                    processID: processID,
-                    until: forcedCleanupDeadline,
-                    diagnosticDescriptor: diagnosticDescriptor
-                )
-            } else {
-                let forced = waitForReap(
-                    processID: processID,
-                    until: forcedCleanupDeadline,
-                    diagnosticDescriptor: diagnosticDescriptor
-                )
-                failures.append(contentsOf: forced.failures)
-                reaped = forced.reaped
-            }
-        }
-        if !reaped {
-            failures.append(.processReapFailed)
-        }
-        return WaitOutcome(reaped: reaped, failures: failures)
     }
 
-    private static func terminateRemainingGroupIfNeeded(
+    private static func signalGroup(
         processID: MojoPOSIXSupport.ProcessID,
-        terminationDeadline: ContinuousClock.Instant,
-        forcedCleanupDeadline: ContinuousClock.Instant,
-        diagnosticDescriptor: Int32,
+        signal: Int32,
+        processControl: MojoRuntimeWorkerProcessControl,
         failures: inout [MojoRuntimeWorkerCleanupFailure]
-    ) -> Bool {
-        guard MojoPOSIXSupport.processGroupIsAlive(processID) else {
-            return true
-        }
-
+    ) {
         do {
-            try MojoPOSIXSupport.signalProcessGroup(
-                processID: processID,
-                signal: MojoPOSIXSupport.terminationSignal
-            )
+            try processControl.signalGroup(processID, signal)
         } catch {
-            if MojoPOSIXSupport.processGroupIsAlive(processID) {
-                failures.append(.processGroupTerminationFailed)
-            }
+            appendUnique(.processGroupTerminationFailed, to: &failures)
         }
-        waitForGroupExit(
-            processID: processID,
-            until: terminationDeadline,
-            diagnosticDescriptor: diagnosticDescriptor
-        )
-
-        guard MojoPOSIXSupport.processGroupIsAlive(processID) else {
-            return true
-        }
-        do {
-            try MojoPOSIXSupport.signalProcessGroup(
-                processID: processID,
-                signal: MojoPOSIXSupport.killSignal
-            )
-        } catch {
-            if MojoPOSIXSupport.processGroupIsAlive(processID) {
-                failures.append(.processGroupTerminationFailed)
-            }
-        }
-        waitForGroupExit(
-            processID: processID,
-            until: forcedCleanupDeadline,
-            diagnosticDescriptor: diagnosticDescriptor
-        )
-        return !MojoPOSIXSupport.processGroupIsAlive(processID)
     }
 
     private static func waitForGroupExit(
         processID: MojoPOSIXSupport.ProcessID,
         until deadline: ContinuousClock.Instant,
-        diagnosticDescriptor: Int32?
-    ) {
+        diagnosticDescriptor: Int32?,
+        processControl: MojoRuntimeWorkerProcessControl,
+        priorIndeterminate: Bool
+    ) -> GroupInspection {
         let clock = ContinuousClock()
-        while clock.now < deadline {
-            guard MojoPOSIXSupport.processGroupIsAlive(processID) else {
-                return
+        var sawIndeterminate = priorIndeterminate
+        while true {
+            let state = processControl.inspectGroup(processID)
+            if state == .indeterminate {
+                sawIndeterminate = true
+            }
+            if state == .gone || clock.now >= deadline {
+                return GroupInspection(
+                    state: state,
+                    sawIndeterminate: sawIndeterminate
+                )
             }
             if let diagnosticDescriptor {
                 drainDiagnostics(
@@ -351,6 +374,54 @@ package enum MojoRuntimeWorkerTerminalizer {
             }
             Thread.sleep(forTimeInterval: 0.001)
         }
+    }
+
+    private static func reapChild(
+        processID: MojoPOSIXSupport.ProcessID,
+        until deadline: ContinuousClock.Instant,
+        diagnosticDescriptor: Int32?,
+        processControl: MojoRuntimeWorkerProcessControl,
+        failures: inout [MojoRuntimeWorkerCleanupFailure]
+    ) -> Bool {
+        let clock = ContinuousClock()
+        repeat {
+            do {
+                if try processControl.reapChild(processID) != nil {
+                    return true
+                }
+            } catch let error as MojoPOSIXSupportError {
+                if error == .childAlreadyReaped {
+                    appendUnique(.processInspectionFailed, to: &failures)
+                } else {
+                    appendUnique(.processReapFailed, to: &failures)
+                }
+                return false
+            } catch {
+                appendUnique(.processReapFailed, to: &failures)
+                return false
+            }
+            guard clock.now < deadline else {
+                appendUnique(.processReapFailed, to: &failures)
+                return false
+            }
+            if let diagnosticDescriptor {
+                drainDiagnostics(
+                    descriptor: diagnosticDescriptor,
+                    deadline: deadline
+                )
+            }
+            Thread.sleep(forTimeInterval: 0.001)
+        } while clock.now < deadline
+        appendUnique(.processReapFailed, to: &failures)
+        return false
+    }
+
+    private static func appendUnique(
+        _ failure: MojoRuntimeWorkerCleanupFailure,
+        to failures: inout [MojoRuntimeWorkerCleanupFailure]
+    ) {
+        guard !failures.contains(failure) else { return }
+        failures.append(failure)
     }
 
     private static func drainDiagnostics(

@@ -1,12 +1,17 @@
 #define _GNU_SOURCE 1
 
-#include "CMojoPOSIXSupport.h"
+#include "CMojoPOSIXSupportPrivate.h"
 
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/proc.h>
+#endif
 
 #if defined(__linux__) && defined(__GLIBC__)
 #include <dirent.h>
@@ -223,6 +228,9 @@ static int process_stat(
     }
     FILE *file = fopen(path, "r");
     if (file == NULL) {
+        if (errno == ENOENT || errno == ESRCH) {
+            return 1;
+        }
         return -1;
     }
     char record[4096];
@@ -251,29 +259,115 @@ static int process_state_is_live(char state) {
     return state != 'Z' && state != 'X' && state != 'x';
 }
 
-static int32_t linux_process_group_has_live_member(int32_t process_group) {
+static int32_t linux_process_group_state(
+    int32_t process_group,
+    int32_t maximum_entries
+) {
+    if (maximum_entries <= 0) {
+        return -1;
+    }
     DIR *directory = opendir("/proc");
     if (directory == NULL) {
         return -1;
     }
-    struct dirent *entry;
-    while ((entry = readdir(directory)) != NULL) {
+    int32_t inspected_entries = 0;
+    for (;;) {
+        errno = 0;
+        struct dirent *entry = readdir(directory);
+        if (entry == NULL) {
+            int saved_error = errno;
+            (void)closedir(directory);
+            return saved_error == 0 ? 0 : -1;
+        }
         char *end = NULL;
         long candidate = strtol(entry->d_name, &end, 10);
         if (end == entry->d_name || *end != '\0' || candidate <= 0
             || candidate > INT32_MAX) {
             continue;
         }
+        if (inspected_entries >= maximum_entries) {
+            (void)closedir(directory);
+            return -1;
+        }
+        inspected_entries += 1;
         int32_t observed_group = 0;
         char state = 0;
-        if (process_stat((int32_t)candidate, &observed_group, &state) == 0
-            && observed_group == process_group
-            && process_state_is_live(state)) {
+        int stat_result = process_stat(
+            (int32_t)candidate,
+            &observed_group,
+            &state
+        );
+        if (stat_result < 0) {
             (void)closedir(directory);
-            return 1;
+            return -1;
+        }
+        if (stat_result == 0 && observed_group == process_group) {
+            if (process_state_is_live(state)) {
+                (void)closedir(directory);
+                return 1;
+            }
         }
     }
-    (void)closedir(directory);
+}
+#endif
+
+#if defined(__APPLE__)
+static int32_t darwin_process_group_state(
+    int32_t process_group,
+    int32_t maximum_entries
+) {
+    if (maximum_entries <= 0
+        || maximum_entries >= INT_MAX / (int32_t)sizeof(pid_t)) {
+        return -1;
+    }
+    int32_t capacity = maximum_entries + 1;
+    size_t byte_capacity = (size_t)capacity * sizeof(pid_t);
+    pid_t *processes = calloc((size_t)capacity, sizeof(pid_t));
+    if (processes == NULL) {
+        return -1;
+    }
+    int byte_count = proc_listpids(
+        PROC_PGRP_ONLY,
+        (uint32_t)process_group,
+        processes,
+        (int)byte_capacity
+    );
+    if (byte_count < 0
+        || (size_t)byte_count % sizeof(pid_t) != 0
+        || (size_t)byte_count >= byte_capacity) {
+        free(processes);
+        return -1;
+    }
+    int32_t process_count = (int32_t)((size_t)byte_count / sizeof(pid_t));
+    for (int32_t index = 0; index < process_count; index += 1) {
+        pid_t candidate = processes[index];
+        if (candidate <= 0) {
+            continue;
+        }
+        struct proc_bsdinfo information;
+        memset(&information, 0, sizeof(information));
+        errno = 0;
+        int information_count = proc_pidinfo(
+            candidate,
+            PROC_PIDTBSDINFO,
+            0,
+            &information,
+            (int)sizeof(information)
+        );
+        if (information_count == (int)sizeof(information)) {
+            if (information.pbi_status != SZOMB) {
+                free(processes);
+                return 1;
+            }
+            continue;
+        }
+        if (errno == ESRCH || errno == ENOENT) {
+            continue;
+        }
+        free(processes);
+        return -1;
+    }
+    free(processes);
     return 0;
 }
 #endif
@@ -1078,6 +1172,53 @@ int32_t swift_mojo_posix_wait_nohang(
 #endif
 }
 
+int32_t swift_mojo_posix_observe_child_nohang(
+    int32_t process_id,
+    int32_t *exit_status,
+    int32_t *error_code
+) {
+#if SWIFT_MOJO_HAS_POSIX
+    if (exit_status == NULL) {
+        set_error(error_code, EINVAL);
+        return -1;
+    }
+    siginfo_t information;
+    memset(&information, 0, sizeof(information));
+    int result;
+    do {
+        result = waitid(
+            P_PID,
+            (id_t)process_id,
+            &information,
+            WEXITED | WNOHANG | WNOWAIT
+        );
+    } while (result != 0 && errno == EINTR);
+    if (result != 0) {
+        set_error(error_code, errno);
+        return -1;
+    }
+    if (information.si_pid == 0) {
+        return 0;
+    }
+    if (information.si_code == CLD_EXITED) {
+        *exit_status = (int32_t)information.si_status;
+        return 1;
+    }
+    if (information.si_code == CLD_KILLED
+        || information.si_code == CLD_DUMPED) {
+        *exit_status = 128 + (int32_t)information.si_status;
+        return 1;
+    }
+    set_error(error_code, EPROTO);
+    return -1;
+#else
+    (void)process_id;
+    (void)exit_status;
+    set_error(error_code, ENOTSUP);
+    return -1;
+#endif
+}
+
 int32_t swift_mojo_posix_signal_group(
     int32_t process_id,
     int32_t signal_number,
@@ -1098,23 +1239,34 @@ int32_t swift_mojo_posix_signal_group(
 #endif
 }
 
-int32_t swift_mojo_posix_process_group_alive(int32_t process_id) {
+int32_t swift_mojo_posix_process_group_state(
+    int32_t process_id,
+    int32_t maximum_entries
+) {
 #if SWIFT_MOJO_HAS_POSIX
+    if (process_id <= 0 || maximum_entries <= 0) {
+        return -1;
+    }
     errno = 0;
-    int exists = kill(-(pid_t)process_id, 0) == 0 || errno == EPERM;
-    if (!exists) {
-        return 0;
+    if (kill(-(pid_t)process_id, 0) != 0) {
+        if (errno == ESRCH) {
+            return 0;
+        }
+        if (errno != EPERM) {
+            return -1;
+        }
     }
-#if defined(__linux__) && defined(__GLIBC__)
-    int32_t live_member = linux_process_group_has_live_member(process_id);
-    if (live_member >= 0) {
-        return live_member;
-    }
-#endif
+#if defined(__APPLE__)
+    return darwin_process_group_state(process_id, maximum_entries);
+#elif defined(__linux__) && defined(__GLIBC__)
+    return linux_process_group_state(process_id, maximum_entries);
+#else
     return 1;
+#endif
 #else
     (void)process_id;
-    return 0;
+    (void)maximum_entries;
+    return -1;
 #endif
 }
 
