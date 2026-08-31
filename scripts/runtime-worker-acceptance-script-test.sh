@@ -47,11 +47,13 @@ fi
 
 fake_bin="$TEST_ROOT/bin"
 fake_rm_bin="$TEST_ROOT/rm-bin"
+fake_slow_rm_bin="$TEST_ROOT/slow-rm-bin"
 fake_modular_home="$TEST_ROOT/modular"
 fake_build_bin="$TEST_ROOT/build-bin"
 mkdir -p \
     "$fake_bin" \
     "$fake_rm_bin" \
+    "$fake_slow_rm_bin" \
     "$fake_modular_home/lib" \
     "$fake_build_bin"
 
@@ -78,6 +80,7 @@ set -eu
 
 product=''
 package_path=''
+scratch_path=''
 show_bin_path=0
 previous=''
 for argument in "$@"; do
@@ -85,6 +88,8 @@ for argument in "$@"; do
         product="$argument"
     elif [ "$previous" = '--package-path' ]; then
         package_path="$argument"
+    elif [ "$previous" = '--scratch-path' ]; then
+        scratch_path="$argument"
     fi
     if [ "$argument" = '--show-bin-path' ]; then
         show_bin_path=1
@@ -99,8 +104,9 @@ case "$package_path" in
         ;;
 esac
 repository_root="${SWIFT_MOJO_REPOSITORY_ROOT:-}"
-printf 'fake-swift phase=%s product=%s package=%s repository=%s\n' \
-    "$phase" "$product" "$package_path" "$repository_root" >&2
+printf 'fake-swift phase=%s product=%s package=%s repository=%s scratch=%s\n' \
+    "$phase" "$product" "$package_path" "$repository_root" \
+    "$scratch_path" >&2
 
 if [ "$phase" = 'verified-source-v1' ]; then
     case "$package_path" in
@@ -190,12 +196,15 @@ SCRIPT
 exit 0
 SCRIPT
             ;;
-        runtime-worker-acceptance)
+        runtime-worker-acceptance|runtime-worker-acceptance-source)
             cat > "$executable" <<'SCRIPT'
 #!/bin/sh
 set -eu
 
 if [ "${1:-}" = '--execute-verified-source-at' ]; then
+    if [ "${FAKE_SOURCE_RUNNER_DELAY_SECONDS:-0}" != '0' ]; then
+        /bin/sleep "$FAKE_SOURCE_RUNNER_DELAY_SECONDS"
+    fi
     source_root="$2"
     if [ "${3:-}" != '--destination' ] \
         || [ "${5:-}" != '--live-git-root' ] \
@@ -312,6 +321,7 @@ if [ "$mode" = 'leak' ]; then
     /usr/bin/perl -MPOSIX -e \
         "POSIX::setsid() or die \$!; exec '/bin/sh', \$ARGV[0] or die \$!;" \
         "$stage/sleeper.sh" >/dev/null 2>&1 &
+    printf '%s\n' "$!" > "$tmpdir/fake-worker.pid"
     /bin/sleep 1
 fi
 exit 0
@@ -351,7 +361,26 @@ fi
 exec /bin/rm "$@"
 EOF
 
-/bin/chmod +x "$fake_bin/mojo" "$fake_bin/swift" "$fake_rm_bin/rm"
+cat > "$fake_slow_rm_bin/rm" <<'EOF'
+#!/bin/sh
+set -eu
+delay_cleanup=0
+for argument in "$@"; do
+    case "$argument" in
+        */swift-mojo-rt4b.*) delay_cleanup=1 ;;
+    esac
+done
+if [ "$delay_cleanup" -eq 1 ]; then
+    /bin/sleep 3
+fi
+exec /bin/rm "$@"
+EOF
+
+/bin/chmod +x \
+    "$fake_bin/mojo" \
+    "$fake_bin/swift" \
+    "$fake_rm_bin/rm" \
+    "$fake_slow_rm_bin/rm"
 
 assert_no_worker_process() {
     local case_tmpdir="$1"
@@ -375,19 +404,38 @@ assert_no_acceptance_temp() {
     done
 }
 
+assert_no_acceptance_process() {
+    local case_tmpdir="$1"
+    local process_listing="$TEST_ROOT/acceptance-process-listing.txt"
+    /bin/ps -axo pid=,pgid=,command= > "$process_listing"
+    if /usr/bin/grep -F \
+        "$case_tmpdir/swift-mojo-rt4b." \
+        "$process_listing" >/dev/null; then
+        echo "acceptance process survived outer termination for $case_tmpdir" >&2
+        /usr/bin/grep -F \
+            "$case_tmpdir/swift-mojo-rt4b." \
+            "$process_listing" >&2
+        exit 1
+    fi
+}
+
 run_acceptance() {
     local case_tmpdir="$1"
     local case_path="$2"
     local output_path="$3"
     local source_digest_mismatch="${4:-0}"
     local controller_mode="${5:-clean}"
+    local direct_signal_delay_seconds="${6:-0}"
+    local source_runner_delay_seconds="${7:-0}"
+    local direct_signal_name="${8:-TERM}"
     mkdir -p "$case_tmpdir"
-    "$COMMAND_TIMEOUT" 40 -- /usr/bin/env \
+    local acceptance_command=(/usr/bin/env \
         "MODULAR_HOME=$fake_modular_home" \
         "SWIFT_MOJO_EXECUTABLE=$fake_bin/mojo" \
         "FAKE_BUILD_BIN=$fake_build_bin" \
         "FAKE_SOURCE_DIGEST_MISMATCH=$source_digest_mismatch" \
         "FAKE_CONTROLLER_MODE=$controller_mode" \
+        "FAKE_SOURCE_RUNNER_DELAY_SECONDS=$source_runner_delay_seconds" \
         "TMPDIR=$case_tmpdir" \
         "PATH=$case_path" \
         "RT4_TIMEOUT_SECONDS=5" \
@@ -400,8 +448,21 @@ run_acceptance() {
         --target-triple test-apple-macosx-target \
         --target-cpu test-cpu \
         --target-accelerator test-accelerator \
-        --runtime-library "$fake_modular_home/lib/libAsyncRTRuntimeGlobals.dylib" \
-        > "$output_path" 2>&1
+        --runtime-library "$fake_modular_home/lib/libAsyncRTRuntimeGlobals.dylib")
+    if [[ "$direct_signal_delay_seconds" != 0 ]]; then
+        /usr/bin/perl -e '
+            $SIG{TERM} = "DEFAULT";
+            $SIG{INT} = "DEFAULT";
+            $SIG{HUP} = "DEFAULT";
+            exec { $ARGV[0] } @ARGV or die "exec: $!\n";
+        ' "${acceptance_command[@]}" > "$output_path" 2>&1 &
+        local acceptance_pid=$!
+        /bin/sleep "$direct_signal_delay_seconds"
+        /bin/kill -s "$direct_signal_name" "$acceptance_pid"
+        wait "$acceptance_pid"
+        return $?
+    fi
+    "${acceptance_command[@]}" > "$output_path" 2>&1
 }
 
 assert_verified_inputs() {
@@ -424,16 +485,21 @@ assert_verified_inputs() {
     local consumer_root="$acceptance_root/Fixtures/Consumer"
     local model_root="$acceptance_root/Fixtures/RuntimeWorkerAcceptanceModel"
     local bindings_source="$model_root/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
+    local bootstrap_build="$work_dir/acceptance-bootstrap-build"
+    local verified_build="$work_dir/verified-build"
     local expected_digest="$(printf '%064d' 0)"
 
     /usr/bin/grep -Fq \
-        "fake-swift phase=verified-source-v1 product=runtime-worker-acceptance package=$acceptance_root repository=$production_root" \
+        "fake-swift phase=bootstrap product=runtime-worker-acceptance-source package=$REPOSITORY_ROOT/Acceptance/RuntimeWorker repository=$REPOSITORY_ROOT scratch=$bootstrap_build" \
         "$output_path"
     /usr/bin/grep -Fq \
-        "fake-swift phase=verified-source-v1 product=swift-mojo package=$production_root repository=" \
+        "fake-swift phase=verified-source-v1 product=runtime-worker-acceptance package=$acceptance_root repository=$production_root scratch=$verified_build" \
         "$output_path"
     /usr/bin/grep -Fq \
-        "fake-swift phase=verified-source-v1 product=RuntimeWorkerAcceptanceConsumer package=$consumer_root repository=$production_root" \
+        "fake-swift phase=verified-source-v1 product=swift-mojo package=$production_root repository= scratch=$verified_build" \
+        "$output_path"
+    /usr/bin/grep -Fq \
+        "fake-swift phase=verified-source-v1 product=RuntimeWorkerAcceptanceConsumer package=$consumer_root repository=$production_root scratch=$verified_build" \
         "$output_path"
     /usr/bin/grep -Fq \
         "fake-authoring package=$model_root source-root=$model_root source=$bindings_source repository=$production_root" \
@@ -447,6 +513,12 @@ assert_verified_inputs() {
     if /usr/bin/grep -F 'phase=verified-source-v1' "$output_path" | \
         /usr/bin/grep -Fq "package=$REPOSITORY_ROOT"; then
         echo "verified phase read a live-repository package path" >&2
+        /bin/cat "$output_path" >&2
+        exit 1
+    fi
+    if /usr/bin/grep -F 'phase=verified-source-v1' "$output_path" | \
+        /usr/bin/grep -Fq "scratch=$bootstrap_build"; then
+        echo "verified phase reused the live bootstrap scratch" >&2
         /bin/cat "$output_path" >&2
         exit 1
     fi
@@ -469,6 +541,66 @@ fi
 assert_verified_inputs "$verified_output" "$verified_tmpdir"
 assert_no_worker_process "$verified_tmpdir"
 assert_no_acceptance_temp "$verified_tmpdir"
+
+aborted_tmpdir="$TEST_ROOT/aborted-tmp"
+aborted_output="$TEST_ROOT/aborted-output.log"
+aborted_started_seconds=$SECONDS
+set +e
+run_acceptance \
+    "$aborted_tmpdir" \
+    "$fake_slow_rm_bin:$fake_bin:/usr/bin:/bin" \
+    "$aborted_output" \
+    0 \
+    clean \
+    1 \
+    30
+exit_status=$?
+set -e
+if ((exit_status != 143)); then
+    echo "expected direct TERM to exit 143, got $exit_status" >&2
+    /bin/cat "$aborted_output" >&2
+    exit 1
+fi
+if ((SECONDS - aborted_started_seconds < 3)); then
+    echo "acceptance supervisor returned before slow cleanup completed" >&2
+    /bin/cat "$aborted_output" >&2
+    exit 1
+fi
+if /usr/bin/grep -Eq \
+    '^(fake-snapshot-destination=|fake-swift phase=verified-source-v1)' \
+    "$aborted_output"; then
+    echo "acceptance started verified work after cancellation" >&2
+    /bin/cat "$aborted_output" >&2
+    exit 1
+fi
+assert_no_acceptance_process "$aborted_tmpdir"
+assert_no_acceptance_temp "$aborted_tmpdir"
+
+for signal_case in "INT:130" "HUP:129"; do
+    signal_name="${signal_case%%:*}"
+    expected_signal_status="${signal_case##*:}"
+    signal_tmpdir="$TEST_ROOT/signal-$signal_name-tmp"
+    signal_output="$TEST_ROOT/signal-$signal_name-output.log"
+    set +e
+    run_acceptance \
+        "$signal_tmpdir" \
+        "$fake_bin:/usr/bin:/bin" \
+        "$signal_output" \
+        0 \
+        clean \
+        1 \
+        30 \
+        "$signal_name"
+    exit_status=$?
+    set -e
+    if ((exit_status != expected_signal_status)); then
+        echo "expected direct $signal_name to exit $expected_signal_status, got $exit_status" >&2
+        /bin/cat "$signal_output" >&2
+        exit 1
+    fi
+    assert_no_acceptance_process "$signal_tmpdir"
+    assert_no_acceptance_temp "$signal_tmpdir"
+done
 
 source_mismatch_tmpdir="$TEST_ROOT/source-mismatch-tmp"
 source_mismatch_output="$TEST_ROOT/source-mismatch-output.log"
@@ -508,8 +640,8 @@ run_acceptance \
 exit_status=$?
 set -e
 
-if ((exit_status != 1)); then
-    echo "expected cleanup failure to exit 1, got $exit_status" >&2
+if ((exit_status != 70)); then
+    echo "expected cleanup failure to exit 70, got $exit_status" >&2
     /bin/cat "$rm_failure_output" >&2
     exit 1
 fi
@@ -536,12 +668,12 @@ run_acceptance \
 exit_status=$?
 set -e
 
-if ((exit_status != 1)); then
-    echo "expected recovered worker leak to exit 1, got $exit_status" >&2
+if ((exit_status != 70)); then
+    echo "expected preserved worker leak to exit 70, got $exit_status" >&2
     /bin/cat "$leak_output" >&2
     exit 1
 fi
-if ! /usr/bin/grep -q 'acceptance cleanup observed leaked worker process group' \
+if ! /usr/bin/grep -q 'acceptance cleanup preserved unowned worker process' \
     "$leak_output"; then
     echo 'worker process leak was not reported' >&2
     /bin/cat "$leak_output" >&2
@@ -553,7 +685,39 @@ if ! /usr/bin/grep -q 'acceptance cleanup observed leaked worker stage' \
     /bin/cat "$leak_output" >&2
     exit 1
 fi
+if ! /usr/bin/grep -q \
+    'acceptance supervisor preserved work directory after losing process authority' \
+    "$leak_output"; then
+    echo 'unowned worker work directory was not preserved' >&2
+    /bin/cat "$leak_output" >&2
+    exit 1
+fi
+leaked_worker_pid_file="$(
+    /usr/bin/find "$leak_tmpdir" -name fake-worker.pid -type f -print -quit
+)"
+if [[ -z "$leaked_worker_pid_file" ]]; then
+    echo "fake leaked worker PID file is missing" >&2
+    exit 1
+fi
+leaked_worker_pid="$(/bin/cat "$leaked_worker_pid_file")"
+if [[ ! "$leaked_worker_pid" =~ ^[1-9][0-9]*$ ]]; then
+    echo "fake leaked worker PID is invalid: $leaked_worker_pid" >&2
+    exit 1
+fi
+leaked_worker_command="$(
+    /bin/ps -p "$leaked_worker_pid" -o command= 2>/dev/null || true
+)"
+if [[ "$leaked_worker_command" != *"$leak_tmpdir/"*"/swift-mojo-worker-"* ]]; then
+    echo "fake leaked worker identity changed before test cleanup" >&2
+    exit 1
+fi
+/bin/kill -KILL "-$leaked_worker_pid"
+for _ in 1 2 3 4 5; do
+    /bin/kill -0 "$leaked_worker_pid" 2>/dev/null || break
+    /bin/sleep 1
+done
 assert_no_worker_process "$leak_tmpdir"
-assert_no_acceptance_temp "$leak_tmpdir"
+/usr/bin/find "$leak_tmpdir" -type d -exec /bin/chmod u+w {} +
+/bin/rm -rf -- "$leak_tmpdir"
 
 echo 'runtime-worker-acceptance verified-source, failure, and cleanup paths passed'

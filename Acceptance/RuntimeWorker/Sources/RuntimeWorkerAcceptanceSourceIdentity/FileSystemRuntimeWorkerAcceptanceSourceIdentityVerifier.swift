@@ -1,4 +1,10 @@
-import Crypto
+#if canImport(CryptoKit)
+    import CryptoKit
+#elseif canImport(Crypto)
+    import Crypto
+#else
+    #error("Runtime worker acceptance source identity requires CryptoKit or Crypto")
+#endif
 import Foundation
 
 public struct FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier:
@@ -21,6 +27,8 @@ public struct FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier:
         "Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel",
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance",
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceRunner",
+        "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity",
+        "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner",
     ]
 
     public init() {}

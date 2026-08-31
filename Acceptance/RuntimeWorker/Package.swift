@@ -21,6 +21,10 @@ let package = Package(
             name: "runtime-worker-acceptance",
             targets: ["RuntimeWorkerAcceptanceRunner"]
         ),
+        .executable(
+            name: "runtime-worker-acceptance-source",
+            targets: ["RuntimeWorkerAcceptanceSourceRunner"]
+        ),
     ],
     dependencies: [
         .package(path: swiftMojoPackagePath),
@@ -35,17 +39,40 @@ let package = Package(
             dependencies: [
                 .product(name: "MojoRuntime", package: "swift-mojo"),
                 .product(name: "MojoRuntimeWorker", package: "swift-mojo"),
-                .product(name: "Crypto", package: "swift-crypto"),
+                "RuntimeWorkerAcceptanceSourceIdentity",
+            ]
+        ),
+        .target(
+            name: "RuntimeWorkerAcceptanceSourceIdentity",
+            dependencies: [
+                .product(
+                    name: "Crypto",
+                    package: "swift-crypto",
+                    condition: .when(platforms: [.linux])
+                ),
             ],
-            exclude: ["SourceIdentity/DESIGN.md"]
+            path: "Sources/RuntimeWorkerAcceptanceSourceIdentity",
+            exclude: ["DESIGN.md"]
         ),
         .executableTarget(
             name: "RuntimeWorkerAcceptanceRunner",
-            dependencies: ["RuntimeWorkerAcceptance"]
+            dependencies: [
+                "RuntimeWorkerAcceptance",
+                "RuntimeWorkerAcceptanceSourceIdentity",
+            ]
+        ),
+        .executableTarget(
+            name: "RuntimeWorkerAcceptanceSourceRunner",
+            dependencies: ["RuntimeWorkerAcceptanceSourceIdentity"],
+            path: "Sources/RuntimeWorkerAcceptanceSourceRunner",
+            exclude: ["DESIGN.md"]
         ),
         .testTarget(
             name: "RuntimeWorkerAcceptanceTests",
-            dependencies: ["RuntimeWorkerAcceptance"]
+            dependencies: [
+                "RuntimeWorkerAcceptance",
+                "RuntimeWorkerAcceptanceSourceIdentity",
+            ]
         ),
     ]
 )

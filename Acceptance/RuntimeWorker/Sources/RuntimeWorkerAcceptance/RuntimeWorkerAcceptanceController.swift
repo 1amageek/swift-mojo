@@ -1,6 +1,7 @@
 import Foundation
 import MojoRuntime
 import MojoRuntimeWorker
+import RuntimeWorkerAcceptanceSourceIdentity
 
 #if canImport(Darwin)
 import Darwin
@@ -11,12 +12,12 @@ import Glibc
 /// Runs the host-side RT4.B acceptance flow without producing a receipt.
 ///
 /// The controller is intentionally the only owner of pass/fail process and
-/// temporary-directory observations. The shell harness may perform
-/// fail-closed emergency cleanup after an outer abort, but it produces no
-/// acceptance evidence. The child consumer remains limited to the public
-/// MojoRuntime and MojoRuntimeWorker products.
+/// temporary-directory observations. A worker process without its runtime
+/// owner is reported and preserved for fail-closed investigation; numeric PIDs
+/// discovered from a process-list snapshot never grant signal authority. The
+/// child consumer remains limited to the public MojoRuntime and
+/// MojoRuntimeWorker products.
 public struct RuntimeWorkerAcceptanceController: Sendable {
-    private static let cleanupSignalWait: Duration = .seconds(1)
     private static let processInspectionTimeout: Duration = .seconds(2)
     private static let maximumCapturedOutputBytes = 4 * 1024 * 1024
     private static let processPollInterval: Duration = .milliseconds(10)
@@ -422,8 +423,6 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
     }
 
     private struct WorkerProcess: Sendable {
-        let processID: Int32
-        let processGroupID: Int32
         let commandLine: String
     }
 
@@ -882,34 +881,15 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
         baselineStageEntries: [String],
         primaryDescription: String
     ) async throws {
-        var processes = try await Self.workerProcesses(in: directory)
-        let processGroupIDs = Set(processes.map(\.processGroupID))
-            .filter { $0 > 0 }
-            .sorted()
-        Self.signal(processGroupIDs, with: SIGTERM)
-        processes = try await Self.waitForWorkerProcessesGone(
-            in: directory,
-            within: Self.cleanupSignalWait
-        )
-
-        if !processes.isEmpty {
-            let remainingGroupIDs = Set(processes.map(\.processGroupID))
-                .filter { $0 > 0 }
-                .sorted()
-            Self.signal(remainingGroupIDs, with: SIGKILL)
-            processes = try await Self.waitForWorkerProcessesGone(
-                in: directory,
-                within: Self.cleanupSignalWait
-            )
-        }
-
+        let processes = try await Self.workerProcesses(in: directory)
         guard processes.isEmpty else {
             let descriptions = processes.map(\.commandLine).joined(
                 separator: " | "
             )
             throw RuntimeWorkerAcceptanceRunnerError.cleanupFailed(
-                "primary failure: \(primaryDescription); remaining worker "
-                    + "processes: \(descriptions)"
+                "primary failure: \(primaryDescription); unowned worker "
+                    + "processes were preserved without inferred signal "
+                    + "authority: \(descriptions)"
             )
         }
 
@@ -941,38 +921,6 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
                     + details
             )
         }
-    }
-
-    private static func waitForWorkerProcessesGone(
-        in directory: URL,
-        within duration: Duration
-    ) async throws -> [WorkerProcess] {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: duration)
-        var processes = try await Self.workerProcesses(in: directory)
-        while !processes.isEmpty && clock.now < deadline {
-            do {
-                try await Task.sleep(for: .milliseconds(25))
-            } catch {
-                break
-            }
-            processes = try await Self.workerProcesses(in: directory)
-        }
-        return processes
-    }
-
-    private static func signal(
-        _ processGroupIDs: [Int32],
-        with signal: Int32
-    ) {
-        #if canImport(Darwin) || canImport(Glibc)
-        for processGroupID in processGroupIDs {
-            _ = kill(-processGroupID, signal)
-        }
-        #else
-        _ = processGroupIDs
-        _ = signal
-        #endif
     }
 
     static func inspectWorkerProcessLinesForTesting(
@@ -1054,8 +1002,6 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
             }
             processes.append(
                 WorkerProcess(
-                    processID: processID,
-                    processGroupID: processGroupID,
                     commandLine: String(fields[2])
                 )
             )

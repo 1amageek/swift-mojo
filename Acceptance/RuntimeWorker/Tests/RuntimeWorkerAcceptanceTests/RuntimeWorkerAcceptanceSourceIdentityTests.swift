@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import RuntimeWorkerAcceptance
+@testable import RuntimeWorkerAcceptanceSourceIdentity
 
 @Suite("Runtime worker acceptance source identity")
 struct RuntimeWorkerAcceptanceSourceIdentityTests {
@@ -37,7 +38,7 @@ struct RuntimeWorkerAcceptanceSourceIdentityTests {
         #expect(first.files.map(\.path) == expectedInventory)
         #expect(
             first.digest
-                == "081986c1cb1628fd7f5c3e7bfc19af28f09af2c5553cccb1d1659434a859941a"
+                == "8f3cb8663014a4e3bc83de36d970f3cc6a4305054d9331e77129fbff22d1b4c7"
         )
     }
 
@@ -286,7 +287,7 @@ struct RuntimeWorkerAcceptanceSourceIdentityTests {
             .deletingLastPathComponent()
         let identity = try verifier.sourceIdentity(at: repositoryRoot)
 
-        #expect(identity.inventory.count == 30)
+        #expect(identity.inventory.count == 33)
         #expect(identity.files.count == identity.inventory.count)
         #expect(identity.totalByteCount > 0)
         #expect(identity.digest.utf8.count == 64)

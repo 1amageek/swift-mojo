@@ -3,6 +3,7 @@ import Synchronization
 import Testing
 
 @testable import RuntimeWorkerAcceptance
+@testable import RuntimeWorkerAcceptanceSourceIdentity
 
 @Suite("Runtime worker acceptance source snapshot")
 struct RuntimeWorkerAcceptanceSourceSnapshotTests {

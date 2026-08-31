@@ -11,7 +11,7 @@ import Glibc
 @Suite("Runtime worker acceptance cleanup")
 struct RuntimeWorkerAcceptanceCleanupTests {
     @Test(.timeLimit(.minutes(1)))
-    func cleanupKillsWorkerGroupAndRemovesNewStage() async throws {
+    func cleanupRejectsUnownedWorkerAndPreservesItsStage() async throws {
         #if canImport(Darwin) || canImport(Glibc)
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -59,6 +59,7 @@ struct RuntimeWorkerAcceptanceCleanupTests {
         process.standardError = FileHandle.nullDevice
 
         var processGroupID: Int32?
+        var unexpectedError: Error?
         do {
             try process.run()
             processGroupID = try await Self.waitForProcess(
@@ -66,31 +67,46 @@ struct RuntimeWorkerAcceptanceCleanupTests {
             )
             #expect(processGroupID == process.processIdentifier)
 
-            try await RuntimeWorkerAcceptanceController
-                .cleanupAbortedConsumer(
-                    in: root,
-                    baselineStageEntries: [baselineName],
-                    primaryDescription: "acceptance cleanup test timeout"
-                )
+            do {
+                try await RuntimeWorkerAcceptanceController
+                    .cleanupAbortedConsumer(
+                        in: root,
+                        baselineStageEntries: [baselineName],
+                        primaryDescription: "acceptance cleanup test timeout"
+                    )
+                Issue.record("unowned worker cleanup unexpectedly succeeded")
+            } catch let error as RuntimeWorkerAcceptanceRunnerError {
+                guard case .cleanupFailed(let detail) = error else {
+                    Issue.record("unexpected cleanup error: \(error)")
+                    throw error
+                }
+                #expect(detail.contains("preserved without inferred signal authority"))
+            }
 
-            #expect(!process.isRunning)
-            #expect(!fileManager.fileExists(atPath: stageURL.path))
+            #expect(process.isRunning)
+            #expect(fileManager.fileExists(atPath: stageURL.path))
             #expect(fileManager.fileExists(atPath: baselineURL.path))
         } catch {
-            if process.isRunning {
-                if let processGroupID {
-                    _ = kill(-processGroupID, SIGKILL)
-                } else {
-                    process.terminate()
-                }
-                _ = await Self.waitForProcessExit(process)
+            unexpectedError = error
+        }
+
+        if process.isRunning {
+            if let processGroupID {
+                // The test owns this exact unreaped Process child, so its
+                // process-group identity cannot be reused before this signal.
+                _ = kill(-processGroupID, SIGKILL)
+            } else {
+                process.terminate()
             }
+            _ = await Self.waitForProcessExit(process)
+        }
+        if let unexpectedError {
             do {
                 try fileManager.removeItem(at: root)
             } catch {
                 // Preserve the primary test failure when fixture cleanup fails.
             }
-            throw error
+            throw unexpectedError
         }
 
         do {

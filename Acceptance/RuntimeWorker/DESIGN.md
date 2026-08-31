@@ -10,9 +10,12 @@ explicit boundaries: the side-effect-free schema authority
 exercises a separately built public consumer.
 
 The contract side owns one closed schema-1 receipt. The RT4.B side owns the
-source fixture, pinned authoring orchestration, public verifier-to-contract
-projection check, relocated consumer process, and temporary-directory/process
-observations. RT4.B deliberately produces a non-receipt run report: the
+source fixture, a lightweight source-authority bootstrap, pinned authoring
+orchestration, public verifier-to-contract projection check, relocated
+consumer process, and temporary-directory/process observations. The bootstrap
+is a separate executable over the standalone SourceIdentity module and cannot
+import or compile the worker, command, or SwiftSyntax graph. RT4.B deliberately
+produces a non-receipt run report: the
 controller holds it in memory and the runner emits it as ephemeral sorted JSON;
 receipt encoding/persistence is a later evidence step owned by the receipt
 authority's caller. The public receipt is intentionally not `Codable`: a private
@@ -47,6 +50,9 @@ The RT4.B boundary owns:
   closed repository-relative inventory;
 - a verified read-only private snapshot as the only RT4.B source input;
 - an exact Git-revision archive as the only parent `swift-mojo` build input;
+- a live-only bootstrap build arena that is never reused by evidence builds;
+- one initially empty, verified-only build arena reused in fixed order by the
+  execution runner, parent CLI, and external consumer builds;
 - exact pinned compiler activation and runtime-library selection for authoring;
 - public `verifyWorkerBundle(at:)` projection and an independent field oracle;
 - the clean-environment consumer launch, typed lifecycle exercise, and report;
@@ -74,7 +80,8 @@ API leaks into a `swift-mojo` product.
 | [`Swift Mojo`](../../DESIGN.md) | parent index | Package boundary and public W2 products | The acceptance package is a separate consumer-side evidence authority. | The RT4.B controller consumes only parent public products; the canonical-record portability fix is part of this sprint and preserves the parent public contract. |
 | [`MojoRuntime`](../../Sources/MojoRuntime/DESIGN.md) | depends on | `MojoRuntimeWorkerBundleVerification` public fields | Supplies the freshly verified immutable W2 projection. | Projection is artifact evidence, not host execution evidence. |
 | [`MojoRuntimeWorker`](../../Sources/MojoRuntimeWorker/DESIGN.md) | used by RT4.B consumer | Public generic worker lifecycle | Its typed operations are exercised by the external consumer fixture. | Acceptance imports no worker internals or POSIX support. |
-| [`SourceIdentity`](Sources/RuntimeWorkerAcceptance/SourceIdentity/DESIGN.md) | child component | Versioned source inventory and incremental digest | Supplies the only acceptance-source identity authority used before authoring and around execution. | C/D consume the public value; they do not define an inventory or framing variant. |
+| [`SourceIdentity`](Sources/RuntimeWorkerAcceptanceSourceIdentity/DESIGN.md) | child module | Versioned source inventory and incremental digest | Supplies the only acceptance-source identity authority used before authoring and around execution. | C/D consume the public value; they do not define an inventory or framing variant. |
+| [`Source Runner`](Sources/RuntimeWorkerAcceptanceSourceRunner/DESIGN.md) | child module | Snapshot and exact-script process replacement | Builds the small live bootstrap without the runtime/compiler graph and hands execution to verified script bytes. | Its live-only scratch and products never enter the evidence build arena. |
 | [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements evidence schema | W1/W2/W3 process/protocol boundary | Fixes the distinction between verified artifacts and actual-host receipts. | Device, kernel, training, performance, and HIL remain outside this scope. |
 
 ## Architecture
@@ -102,8 +109,14 @@ flowchart LR
 The data flow is intentionally one-way:
 
 ```text
-verified private source snapshot + exact production revision + pinned authoring
-    -> ephemeral bundle + public verifier
+live checkout
+    -> isolated lightweight source runner build GB
+    -> verified private source snapshot S + exact production revision T
+    -> fresh verified-only build arena GP
+        -> execution runner from S + T
+        -> parent swift-mojo CLI from T, reusing only GP
+        -> external consumer from S + T, reusing only GP
+    -> pinned authoring -> ephemeral bundle + public verifier
     -> field-by-field projection oracle
     -> clean external consumer process
     -> typed lifecycle run report
@@ -280,23 +293,26 @@ Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptance
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunConfiguration.swift
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunReport.swift
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunnerError.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/DESIGN.md
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceSnapshotter.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptancePOSIX.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentity.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentityError.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentityVerifying.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceSnapshot.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceSnapshotting.swift
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceRunner/RuntimeWorkerAcceptanceRunner.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/DESIGN.md
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceSnapshotter.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptancePOSIX.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceIdentity.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceIdentityError.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceIdentityVerifying.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceSnapshot.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceSnapshotting.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/DESIGN.md
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/RuntimeWorkerAcceptanceSourceRunner.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/RuntimeWorkerAcceptanceSourceRunnerError.swift
 Acceptance/RuntimeWorker/Tests/RuntimeWorkerAcceptanceTests/RuntimeWorkerAcceptanceSnapshotPackageLayout.swift
 scripts/command-timeout.sh
 scripts/runtime-worker-acceptance.sh
 ```
 
 The verifier accepts an explicit repository root only. Every inventory file
-must exist and be a regular non-symlink file. Every entry below the four owned
+must exist and be a regular non-symlink file. Every entry below the six owned
 fixture/source directories must be either an inventory file or one of its
 ancestor directories; any other file or directory is rejected. Paths are
 normalized to root-relative ASCII/UTF-8 slash-separated form and sorted by
@@ -306,16 +322,20 @@ entry path bytes, one zero byte, raw file bytes, and one zero byte. Invalid,
 missing, extra, symlinked, unreadable, non-regular, over-bound, or otherwise
 unrepresentable input fails with a typed error.
 
-The bootstrap runner receives the live repository root and materializes one
+The lightweight source runner receives the live repository root and materializes one
 verified, read-only private snapshot by copying only descriptor-opened,
 no-follow, bounded inventory files. It also captures the verified execution
 script through a retained snapshot descriptor and replaces itself with
 `/bin/bash -c` over those exact bytes; no post-verification script pathname is
-executed. The live tree is never again a build, authoring, or execution input.
+executed. Its build arena and all live-derived products remain outside the
+evidence phase. The live tree is never again a build, authoring, or execution input.
 The verified script archives one captured Git revision into a separate
 read-only production tree. The execution runner, model, and consumer are built
 only from the source snapshot and resolve their parent package only from that
-production tree. The execution runner recomputes the snapshot identity before
+production tree. Their sequential SwiftPM builds use one initially empty
+verified-only scratch without copying or relocating it; reuse is accepted only
+for the fixed toolchain after a behavioral gate proves the parent dependency
+closure is not recompiled across package-root changes. The execution runner recomputes the snapshot identity before
 authoring and the controller recomputes the full identity immediately before
 and after consumer execution. A changed value is a typed failure; the consumer
 receives no repository-root or verifier authority. The lossless
@@ -327,12 +347,16 @@ parent implementation identity.
 
 ```text
 authoring script
+  -> supervisor creates and exclusively owns one exact private work root W
+  -> build lightweight source runner in isolated live-only scratch GB
   -> bootstrap only: materialize verified read-only source snapshot D
   -> descriptor-read D's script and exec bash -c with those exact bytes
-  -> derive D and its private work root from the runner-owned fixed layout
+  -> require D to occupy the supervisor-owned fixed layout under W
   -> ignore caller phase/source/work-directory environment claims
   -> archive exact Git revision P as read-only production dependency tree
+  -> create one fresh verified-only build scratch GP
   -> build execution runner from D with dependency root P; require identity D
+  -> build parent CLI and external consumer sequentially in the same GP
   -> prepare pinned bundle
   -> verify bundle through public verifier
   -> relocate into acceptance-owned TMPDIR
@@ -341,19 +365,47 @@ authoring script
   -> consumer: success -> typed timeout -> clean success
   -> controller: compare projection fields and inspect stage/process cleanup
   -> source identity after execution; reject mutation
-  -> aborted run: TERM/KILL exact TMPDIR worker groups, wait boundedly, then
-     remove only newly-created stage roots or return typed cleanup failure
+  -> aborted run: reject any worker left without its W3 owner; never infer
+     signal authority from a process-list PID/PGID snapshot
   -> return lossless non-receipt run report and emit it as sorted JSON on stdout
-  -> original bootstrap shell removes only its own exact mktemp work root
+  -> supervisor reaps the workload session, requires zero unowned W-bound
+     workers, then removes exact W synchronously and proves it is absent
   -> caller may construct/encode the closed receipt
 ```
 
+The bootstrap scratch GB and verified scratch GP are distinct directories;
+neither a compiled product nor a compiler build cache crosses from GB into GP.
 The contract value and codec remain synchronous and side-effect free. The
 controller is the sole owner of pass/fail process and filesystem observations
-in RT4.B. The shell script owns authoring/build orchestration and performs only
-fail-closed emergency cleanup for an outer abort (including work-directory
-removal); that cleanup is not acceptance evidence and cannot turn a failed run
-into a pass. Neither layer writes a receipt.
+in RT4.B. The live shell is the dedicated supervisor and sole work-root owner;
+the verified workload has no work-root deletion authority. The supervisor
+installs TERM, INT, and HUP traps before creating the work root, latches only
+the first requested status, and publishes it through one exact marker inside
+that root. Marker publication and child release share one atomic directory-lock
+gate: whichever acquires it first defines whether cancellation precedes launch
+or applies to an already launched command. Every bounded-command wrapper
+receives the marker and gate paths before it forks, creates a child session,
+waits for its ready byte, then masks direct signals while it performs the final
+marker/pending-signal check and one-byte release commit. It polls cancellation
+together with its own deadline and terminates only its exact unreaped child
+session. The live shell never signals a job-table PID. It waits
+for the bounded child to be completely reaped, refuses to start another child
+after cancellation, then performs fail-closed process observation and
+work-root cleanup outside the workload session. A process-list observation is
+evidence of a leak, not ownership or signal authority. If such a process
+exists, the supervisor returns status 70 and preserves the exact work root for
+investigation instead of signaling a potentially reused PID/PGID or removing
+its executable. The official entrypoint is this supervisor itself; a timeout
+wrapper that can KILL the cleanup owner is not part of the contract.
+
+Nested timeout supervisors record signal/deadline reasons in handlers without
+performing `kill`, sleep, wait, or cleanup there. Their main loop uses
+`waitpid(WNOHANG)` and a monotonic deadline. TERM/KILL authority is exercised
+only after observing the exact child session leader as unreaped; the leader
+remains unreaped through the TERM grace period and unconditional group KILL,
+preventing PID/PGID reuse and ensuring a TERM-ignoring same-session descendant
+cannot outlive a TERM-exiting leader. After reap, no signal is sent to the
+former identifier. Neither layer writes a receipt.
 
 ## State, Ownership, and Lifecycle
 
@@ -369,6 +421,18 @@ the verified script cannot replace that authority through an environment
 variable. The lossless report is caller-owned material; the encoded receipt
 `Data`, when requested by a caller, remains caller-owned.
 
+```text
+workRootCreated
+    -> childRunning
+        -> childExited -> childReaped
+        -> terminationRequested -> cancellationGateWon
+            -> cancellationMarkerPublished
+            -> childSessionTerminated -> childReaped
+    -> workerObservation
+        -> zeroWorkers -> workRootAbsent -> supervisorExit
+        -> unownedWorker -> workRootPreserved -> supervisorExit70
+```
+
 ## Failure, Concurrency, and Constraints
 
 Contract validation is synchronous and side-effect free. Controller execution
@@ -377,14 +441,27 @@ descriptors against one fixed hard deadline. The deadline reserves bounded TERM
 and KILL phases before it expires; success requires both direct-process exit and
 EOF from stdout and stderr. Process inspection uses the same dual-pipe primitive
 and per-stream 4 MiB bound. Output overflow, missing EOF, termination uncertainty,
-and descriptor cleanup failure are typed failures. An aborted run
-cleans up exact worker process groups found under the acceptance-owned
-temporary root before removing new stage roots. Failure to prove process
-disappearance, descriptor closure, or stage removal is a typed cleanup
-failure. The package has no shared mutable state. JSON parsing is bounded by
+and descriptor cleanup failure are typed failures. An aborted run removes new
+stage roots only after proving that no worker process remains. A PID or PGID
+found by process-list inspection is never signaled because the original W3
+owner is gone and numeric identity may already be reusable. An observed
+unowned worker is a typed cleanup failure and its work root is preserved.
+Failure to prove process disappearance, descriptor closure, or safe stage
+removal is a typed cleanup failure. The package has no shared mutable state.
+JSON parsing is bounded by
 caller-provided `Data`; all decoded text, arrays, and diagnostic messages have
 explicit size limits. There are no floating-point fields in the receipt; the
 run report uses Float32 bit patterns.
+
+The supervisor assigns hard deadlines to bootstrap and verified workload
+processes, including bounded TERM-to-KILL escalation and exact reap. Once the
+workload is reaped, the supervisor synchronously removes only its exact work
+root after proving that no unowned worker references it, and does not return
+until absence is proven. A detected unowned worker preserves the root and exits
+70; other cleanup failures also exit 70 rather than pass, timeout, or
+forwarded-signal status. Physical tree
+removal is not raced by a supervisor KILL deadline; SIGKILL, host failure, and
+power loss are outside this process contract.
 
 ## Verification and Change Impact
 
@@ -415,6 +492,25 @@ RT4.B additionally requires a bounded actual Mac authoring-and-consumer run,
 a source-boundary test, exact typed timeout/zero-partial-output/zero-
 cleanup evidence, an empty PATH that makes compiler and Python resolution
 impossible, and zero worker stage/process entries under the configured TMPDIR.
+The clean bootstrap build log must contain no `MojoRuntime`,
+`MojoRuntimeWorker`, `MojoCommandCore`, SwiftSyntax, or SwiftCrypto/BoringSSL
+compile on macOS. A fixed-toolchain build-log gate must also prove the verified
+runner, CLI, and consumer use one fresh scratch and compile each shared parent
+target no more than once. Normal, own-timeout, and externally terminated nested
+timeout paths must leave no child process or acceptance work root. Direct TERM,
+INT, and HUP to the supervisor must return 143, 130, and 129 respectively only
+after its active child is reaped and exact work root is absent. A cleanup taking
+longer than the former two-second escalation window must still complete, while
+an injected cleanup failure must return 70. The official acceptance invocation
+must not be wrapped by another KILL deadline. Tests must also prove that a
+preexisting cancellation marker prevents command execution, an execution-time
+marker terminates the child session, a TERM-exiting leader cannot strand a
+TERM-ignoring descendant, and cancellation prevents every subsequent bounded
+command launch. A held startup gate must let cancellation publish first and
+prove that the gated command never executes. A synthetic unowned worker must
+be reported without receiving
+a signal; the supervisor must return 70 and preserve its exact work root until
+the test-owned unreaped process handle performs cleanup.
 Native Linux Swift type-check/build evidence is recorded separately when the
 available Swift/SDK container can complete it; a host unavailable for execution
 does not become a simulated pass.

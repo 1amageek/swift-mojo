@@ -1,16 +1,18 @@
-# Acceptance Source Identity
+# RuntimeWorkerAcceptanceSourceIdentity
 
 ## Purpose and Scope
 
-`SourceIdentity` is the child component of the RT4.B acceptance package. It
+`RuntimeWorkerAcceptanceSourceIdentity` is a standalone child module of the
+RT4.B acceptance package. It
 provides one public, read-only authority for identifying the repository source
 that generated an acceptance run. It owns inventory expansion, path
 normalization, descriptor-relative bounded regular-file reads, the versioned
 aggregate digest, and materialization of a verified private source snapshot.
 
-Parent: [`Acceptance/RuntimeWorker/DESIGN.md`](../../../DESIGN.md).
+Parent: [`Acceptance/RuntimeWorker/DESIGN.md`](../../DESIGN.md).
 
-Children: none.
+Children: none. This module is built independently for the lightweight source
+runner and as a dependency of the full acceptance controller.
 
 ## Responsibilities and Boundaries
 
@@ -26,10 +28,12 @@ This component owns:
 - incremental SHA-256 framing and typed rejection of invalid input;
 - a second-pass stability check and descriptor/path file-identity comparison;
 - the public identity, verifier, and verified-snapshot protocols.
+- a platform-equivalent SHA-256 backend: system `CryptoKit` on macOS and the
+  pinned `Crypto` product on Linux.
 
 It does not own repository mutation, source generation, compiler invocation,
-worker execution, receipt encoding, process control, or a consumer-provided
-inventory. The caller supplies the repository root explicitly. The verifier
+process replacement, worker execution, receipt encoding, process control, or
+a consumer-provided inventory. The caller supplies the repository root explicitly. The verifier
 does not expose a file handle, arbitrary path authority, or a callback to the
 consumer.
 
@@ -37,8 +41,9 @@ consumer.
 
 | Design | Relationship | Contract Used | Summary | Cautions |
 |---|---|---|---|---|
-| [`RuntimeWorker Acceptance`](../../../DESIGN.md) | parent | RT4.B source identity handoff | Uses this component for bootstrap, execution-runner, execution-start, and execution-end identity. | A source digest does not prove a bundle or host run by itself. |
-| [`Swift Mojo`](../../../../../DESIGN.md) | indirect parent | Repository boundary | Provides the root whose selected source is identified. | The inventory is intentionally narrower than the entire repository. |
+| [`RuntimeWorker Acceptance`](../../DESIGN.md) | parent | RT4.B source identity handoff | Uses this module for bootstrap, execution-runner, execution-start, and execution-end identity. | A source digest does not prove a bundle or host run by itself. |
+| [`Source Runner`](../RuntimeWorkerAcceptanceSourceRunner/DESIGN.md) | used by | Verified snapshot and exact script bytes | Builds only over this module for the live bootstrap handoff. | Its live build products never enter the evidence phase. |
+| [`Swift Mojo`](../../../../DESIGN.md) | indirect parent | Repository boundary | Provides the root whose selected source is identified. | The inventory is intentionally narrower than the entire repository. |
 
 ## Architecture
 
@@ -86,16 +91,19 @@ Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptance
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunConfiguration.swift
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunReport.swift
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunnerError.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/DESIGN.md
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceSnapshotter.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptancePOSIX.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentity.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentityError.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentityVerifying.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceSnapshot.swift
-Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceSnapshotting.swift
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceRunner/RuntimeWorkerAcceptanceRunner.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/DESIGN.md
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceSnapshotter.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptancePOSIX.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceIdentity.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceIdentityError.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceIdentityVerifying.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceSnapshot.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWorkerAcceptanceSourceSnapshotting.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/DESIGN.md
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/RuntimeWorkerAcceptanceSourceRunner.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/RuntimeWorkerAcceptanceSourceRunnerError.swift
 Acceptance/RuntimeWorker/Tests/RuntimeWorkerAcceptanceTests/RuntimeWorkerAcceptanceSnapshotPackageLayout.swift
 scripts/command-timeout.sh
 scripts/runtime-worker-acceptance.sh
@@ -148,11 +156,11 @@ those bytes rather than reopening a script pathname.
 ## Runtime Flows
 
 ```text
-bootstrap runner built outside the evidence phase
+lightweight source runner built in isolated live-only arena GB
     -> snapshotter.materializeVerifiedSnapshot(source R, private S) produces D
-    -> runner replaces itself with bash -c over D-bound execution-script bytes
+    -> source runner replaces itself with bash -c over D-bound script bytes
     -> archive exact swift-mojo revision P into private read-only tree T
-    -> execution runner built from S with dependency root T
+    -> execution runner built from S with dependency root T in fresh arena GP
     -> execution runner recomputes D before authoring
     -> model and consumer build only from S with dependency root T
     -> verifier.sourceIdentity(at: S) before execution
@@ -196,6 +204,10 @@ path. Script tests must prove that only the verified snapshot and exact
 archived production revision reach runner/model/consumer authoring, forged
 phase/work-directory environment values cannot enter the verified flow, and
 the executed script comes from the immutable bytes returned by the snapshotter.
+Clean bootstrap logs must prove that this module and source runner do not build
+`MojoRuntime`, `MojoRuntimeWorker`, `MojoCommandCore`, SwiftSyntax, or the
+SwiftCrypto/BoringSSL source closure on macOS. Cross-platform tests must prove
+that CryptoKit and Crypto produce the same canonical digest fixture.
 
 Changing the algorithm literal, inventory, normalization, bounds, or returned
 fields invalidates all RT4.C/RT4.D source-bound evidence and requires the
