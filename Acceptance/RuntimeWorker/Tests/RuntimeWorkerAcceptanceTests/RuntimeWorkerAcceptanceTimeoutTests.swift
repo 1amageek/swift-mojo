@@ -209,16 +209,26 @@ private final class Fixture {
             at: inheritedWriterExecutable,
             source: """
             #!/usr/bin/perl
+            pipe(my $ready_reader, my $ready_writer) or die $!;
             my $child = fork();
             die $! unless defined $child;
             if ($child == 0) {
+                close($ready_reader);
                 open(my $pid, '>', '\(inheritedWriterProcessIDURL.path)') or die $!;
                 print $pid $$;
                 close($pid);
+                print $ready_writer '1';
+                close($ready_writer);
                 $SIG{'TERM'} = 'IGNORE';
                 select(undef, undef, undef, 1.5);
                 exit 0;
             }
+            close($ready_writer);
+            my $ready = '';
+            my $read_count = sysread($ready_reader, $ready, 1);
+            die $! unless defined $read_count;
+            die 'child did not publish readiness' unless $read_count == 1;
+            close($ready_reader);
             print STDOUT 'parent';
             exit 0;
             """
