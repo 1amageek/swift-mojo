@@ -2,24 +2,34 @@
 
 ## Purpose and Scope
 
-`RuntimeWorkerAcceptanceContract` is the acceptance-evidence authority for
-the actual-host process and protocol gate of ADR-0015. It is a separate Swift
-package under `Acceptance/RuntimeWorker`; it is not a target or product of the
-parent `swift-mojo` package.
+`Acceptance/RuntimeWorker` is the RT4 host-process/protocol acceptance package
+for ADR-0015. It is a separate Swift package under that directory; it is not a
+target or product of the parent `swift-mojo` package. The package has two
+explicit boundaries: the side-effect-free schema authority
+`RuntimeWorkerAcceptanceContract`, and the RT4.B host controller/runner that
+exercises a separately built public consumer.
 
-This component owns one closed schema-1 receipt. The receipt canonicalizes a
-public W2 `MojoRuntimeWorkerBundleVerification`, the protocol limits and
-message-kind table, host/process observations, consumer-boundary observations,
-the clean execution environment, and the required success/failure lifecycle.
-The public receipt is intentionally not `Codable`: a private closed wire DTO
-is used so `encoded()` and `decodeCanonical(_:)` remain the only receipt codec
-authority.
-It does not launch a worker, read an artifact, run a compiler, inspect a
-device, or decide model/training/performance/HIL readiness.
+The contract side owns one closed schema-1 receipt. The RT4.B side owns the
+source fixture, pinned authoring orchestration, public verifier-to-contract
+projection check, relocated consumer process, and temporary-directory/process
+observations. RT4.B deliberately produces a non-receipt run report: the
+controller holds it in memory and the runner emits it as ephemeral sorted JSON;
+receipt encoding/persistence is a later evidence step owned by the receipt
+authority's caller. The public receipt is intentionally not `Codable`: a private
+closed wire DTO is used so `encoded()` and `decodeCanonical(_:)` remain the only
+receipt codec authority.
+
+`RuntimeWorkerAcceptanceRunReport` is the lossless material handoff for that
+later step. It contains one canonical `Artifact`, `ProtocolRecord`,
+`ConsumerBoundary`, `ExecutionEnvironment`, and `Lifecycle`, plus only the
+derived projection count, exact Float32 bit-pattern diagnostics, typed forced
+failure code, and stage/process leak counts. The report is `Codable` for the
+ephemeral handoff; it is not a receipt and does not add a second codec or
+persistence authority.
 
 ## Responsibilities and Boundaries
 
-The component owns:
+The contract boundary owns:
 
 - the exact top-level receipt key set and schema/status/evidence-scope rules;
 - strict decoding, canonical encoding, and nested closed-record validation;
@@ -29,40 +39,52 @@ The component owns:
 - the rule that a passed receipt requires observed host process/protocol
   evidence and complete lifecycle evidence.
 
-The component does not own:
+The RT4.B boundary owns:
 
-- worker construction, staging, transport, POSIX operations, or process
-  control;
-- acceptance fixtures, controllers, host runners, or host-generated receipt
-  files;
+- the canonical Swift binding and Mojo source fixture, with no checked-in
+  generated binaries or bundles;
+- exact pinned compiler activation and runtime-library selection for authoring;
+- public `verifyWorkerBundle(at:)` projection and an independent field oracle;
+- the clean-environment consumer launch, typed lifecycle exercise, and report;
+- acceptance-owned temporary staging/process observations and leak rejection.
+
+Neither boundary owns:
+
+- worker transport, POSIX operations, or private worker lifecycle (these belong
+  to `MojoRuntimeWorker`);
+- arbitrary process launching outside the one fixed consumer executable;
 - MAX device or kernel execution, training, performance, or physical HIL
   claims;
 - Manas or Kuyu policy.
 
-The package may depend on the public `MojoRuntime` product only to provide a
-lossless projection initializer. The parent package does not depend on this
+The package depends only on public `MojoRuntime` and `MojoRuntimeWorker` for
+the RT4.B implementation. The parent package does not depend on this
 acceptance package, so no acceptance API leaks into a `swift-mojo` product.
 
 ## Related Designs
 
 | Design | Relationship | Contract Used | Summary | Cautions |
 |---|---|---|---|---|
-| [`Swift Mojo`](../../DESIGN.md) | parent index | Package boundary and public W2 products | The acceptance package is a separate consumer-side evidence authority. | Parent source and products remain unchanged. |
+| [`Swift Mojo`](../../DESIGN.md) | parent index | Package boundary and public W2 products | The acceptance package is a separate consumer-side evidence authority. | The RT4.B controller consumes only parent public products; the canonical-record portability fix is part of this sprint and preserves the parent public contract. |
 | [`MojoRuntime`](../../Sources/MojoRuntime/DESIGN.md) | depends on | `MojoRuntimeWorkerBundleVerification` public fields | Supplies the freshly verified immutable W2 projection. | Projection is artifact evidence, not host execution evidence. |
-| [`MojoRuntimeWorker`](../../Sources/MojoRuntimeWorker/DESIGN.md) | observes | Public generic worker lifecycle | Its typed operations are exercised by a later host fixture. | This component never imports worker internals or POSIX support. |
+| [`MojoRuntimeWorker`](../../Sources/MojoRuntimeWorker/DESIGN.md) | used by RT4.B consumer | Public generic worker lifecycle | Its typed operations are exercised by the external consumer fixture. | Acceptance imports no worker internals or POSIX support. |
 | [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements evidence schema | W1/W2/W3 process/protocol boundary | Fixes the distinction between verified artifacts and actual-host receipts. | Device, kernel, training, performance, and HIL remain outside this scope. |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    W2["Public W2 verification projection"] --> A["RuntimeWorkerAcceptanceArtifact"]
+    S["Canonical Swift + Mojo fixture"] --> AU["Pinned authoring CLI"]
+    AU --> B["Ephemeral relocated worker bundle"]
+    B --> V["Public W2 verifier"]
+    V --> O["Independent field oracle"]
+    O --> A["RuntimeWorkerAcceptanceArtifact"]
     A --> R["RuntimeWorkerAcceptanceContract"]
-    P["Protocol limits + complete kind table"] --> R
-    H["Observed native host/process"] --> R
+    PK["Protocol limits + complete kind table"] --> R
+    H["Controller host/process observations"] --> R
     C["Public consumer-boundary observation"] --> R
     E["Clean execution environment observation"] --> R
-    L["Success + forced-failure + clean-retry lifecycle"] --> R
+    L["Consumer success + timeout + clean retry"] --> R
     R --> D["Private closed wire DTO"]
     D --> J["Canonical schema-1 JSON receipt"]
 ```
@@ -70,14 +92,18 @@ flowchart LR
 The data flow is intentionally one-way:
 
 ```text
-W2 projection + observed host evidence
-    -> typed receipt construction
-    -> semantic validation
-    -> sorted-key canonical JSON
-    -> strict canonical decode for later comparison
+source fixture + pinned authoring
+    -> ephemeral bundle + public verifier
+    -> field-by-field projection oracle
+    -> clean external consumer process
+    -> typed lifecycle run report
+    -> caller-owned receipt construction/encoding
 ```
 
-No receipt field can create an artifact projection or cause a worker launch.
+The controller never fabricates a verifier projection. It maps the actual
+filesystem verifier result; the consumer creates the worker only from its own
+freshly verified public projection, and no receipt field can cause a worker
+launch.
 
 ## Contracts and Invariants
 
@@ -206,29 +232,54 @@ into a passed result.
 ## Runtime Flows
 
 ```text
-verify W2 projection
-  -> collect actual-host observations
-  -> construct typed receipt
-  -> validate pass/fail invariants
-  -> encode canonical JSON
-  -> decodeCanonical() for persisted-receipt verification
+authoring script
+  -> prepare pinned bundle
+  -> verify bundle through public verifier
+  -> relocate into acceptance-owned TMPDIR
+  -> launch consumer with empty PATH and no compiler/Python/loader variables
+  -> consumer: success -> typed timeout -> clean success
+  -> controller: compare projection fields and inspect stage/process cleanup
+  -> aborted run: TERM/KILL exact TMPDIR worker groups, wait boundedly, then
+     remove only newly-created stage roots or return typed cleanup failure
+  -> return lossless non-receipt run report and emit it as sorted JSON on stdout
+  -> caller may construct/encode the closed receipt
 ```
 
-The contract package performs no I/O. Host fixture/controller code in a later
-work item owns observation collection and persistence.
+The contract value and codec remain synchronous and side-effect free. The
+controller is the sole owner of pass/fail process and filesystem observations
+in RT4.B. The shell script owns authoring/build orchestration and performs only
+fail-closed emergency cleanup for an outer abort (including work-directory
+removal); that cleanup is not acceptance evidence and cannot turn a failed run
+into a pass. Neither layer writes a receipt.
 
 ## State, Ownership, and Lifecycle
 
-Receipt values are immutable `struct`s. The caller owns source and observation
-inputs; the contract owns no process, path, descriptor, buffer, or task. The
-encoded `Data` is an output value whose lifetime belongs to the caller.
+Contract values are immutable `struct`s. The controller owns the launched
+consumer process for one bounded run and observes only its acceptance-owned
+temporary root. The consumer owns each `MojoRuntimeWorker.withAttempt` scope;
+the worker owns private staging, transport, and child reaping. The controller
+captures child output through two nonblocking pipes, bounded to 4 MiB per
+stream, and closes every descriptor before returning. It retains no process,
+descriptor, bundle, output file, or task after `run` returns. The lossless
+report is caller-owned material; the encoded receipt `Data`, when requested by
+a caller, remains caller-owned.
 
 ## Failure, Concurrency, and Constraints
 
-Validation is synchronous and side-effect free. The package has no shared
-mutable state and no asynchronous operation. JSON parsing is bounded by the
+Contract validation is synchronous and side-effect free. Controller execution
+is asynchronous only while polling child processes and nonblocking output
+descriptors against one fixed hard deadline. The deadline reserves bounded TERM
+and KILL phases before it expires; success requires both direct-process exit and
+EOF from stdout and stderr. Process inspection uses the same dual-pipe primitive
+and per-stream 4 MiB bound. Output overflow, missing EOF, termination uncertainty,
+and descriptor cleanup failure are typed failures. An aborted run
+cleans up exact worker process groups found under the acceptance-owned
+temporary root before removing new stage roots. Failure to prove process
+disappearance, descriptor closure, or stage removal is a typed cleanup
+failure. The package has no shared mutable state. JSON parsing is bounded by
 caller-provided `Data`; all decoded text, arrays, and diagnostic messages have
-explicit size limits. There are no floating-point fields in the receipt.
+explicit size limits. There are no floating-point fields in the receipt; the
+run report uses Float32 bit patterns.
 
 ## Verification and Change Impact
 
@@ -242,10 +293,26 @@ Focused tests must prove:
 - rejection of a passed receipt without host/process/protocol observations;
 - the canonical codec is the only public receipt serialization path;
 - projection mapping from every public W2 field. The one-to-one integration
-  proof using a filesystem verifier-produced public W2 projection is owned by
-  RT4.B; this package does not fabricate a verifier projection or use
-  `@testable` access to parent internals;
+  proof uses a filesystem verifier-produced public W2 projection and is
+  executed by the RT4.B controller during the bounded script run. Package
+  tests cover only the source boundary; no fake, witness, environment-optional
+  test, or `@testable` parent access is accepted;
+- lossless `RuntimeWorkerAcceptanceRunReport` round-trip with field equality and
+  exactly one copy of each canonical artifact/protocol/boundary/environment/
+  lifecycle record;
+- bounded consumer timeout and process-inspection failure paths, including
+  concurrent stdout/stderr drain beyond pipe capacity, TERM-to-KILL exit
+  confirmation, per-stream overflow rejection, inherited-writer EOF rejection,
+  descriptor cleanup, and no unbounded `waitUntilExit` or pipe-drain dependency;
 - absence of public imports from `MojoRuntimeWorker` internals or POSIX support.
+
+RT4.B additionally requires a bounded actual Mac authoring-and-consumer run,
+a source-boundary test, exact typed timeout/zero-partial-output/zero-
+cleanup evidence, an empty PATH that makes compiler and Python resolution
+impossible, and zero worker stage/process entries under the configured TMPDIR.
+Native Linux Swift type-check/build evidence is recorded separately when the
+available Swift/SDK container can complete it; a host unavailable for execution
+does not become a simulated pass.
 
 Changes to this schema require ADR-0015, the parent design index, and all host
 fixture/comparator consumers to be reviewed before their receipts remain

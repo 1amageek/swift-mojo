@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "RuntimeWorkerAcceptanceModel": {
+      "compilerVersion": "Mojo 1.0.0 (ed45d567)",
+      "mojoPackages": [
+        "RuntimeWorkerAcceptanceModel"
+      ],
+      "slices": [
+        {
+          "cpu": "apple-m4",
+          "triple": "arm64-apple-macosx14.0"
+        },
+        {
+          "cpu": "generic",
+          "triple": "aarch64-unknown-linux-gnu"
+        }
+      ]
+    }
+  }
+}

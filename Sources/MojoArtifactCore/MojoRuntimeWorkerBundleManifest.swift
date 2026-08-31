@@ -1049,16 +1049,25 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
     }
 
     private var canonicalRecords: [String] {
-        ["schema=\(schemaVersion)"]
-            + semanticIdentity.canonicalRecords.map { "semantic-\($0)" }
-            + generatedInputs.canonicalRecords.map { "generated-\($0)" }
-            + protocolRecord.canonicalRecords.map { "protocol-\($0)" }
-            + runtimeBundle.canonicalRecords.map { "runtime-\($0)" }
-            + targetClosure.identityCanonicalRecords.map { "target-\($0)" }
-            + [
-                "target-closure-digest=\(targetClosure.targetClosureDigest)",
-                "execution-contract=\(executionContractDigest)",
-            ]
+        var records = ["schema=\(schemaVersion)"]
+        records.append(contentsOf: semanticIdentity.canonicalRecords.map {
+            "semantic-\($0)"
+        })
+        records.append(contentsOf: generatedInputs.canonicalRecords.map {
+            "generated-\($0)"
+        })
+        records.append(contentsOf: protocolRecord.canonicalRecords.map {
+            "protocol-\($0)"
+        })
+        records.append(contentsOf: runtimeBundle.canonicalRecords.map {
+            "runtime-\($0)"
+        })
+        records.append(contentsOf: targetClosure.identityCanonicalRecords.map {
+            "target-\($0)"
+        })
+        records.append("target-closure-digest=\(targetClosure.targetClosureDigest)")
+        records.append("execution-contract=\(executionContractDigest)")
+        return records
     }
 }
 

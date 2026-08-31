@@ -34,6 +34,91 @@ struct RuntimeWorkerAcceptanceContractTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func runReportRoundTripsEveryCanonicalHandoffField() throws {
+        let artifact = try ReceiptFixture.artifact()
+        let protocolRecord = try ReceiptFixture.protocolRecord()
+        let consumerBoundary = RuntimeWorkerAcceptanceContract.ConsumerBoundary(
+            publicRuntimeProjectionUsed: true,
+            publicWorkerAPIUsed: true,
+            filesystemAccessOutsideWorker: false,
+            processLaunchOutsideWorker: false,
+            runtimeLoaderOutsideWorker: false,
+            rawPOSIXImports: false,
+            rawProtocolImports: false,
+            workerSPIImports: false
+        )
+        let executionEnvironment = try RuntimeWorkerAcceptanceContract
+            .ExecutionEnvironment(
+                compilerAvailableDuringExecution: false,
+                pythonAvailableDuringExecution: false,
+                ambientLoaderVariableNames: [],
+                cleanEnvironmentObserved: true
+            )
+        let lifecycle = try ReceiptFixture.complete
+        let report = RuntimeWorkerAcceptanceRunReport(
+            artifact: artifact,
+            protocolRecord: protocolRecord,
+            projectionFieldCount: 80,
+            consumerBoundary: consumerBoundary,
+            executionEnvironment: executionEnvironment,
+            lifecycle: lifecycle,
+            firstAttemptOutputBitPatterns: [
+                Float(2).bitPattern,
+                Float(4).bitPattern,
+                Float(6).bitPattern,
+            ],
+            forcedFailureError: "invocationTimedOut",
+            thirdAttemptOutputBitPatterns: [
+                Float(2).bitPattern,
+                Float(4).bitPattern,
+                Float(6).bitPattern,
+            ],
+            stageLeakCount: 0,
+            processLeakCount: 0
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let encoded = try encoder.encode(report)
+        let decoded = try JSONDecoder().decode(
+            RuntimeWorkerAcceptanceRunReport.self,
+            from: encoded
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        #expect(Set(object.keys) == Set([
+            "artifact",
+            "protocolRecord",
+            "consumerBoundary",
+            "executionEnvironment",
+            "lifecycle",
+            "projectionFieldCount",
+            "firstAttemptOutputBitPatterns",
+            "forcedFailureError",
+            "thirdAttemptOutputBitPatterns",
+            "stageLeakCount",
+            "processLeakCount",
+        ]))
+
+        #expect(decoded == report)
+        #expect(decoded.artifact == artifact)
+        #expect(decoded.protocolRecord == protocolRecord)
+        #expect(decoded.consumerBoundary == consumerBoundary)
+        #expect(decoded.executionEnvironment == executionEnvironment)
+        #expect(decoded.lifecycle == lifecycle)
+        #expect(decoded.firstAttemptOutputBitPatterns == [
+            Float(2).bitPattern,
+            Float(4).bitPattern,
+            Float(6).bitPattern,
+        ])
+        #expect(decoded.thirdAttemptOutputBitPatterns ==
+            decoded.firstAttemptOutputBitPatterns)
+        #expect(decoded.stageLeakCount == 0)
+        #expect(decoded.processLeakCount == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func emitsOnlyTheClosedTopLevelKeySet() throws {
         let encoded = try ReceiptFixture.passed().encoded()
         let object = try #require(

@@ -12,6 +12,10 @@ let package = Package(
             name: "RuntimeWorkerAcceptance",
             targets: ["RuntimeWorkerAcceptance"]
         ),
+        .executable(
+            name: "runtime-worker-acceptance",
+            targets: ["RuntimeWorkerAcceptanceRunner"]
+        ),
     ],
     dependencies: [
         .package(path: "../.."),
@@ -21,7 +25,12 @@ let package = Package(
             name: "RuntimeWorkerAcceptance",
             dependencies: [
                 .product(name: "MojoRuntime", package: "swift-mojo"),
+                .product(name: "MojoRuntimeWorker", package: "swift-mojo"),
             ]
+        ),
+        .executableTarget(
+            name: "RuntimeWorkerAcceptanceRunner",
+            dependencies: ["RuntimeWorkerAcceptance"]
         ),
         .testTarget(
             name: "RuntimeWorkerAcceptanceTests",

@@ -8,6 +8,37 @@ import Testing
 @Suite("Mojo runtime worker bundle manifest")
 struct MojoRuntimeWorkerBundleManifestTests {
     @Test(.timeLimit(.minutes(1)))
+    func canonicalRecordOrderBytesAndDigestMatchGolden() throws {
+        let fixture = try Fixture()
+        let manifest = try fixture.manifest()
+        let expectedRecords = fixture.expectedCanonicalRecords(for: manifest)
+        let expectedDigest = MojoCanonicalDigest.hex(
+            canonicalData(expectedRecords)
+        )
+
+        #expect(expectedRecords.first == "schema=1")
+        #expect(
+            expectedRecords.last
+                == "execution-contract=\(String(repeating: "d", count: 64))"
+        )
+        #expect(
+            manifest.digest
+                == "9ef8f5add47f4642d153e31419e8a900b0daf77da1b2be88119307dc463b14f1"
+        )
+        #expect(expectedDigest == manifest.digest)
+
+        let mutated = try fixture.manifest(
+            executionContractDigest: String(repeating: "e", count: 64)
+        )
+        #expect(mutated.digest != manifest.digest)
+        #expect(
+            MojoCanonicalDigest.hex(
+                canonicalData(fixture.expectedCanonicalRecords(for: mutated))
+            ) == mutated.digest
+        )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func deterministicRoundTripPreservesManifestDigest() throws {
         let fixture = try Fixture()
         let manifest = try fixture.manifest()
@@ -210,7 +241,9 @@ private struct Fixture {
         )
     }
 
-    func manifest() throws -> MojoRuntimeWorkerBundleManifest {
+    func manifest(
+        executionContractDigest: String = String(repeating: "d", count: 64)
+    ) throws -> MojoRuntimeWorkerBundleManifest {
         let semanticIdentity = try semanticIdentity(bindings: bindings)
         let generatedInputs = try MojoRuntimeWorkerBundleManifest.GeneratedInputs(
             generatedMojoSourceDigest: String(repeating: "4", count: 64),
@@ -237,7 +270,6 @@ private struct Fixture {
             systemDependencies: ["/usr/lib/libSystem.B.dylib"],
             programInterpreter: nil
         )
-        let executionContractDigest = String(repeating: "d", count: 64)
         let targetClosureDigest = try MojoRuntimeWorkerBundleManifest
             .targetClosureDigest(
                 semanticIdentity: semanticIdentity,
@@ -261,6 +293,101 @@ private struct Fixture {
             executionContractDigest: executionContractDigest
         )
     }
+
+    func expectedCanonicalRecords(
+        for manifest: MojoRuntimeWorkerBundleManifest
+    ) -> [String] {
+        var records = ["schema=\(manifest.schemaVersion)"]
+        let semantic = manifest.semanticIdentity
+        records.append(contentsOf: [
+            "semantic-worker-abi=\(semantic.workerABIVersion)",
+            "semantic-protocol-version=\(semantic.protocolVersion)",
+            "semantic-source-graph=\(semantic.sourceGraphDigest)",
+            "semantic-source-graph-identifier=\(semantic.sourceGraphIdentifier)",
+            "semantic-input-graph=\(semantic.inputGraphDigest)",
+            "semantic-input-graph-identifier=\(semantic.inputGraphIdentifier)",
+            "semantic-generation-pipeline=\(semantic.generationPipelineDigest)",
+        ])
+        for binding in semantic.bindings {
+            let relationship = binding.sessionFactoryFunctionName ?? "-"
+            let fields = [
+                String(binding.bindingID),
+                binding.functionName,
+                binding.signature.rawValue,
+                relationship,
+            ]
+            let value = fields.map { "\($0.utf8.count):\($0)" }
+                .joined(separator: "|")
+            records.append("semantic-binding=\(value)")
+        }
+
+        let generated = manifest.generatedInputs
+        records.append(contentsOf: [
+            "generated-mojo-source=\(generated.generatedMojoSourceDigest)",
+            "generated-c-worker-source=\(generated.generatedCWorkerSourceDigest)",
+            "generated-source-map=\(generated.sourceMapDigest)",
+            "generated-mojo-object=\(generated.generatedMojoObjectDigest)",
+            "generated-c-worker-object=\(generated.generatedCWorkerObjectDigest)",
+            "generated-compiler=\(generated.compilerVersion)",
+        ])
+
+        let protocolRecord = manifest.protocolRecord
+        records.append(contentsOf: [
+            "protocol-version=\(protocolRecord.version)",
+            "protocol-descriptor=\(protocolRecord.descriptor)",
+            "protocol-header=\(protocolRecord.headerByteCount)",
+            "protocol-byte-order=\(protocolRecord.byteOrder)",
+            "protocol-maximum-payload=\(protocolRecord.maximumFramePayloadBytes)",
+            "protocol-maximum-in-flight=\(protocolRecord.maximumInFlightRequests)",
+        ])
+        for kind in protocolRecord.messageKinds {
+            records.append("protocol-kind=\(kind.rawValue):\(kind.name)")
+        }
+
+        let runtime = manifest.runtimeBundle
+        records.append(contentsOf: [
+            "runtime-manifest=\(runtime.manifestDigest)",
+            "runtime-receipt=\(runtime.receiptDigest)",
+            "runtime-loader=\(runtime.loaderSearchPath)",
+            "runtime-interpreter=\(runtime.programInterpreter ?? "none")",
+        ])
+        records.append(
+            "runtime-executable-path=\(runtime.executable.relativePath)"
+        )
+        records.append("runtime-executable-digest=\(runtime.executable.digest)")
+        for library in runtime.libraries {
+            records.append("runtime-library-path=\(library.relativePath)")
+            records.append("runtime-library-digest=\(library.digest)")
+        }
+        for dependency in runtime.systemDependencies {
+            records.append("runtime-system=\(dependency)")
+        }
+
+        let target = manifest.targetClosure
+        records.append(contentsOf: [
+            "target-target-triple=\(target.targetTriple)",
+            "target-target-cpu=\(target.targetCPU)",
+            "target-target-accelerator=\(target.targetAccelerator)",
+            "target-target-name=\(target.artifactIdentity.targetName)",
+            "target-module-name=\(target.artifactIdentity.moduleName)",
+            "target-artifact-name=\(target.artifactIdentity.artifactName)",
+            "target-library-name=\(target.artifactIdentity.libraryName)",
+            "target-symbol-prefix=\(target.artifactIdentity.symbolPrefix)",
+            "target-closure-digest=\(target.targetClosureDigest)",
+            "execution-contract=\(manifest.executionContractDigest)",
+        ])
+        return records
+    }
+}
+
+private func canonicalData(_ records: [String]) -> Data {
+    var data = Data()
+    for record in records {
+        var length = UInt64(record.utf8.count).littleEndian
+        withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
+        data.append(contentsOf: record.utf8)
+    }
+    return data
 }
 
 private func replacingExactlyOnce(
