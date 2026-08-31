@@ -8,6 +8,11 @@ public enum RuntimeWorkerAcceptanceRunnerError: Error, Equatable, Sendable,
     case dirtyExecutionEnvironment([String])
     case projectionMismatch(String)
     case authoringIdentityMismatch(String)
+    case sourceIdentityContractMismatch(String)
+    case sourceIdentityMismatch(expected: String, actual: String)
+    case sourceIdentityChanged(before: String, after: String)
+    case invalidVerifiedExecutionScript
+    case processReplacementFailed(String)
     case consumerLaunchFailed(String)
     case consumerOutputFailed(String)
     case consumerTimedOut
@@ -31,6 +36,16 @@ public enum RuntimeWorkerAcceptanceRunnerError: Error, Equatable, Sendable,
             "Public W2 projection mapper mismatch at \(field)"
         case .authoringIdentityMismatch(let field):
             "Acceptance bundles do not share canonical authoring identity at \(field)"
+        case .sourceIdentityContractMismatch(let field):
+            "Acceptance source identity contract mismatch at \(field)"
+        case .sourceIdentityMismatch(let expected, let actual):
+            "Acceptance source identity mismatch: expected \(expected), actual \(actual)"
+        case .sourceIdentityChanged(let before, let after):
+            "Acceptance source identity changed during execution: \(before) -> \(after)"
+        case .invalidVerifiedExecutionScript:
+            "Verified acceptance execution script is not canonical UTF-8 text"
+        case .processReplacementFailed(let detail):
+            "Verified acceptance process replacement failed: \(detail)"
         case .consumerLaunchFailed(let detail):
             "Runtime-worker consumer launch failed: \(detail)"
         case .consumerOutputFailed(let detail):

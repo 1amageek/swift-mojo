@@ -20,8 +20,20 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
     private static let processInspectionTimeout: Duration = .seconds(2)
     private static let maximumCapturedOutputBytes = 4 * 1024 * 1024
     private static let processPollInterval: Duration = .milliseconds(10)
+    private let sourceIdentityVerifier:
+        any RuntimeWorkerAcceptanceSourceIdentityVerifying
 
-    public init() {}
+    public init() {
+        self.sourceIdentityVerifier =
+            FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier()
+    }
+
+    init(
+        sourceIdentityVerifier:
+            any RuntimeWorkerAcceptanceSourceIdentityVerifying
+    ) {
+        self.sourceIdentityVerifier = sourceIdentityVerifier
+    }
 
     public func run(
         _ configuration: RuntimeWorkerAcceptanceRunConfiguration
@@ -84,6 +96,13 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
         guard processBefore.isEmpty else {
             throw RuntimeWorkerAcceptanceRunnerError.processLeak(processBefore)
         }
+        let sourceIdentityBefore = try sourceIdentityVerifier.sourceIdentity(
+            at: configuration.repositoryRootURL
+        )
+        try Self.requireCanonicalSourceIdentity(
+            sourceIdentityBefore,
+            expectedDigest: configuration.expectedSourceDigest
+        )
         do {
             let processResult = try await Self.runConsumer(
                 configuration: configuration,
@@ -121,6 +140,14 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
             }
             let processLeakCount = processLines.count
 
+            let sourceIdentityAfter = try sourceIdentityVerifier.sourceIdentity(
+                at: configuration.repositoryRootURL
+            )
+            try Self.requireStableSourceIdentity(
+                before: sourceIdentityBefore,
+                after: sourceIdentityAfter
+            )
+
             try Self.requireConsumerEvidence(
                 consumer,
                 expectedOutput: RuntimeWorkerAcceptanceProjectionOracle
@@ -140,6 +167,9 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
                     forcedFailureProcessGroupReaped
             )
             let report = RuntimeWorkerAcceptanceRunReport(
+                swiftMojoRevision: configuration.swiftMojoRevision,
+                acceptanceSourceAlgorithm: sourceIdentityAfter.algorithm,
+                acceptanceSourceDigest: sourceIdentityAfter.digest,
                 artifact: artifact,
                 protocolRecord: protocolRecord,
                 projectionFieldCount: projectionFieldCount,
@@ -192,6 +222,68 @@ public struct RuntimeWorkerAcceptanceController: Sendable {
         guard forbidden.isEmpty else {
             throw RuntimeWorkerAcceptanceRunnerError
                 .dirtyExecutionEnvironment(forbidden.sorted())
+        }
+    }
+
+    static func requireCanonicalSourceIdentity(
+        _ identity: RuntimeWorkerAcceptanceSourceIdentity,
+        expectedDigest: String
+    ) throws {
+        let canonicalInventory = RuntimeWorkerAcceptanceSourceIdentity
+            .filePaths.sorted { lhs, rhs in
+                lhs.utf8.lexicographicallyPrecedes(rhs.utf8)
+            }
+        guard identity.algorithm
+            == RuntimeWorkerAcceptanceSourceIdentity.algorithmValue else {
+            throw RuntimeWorkerAcceptanceRunnerError
+                .sourceIdentityContractMismatch("algorithm")
+        }
+        guard identity.inventory == canonicalInventory else {
+            throw RuntimeWorkerAcceptanceRunnerError
+                .sourceIdentityContractMismatch("inventory")
+        }
+        guard identity.files.map(\.path) == canonicalInventory else {
+            throw RuntimeWorkerAcceptanceRunnerError
+                .sourceIdentityContractMismatch("files.path")
+        }
+        var observedTotalByteCount = 0
+        for file in identity.files {
+            let (nextTotal, overflow) = observedTotalByteCount
+                .addingReportingOverflow(file.byteCount)
+            guard file.byteCount >= 0,
+                  file.byteCount
+                    <= RuntimeWorkerAcceptanceSourceIdentity
+                        .maximumFileByteCount,
+                  !overflow,
+                  nextTotal
+                    <= RuntimeWorkerAcceptanceSourceIdentity
+                        .maximumTotalByteCount else {
+                throw RuntimeWorkerAcceptanceRunnerError
+                    .sourceIdentityContractMismatch("files.byteCount")
+            }
+            observedTotalByteCount = nextTotal
+        }
+        guard observedTotalByteCount == identity.totalByteCount else {
+            throw RuntimeWorkerAcceptanceRunnerError
+                .sourceIdentityContractMismatch("totalByteCount")
+        }
+        guard identity.digest == expectedDigest else {
+            throw RuntimeWorkerAcceptanceRunnerError.sourceIdentityMismatch(
+                expected: expectedDigest,
+                actual: identity.digest
+            )
+        }
+    }
+
+    static func requireStableSourceIdentity(
+        before: RuntimeWorkerAcceptanceSourceIdentity,
+        after: RuntimeWorkerAcceptanceSourceIdentity
+    ) throws {
+        guard after == before else {
+            throw RuntimeWorkerAcceptanceRunnerError.sourceIdentityChanged(
+                before: before.digest,
+                after: after.digest
+            )
         }
     }
 

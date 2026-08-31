@@ -56,6 +56,9 @@ struct RuntimeWorkerAcceptanceContractTests {
             )
         let lifecycle = try ReceiptFixture.complete
         let report = RuntimeWorkerAcceptanceRunReport(
+            swiftMojoRevision: String(repeating: "b", count: 40),
+            acceptanceSourceAlgorithm: "sha256-path-nul-bytes-nul-v1",
+            acceptanceSourceDigest: String(repeating: "a", count: 64),
             artifact: artifact,
             protocolRecord: protocolRecord,
             projectionFieldCount: 80,
@@ -88,6 +91,9 @@ struct RuntimeWorkerAcceptanceContractTests {
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
         #expect(Set(object.keys) == Set([
+            "acceptanceSourceAlgorithm",
+            "acceptanceSourceDigest",
+            "swiftMojoRevision",
             "artifact",
             "protocolRecord",
             "consumerBoundary",
@@ -102,6 +108,12 @@ struct RuntimeWorkerAcceptanceContractTests {
         ]))
 
         #expect(decoded == report)
+        #expect(
+            decoded.acceptanceSourceAlgorithm
+                == "sha256-path-nul-bytes-nul-v1"
+        )
+        #expect(decoded.acceptanceSourceDigest == String(repeating: "a", count: 64))
+        #expect(decoded.swiftMojoRevision == String(repeating: "b", count: 40))
         #expect(decoded.artifact == artifact)
         #expect(decoded.protocolRecord == protocolRecord)
         #expect(decoded.consumerBoundary == consumerBoundary)
@@ -116,6 +128,28 @@ struct RuntimeWorkerAcceptanceContractTests {
             decoded.firstAttemptOutputBitPatterns)
         #expect(decoded.stageLeakCount == 0)
         #expect(decoded.processLeakCount == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func runConfigurationRequiresExactGitRevisionIdentity() throws {
+        let root = FileManager.default.temporaryDirectory
+        do {
+            _ = try RuntimeWorkerAcceptanceRunConfiguration(
+                bundleURL: root.appendingPathComponent("bundle"),
+                consumerExecutableURL: root.appendingPathComponent("consumer"),
+                temporaryDirectoryURL: root,
+                repositoryRootURL: root,
+                expectedSourceDigest: String(repeating: "a", count: 64),
+                swiftMojoRevision: String(repeating: "b", count: 64)
+            )
+            Issue.record("a non-Git-length revision was accepted")
+        } catch let error as RuntimeWorkerAcceptanceRunnerError {
+            #expect(
+                error == .invalidInput(
+                    "swift-mojo revision must be a lowercase 40-character Git object ID"
+                )
+            )
+        }
     }
 
     @Test(.timeLimit(.minutes(1)))

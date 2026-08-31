@@ -233,6 +233,9 @@ private final class Fixture {
             bundleURL: root.appendingPathComponent("bundle", isDirectory: true),
             consumerExecutableURL: executable,
             temporaryDirectoryURL: root,
+            repositoryRootURL: root,
+            expectedSourceDigest: String(repeating: "0", count: 64),
+            swiftMojoRevision: String(repeating: "0", count: 40),
             consumerDeadline: deadline
         )
     }

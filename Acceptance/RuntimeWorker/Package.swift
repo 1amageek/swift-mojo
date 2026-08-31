@@ -1,6 +1,11 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
+
+let swiftMojoPackagePath = ProcessInfo.processInfo.environment[
+    "SWIFT_MOJO_REPOSITORY_ROOT"
+] ?? "../.."
 
 let package = Package(
     name: "RuntimeWorkerAcceptance",
@@ -18,7 +23,11 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../.."),
+        .package(path: swiftMojoPackagePath),
+        .package(
+            url: "https://github.com/apple/swift-crypto.git",
+            exact: "4.5.1"
+        ),
     ],
     targets: [
         .target(
@@ -26,7 +35,9 @@ let package = Package(
             dependencies: [
                 .product(name: "MojoRuntime", package: "swift-mojo"),
                 .product(name: "MojoRuntimeWorker", package: "swift-mojo"),
-            ]
+                .product(name: "Crypto", package: "swift-crypto"),
+            ],
+            exclude: ["SourceIdentity/DESIGN.md"]
         ),
         .executableTarget(
             name: "RuntimeWorkerAcceptanceRunner",

@@ -6,13 +6,124 @@ set -euo pipefail
 # the actual-host lifecycle check to the acceptance controller. It never writes
 # a receipt or leaves generated binaries in the repository.
 
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPOSITORY_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+readonly VERIFIED_INVOCATION_NAME="swift-mojo-runtime-worker-acceptance-verified-v1"
+
+if ((${#BASH_SOURCE[@]} != 0)); then
+    readonly LIVE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    readonly LIVE_REPOSITORY_ROOT="$(cd "$LIVE_SCRIPT_DIR/.." && pwd)"
+    readonly LIVE_ACCEPTANCE_ROOT="$LIVE_REPOSITORY_ROOT/Acceptance/RuntimeWorker"
+    readonly LIVE_COMMAND_TIMEOUT="$LIVE_REPOSITORY_ROOT/scripts/command-timeout.sh"
+
+    if [[ ! -x "$LIVE_COMMAND_TIMEOUT" ]]; then
+        echo "bounded command helper is unavailable: $LIVE_COMMAND_TIMEOUT" >&2
+        exit 2
+    fi
+
+    readonly BOOTSTRAP_TIMEOUT_SECONDS="${RT4_TIMEOUT_SECONDS:-600}"
+    readonly BOOTSTRAP_WORK_ROOT="$(cd "${TMPDIR:-/tmp}" && pwd)"
+    bootstrap_work_dir_candidate="$(
+        mktemp -d "$BOOTSTRAP_WORK_ROOT/swift-mojo-rt4b.XXXXXX"
+    )"
+    readonly bootstrap_work_dir="$(cd "$bootstrap_work_dir_candidate" && pwd)"
+    unset bootstrap_work_dir_candidate
+    case "$bootstrap_work_dir" in
+        "$BOOTSTRAP_WORK_ROOT"/swift-mojo-rt4b.??????) ;;
+        *)
+            echo "acceptance bootstrap returned an invalid work directory" >&2
+            exit 1
+            ;;
+    esac
+    bootstrap_cleanup() {
+        local previous_status=$?
+        trap - EXIT
+        local cleanup_status=0
+        if [[ -d "$bootstrap_work_dir" ]]; then
+            find "$bootstrap_work_dir" -type d -exec chmod u+w {} + \
+                || cleanup_status=1
+        fi
+        if ! rm -rf -- "$bootstrap_work_dir"; then
+            echo "acceptance work directory cleanup failed: $bootstrap_work_dir" >&2
+            cleanup_status=1
+        fi
+        if ((cleanup_status != 0 && previous_status == 0)); then
+            exit 1
+        fi
+        exit "$previous_status"
+    }
+    trap bootstrap_cleanup EXIT
+
+    bootstrap_build_args=(
+        env "SWIFT_MOJO_REPOSITORY_ROOT=$LIVE_REPOSITORY_ROOT"
+        swift build
+        --package-path "$LIVE_ACCEPTANCE_ROOT"
+        --product runtime-worker-acceptance
+        --configuration release
+        --scratch-path "$bootstrap_work_dir/acceptance-bootstrap-build"
+        --disable-sandbox
+        --force-resolved-versions
+    )
+    "$LIVE_COMMAND_TIMEOUT" "$BOOTSTRAP_TIMEOUT_SECONDS" -- \
+        "${bootstrap_build_args[@]}"
+    bootstrap_runner_bin_dir="$(
+        "$LIVE_COMMAND_TIMEOUT" "$BOOTSTRAP_TIMEOUT_SECONDS" -- env \
+            "SWIFT_MOJO_REPOSITORY_ROOT=$LIVE_REPOSITORY_ROOT" swift build \
+            --package-path "$LIVE_ACCEPTANCE_ROOT" \
+            --configuration release \
+            --scratch-path "$bootstrap_work_dir/acceptance-bootstrap-build" \
+            --disable-sandbox \
+            --force-resolved-versions \
+            --show-bin-path
+    )"
+    bootstrap_runner="$bootstrap_runner_bin_dir/runtime-worker-acceptance"
+    if [[ ! -x "$bootstrap_runner" ]]; then
+        echo "runtime-worker acceptance bootstrap was not produced: $bootstrap_runner" >&2
+        exit 1
+    fi
+
+    source_snapshot_root="$bootstrap_work_dir/acceptance-source"
+    "$LIVE_COMMAND_TIMEOUT" "$BOOTSTRAP_TIMEOUT_SECONDS" -- \
+        "$bootstrap_runner" \
+        --execute-verified-source-at "$LIVE_REPOSITORY_ROOT" \
+        --destination "$source_snapshot_root" \
+        --live-git-root "$LIVE_REPOSITORY_ROOT" \
+        -- "$@"
+    exit 0
+fi
+
+if [[ "$0" != "$VERIFIED_INVOCATION_NAME" ]]; then
+    echo "verified acceptance invocation identity is invalid" >&2
+    exit 1
+fi
+
+if (($# < 3)); then
+    echo "verified acceptance invocation is incomplete" >&2
+    exit 1
+fi
+readonly VERIFIED_SOURCE_ARGUMENT="$1"
+readonly LIVE_GIT_ROOT_ARGUMENT="$2"
+readonly ACCEPTANCE_SOURCE_DIGEST="$3"
+shift 3
+
+readonly REPOSITORY_ROOT="$(cd "$VERIFIED_SOURCE_ARGUMENT" && pwd)"
+readonly LIVE_GIT_REPOSITORY_ROOT="$(cd "$LIVE_GIT_ROOT_ARGUMENT" && pwd)"
+readonly WORK_DIR="$(cd "$REPOSITORY_ROOT/.." && pwd)"
+readonly PRODUCTION_ROOT="$WORK_DIR/production/swift-mojo"
 readonly ACCEPTANCE_ROOT="$REPOSITORY_ROOT/Acceptance/RuntimeWorker"
 readonly MODEL_ROOT="$ACCEPTANCE_ROOT/Fixtures/RuntimeWorkerAcceptanceModel"
 readonly CONSUMER_ROOT="$ACCEPTANCE_ROOT/Fixtures/Consumer"
 readonly BINDINGS_SOURCE="$MODEL_ROOT/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
 readonly COMMAND_TIMEOUT="$REPOSITORY_ROOT/scripts/command-timeout.sh"
+
+if [[ "${REPOSITORY_ROOT##*/}" != "acceptance-source" \
+    || "$REPOSITORY_ROOT" != "$WORK_DIR/acceptance-source" \
+    || ! "${WORK_DIR##*/}" =~ ^swift-mojo-rt4b\.[[:alnum:]]{6}$ ]]; then
+    echo "verified acceptance source is outside its fixed private layout" >&2
+    exit 1
+fi
+if [[ ! "$ACCEPTANCE_SOURCE_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "acceptance source digest is not lowercase SHA-256" >&2
+    exit 1
+fi
 
 target_triple=""
 target_cpu=""
@@ -157,8 +268,21 @@ if [[ ! -f "$BINDINGS_SOURCE" ]]; then
     echo "canonical binding source is missing: $BINDINGS_SOURCE" >&2
     exit 2
 fi
-work_root="${TMPDIR:-/tmp}"
-work_dir="$(mktemp -d "$work_root/swift-mojo-rt4b.XXXXXX")"
+work_dir="$WORK_DIR"
+case "$REPOSITORY_ROOT" in
+    "$work_dir"/*) ;;
+    *)
+        echo "verified source snapshot is outside the private work directory" >&2
+        exit 1
+        ;;
+esac
+case "$PRODUCTION_ROOT" in
+    "$work_dir"/*) ;;
+    *)
+        echo "production archive is outside the private work directory" >&2
+        exit 1
+        ;;
+esac
 execution_tmp=""
 worker_process_prefix=""
 worker_process_leak_observed=false
@@ -173,10 +297,6 @@ cleanup() {
             echo "acceptance cleanup observed leaked worker stage: $worker_process_prefix*" >&2
         fi
         cleanup_worker_processes || cleanup_status=1
-    fi
-    if ! rm -rf -- "$work_dir"; then
-        echo "acceptance work directory cleanup failed: $work_dir" >&2
-        cleanup_status=1
     fi
     if ((previous_status == 0)) \
         && [[ "$worker_process_leak_observed" == true \
@@ -280,19 +400,79 @@ cleanup_worker_processes() {
     fi
 }
 
+resolved_git_root="$(run_bounded "$timeout_seconds" git \
+    -C "$LIVE_GIT_REPOSITORY_ROOT" rev-parse --show-toplevel)"
+if [[ "$(cd "$resolved_git_root" && pwd)" != "$LIVE_GIT_REPOSITORY_ROOT" ]]; then
+    echo "live Git object authority does not match the bootstrap repository" >&2
+    exit 1
+fi
+swift_mojo_revision="$(run_bounded "$timeout_seconds" git \
+    -C "$LIVE_GIT_REPOSITORY_ROOT" rev-parse --verify 'HEAD^{commit}')"
+if [[ ! "$swift_mojo_revision" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "swift-mojo HEAD is not a lowercase 40-character Git object ID" >&2
+    exit 1
+fi
+readonly SWIFT_MOJO_REVISION="$swift_mojo_revision"
+
+production_archive="$work_dir/swift-mojo.tar"
+mkdir -p "$PRODUCTION_ROOT"
+run_bounded "$timeout_seconds" git \
+    -C "$LIVE_GIT_REPOSITORY_ROOT" archive \
+    --format=tar \
+    --output="$production_archive" \
+    "$SWIFT_MOJO_REVISION"
+run_bounded "$timeout_seconds" tar \
+    -xf "$production_archive" -C "$PRODUCTION_ROOT"
+find "$PRODUCTION_ROOT" -type f -exec chmod 0444 {} +
+find "$PRODUCTION_ROOT" -type d -exec chmod 0555 {} +
+
+runner_build_args=(
+    env "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT"
+    swift build
+    --package-path "$ACCEPTANCE_ROOT"
+    --product runtime-worker-acceptance
+    --configuration release
+    --scratch-path "$work_dir/acceptance-execution-build"
+    --disable-sandbox
+    --force-resolved-versions
+)
+run_bounded "$timeout_seconds" "${runner_build_args[@]}"
+runner_bin_dir="$(run_bounded "$timeout_seconds" env \
+    "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT" swift build \
+    --package-path "$ACCEPTANCE_ROOT" \
+    --configuration release \
+    --scratch-path "$work_dir/acceptance-execution-build" \
+    --disable-sandbox \
+    --force-resolved-versions \
+    --show-bin-path)"
+runner="$runner_bin_dir/runtime-worker-acceptance"
+if [[ ! -x "$runner" ]]; then
+    echo "runtime-worker acceptance runner was not produced: $runner" >&2
+    exit 1
+fi
+execution_runner_source_digest="$(run_bounded "$timeout_seconds" "$runner" \
+    --source-digest-at "$REPOSITORY_ROOT")"
+if [[ "$execution_runner_source_digest" != "$ACCEPTANCE_SOURCE_DIGEST" ]]; then
+    echo "execution runner does not match the verified source snapshot" >&2
+    exit 1
+fi
+
 swift_build_args=(
     swift build
-    --package-path "$REPOSITORY_ROOT"
+    --package-path "$PRODUCTION_ROOT"
     --product swift-mojo
     --configuration release
     --scratch-path "$work_dir/swift-build"
     --disable-sandbox
+    --force-resolved-versions
 )
 run_bounded "$timeout_seconds" "${swift_build_args[@]}"
 swift_bin_dir="$(run_bounded "$timeout_seconds" swift build \
-    --package-path "$REPOSITORY_ROOT" \
+    --package-path "$PRODUCTION_ROOT" \
     --configuration release \
     --scratch-path "$work_dir/swift-build" \
+    --disable-sandbox \
+    --force-resolved-versions \
     --show-bin-path)"
 swift_mojo="$swift_bin_dir/swift-mojo"
 if [[ ! -x "$swift_mojo" ]]; then
@@ -305,6 +485,7 @@ authoring_environment=(
     env
     "MODULAR_HOME=$MODULAR_HOME"
     "SWIFT_MOJO_EXECUTABLE=$SWIFT_MOJO_EXECUTABLE"
+    "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT"
 )
 if [[ -n "${SWIFT_MOJO_LLVM_AR:-}" ]]; then
     authoring_environment+=("SWIFT_MOJO_LLVM_AR=$SWIFT_MOJO_LLVM_AR")
@@ -346,36 +527,25 @@ run_bounded "$timeout_seconds" "${clean_environment[@]}" "$swift_mojo" \
     runtime-worker-verify --bundle "$relocated_bundle" --format json
 
 consumer_build_args=(
+    env "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT"
     swift build
     --package-path "$CONSUMER_ROOT"
     --product RuntimeWorkerAcceptanceConsumer
     --configuration release
     --scratch-path "$work_dir/consumer-build"
     --disable-sandbox
+    --force-resolved-versions
 )
 run_bounded "$timeout_seconds" "${consumer_build_args[@]}"
-consumer_bin_dir="$(run_bounded "$timeout_seconds" swift build \
+consumer_bin_dir="$(run_bounded "$timeout_seconds" env \
+    "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT" swift build \
     --package-path "$CONSUMER_ROOT" \
     --configuration release \
     --scratch-path "$work_dir/consumer-build" \
+    --disable-sandbox \
+    --force-resolved-versions \
     --show-bin-path)"
 consumer="$consumer_bin_dir/RuntimeWorkerAcceptanceConsumer"
-
-runner_build_args=(
-    swift build
-    --package-path "$ACCEPTANCE_ROOT"
-    --product runtime-worker-acceptance
-    --configuration release
-    --scratch-path "$work_dir/acceptance-build"
-    --disable-sandbox
-)
-run_bounded "$timeout_seconds" "${runner_build_args[@]}"
-runner_bin_dir="$(run_bounded "$timeout_seconds" swift build \
-    --package-path "$ACCEPTANCE_ROOT" \
-    --configuration release \
-    --scratch-path "$work_dir/acceptance-build" \
-    --show-bin-path)"
-runner="$runner_bin_dir/runtime-worker-acceptance"
 
 execution_tmp="$work_dir/execution-tmp"
 execution_home="$work_dir/execution-home"
@@ -392,4 +562,7 @@ run_bounded "$timeout_seconds" env -i \
     --failure-bundle "$relocated_bundle" \
     --consumer "$consumer" \
     --tmpdir "$execution_tmp" \
+    --repository-root "$REPOSITORY_ROOT" \
+    --expected-source-digest "$ACCEPTANCE_SOURCE_DIGEST" \
+    --swift-mojo-revision "$SWIFT_MOJO_REVISION" \
     --deadline-seconds 45

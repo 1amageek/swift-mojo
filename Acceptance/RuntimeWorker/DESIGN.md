@@ -20,12 +20,12 @@ closed wire DTO is used so `encoded()` and `decodeCanonical(_:)` remain the only
 receipt codec authority.
 
 `RuntimeWorkerAcceptanceRunReport` is the lossless material handoff for that
-later step. It contains one canonical `Artifact`, `ProtocolRecord`,
-`ConsumerBoundary`, `ExecutionEnvironment`, and `Lifecycle`, plus only the
-derived projection count, exact Float32 bit-pattern diagnostics, typed forced
-failure code, and stage/process leak counts. The report is `Codable` for the
-ephemeral handoff; it is not a receipt and does not add a second codec or
-persistence authority.
+later step. It contains the canonical source-identity algorithm and digest,
+one canonical `Artifact`, `ProtocolRecord`, `ConsumerBoundary`,
+`ExecutionEnvironment`, and `Lifecycle`, plus only the derived projection
+count, exact Float32 bit-pattern diagnostics, typed forced failure code, and
+stage/process leak counts. The report is `Codable` for the ephemeral handoff;
+it is not a receipt and does not add a second codec or persistence authority.
 
 ## Responsibilities and Boundaries
 
@@ -43,6 +43,10 @@ The RT4.B boundary owns:
 
 - the canonical Swift binding and Mojo source fixture, with no checked-in
   generated binaries or bundles;
+- the public acceptance-source identity, including its versioned algorithm and
+  closed repository-relative inventory;
+- a verified read-only private snapshot as the only RT4.B source input;
+- an exact Git-revision archive as the only parent `swift-mojo` build input;
 - exact pinned compiler activation and runtime-library selection for authoring;
 - public `verifyWorkerBundle(at:)` projection and an independent field oracle;
 - the clean-environment consumer launch, typed lifecycle exercise, and report;
@@ -50,16 +54,18 @@ The RT4.B boundary owns:
 
 Neither boundary owns:
 
-- worker transport, POSIX operations, or private worker lifecycle (these belong
-  to `MojoRuntimeWorker`);
+- worker transport, its POSIX operations, or private worker lifecycle (these
+  belong to `MojoRuntimeWorker`; acceptance-owned filesystem/process evidence
+  uses a separate internal adapter);
 - arbitrary process launching outside the one fixed consumer executable;
 - MAX device or kernel execution, training, performance, or physical HIL
   claims;
 - Manas or Kuyu policy.
 
-The package depends only on public `MojoRuntime` and `MojoRuntimeWorker` for
-the RT4.B implementation. The parent package does not depend on this
-acceptance package, so no acceptance API leaks into a `swift-mojo` product.
+The package uses public `MojoRuntime` and `MojoRuntimeWorker` as its only
+parent-runtime products and uses `Crypto` only for incremental SHA-256. The
+parent package does not depend on this acceptance package, so no acceptance
+API leaks into a `swift-mojo` product.
 
 ## Related Designs
 
@@ -68,13 +74,17 @@ acceptance package, so no acceptance API leaks into a `swift-mojo` product.
 | [`Swift Mojo`](../../DESIGN.md) | parent index | Package boundary and public W2 products | The acceptance package is a separate consumer-side evidence authority. | The RT4.B controller consumes only parent public products; the canonical-record portability fix is part of this sprint and preserves the parent public contract. |
 | [`MojoRuntime`](../../Sources/MojoRuntime/DESIGN.md) | depends on | `MojoRuntimeWorkerBundleVerification` public fields | Supplies the freshly verified immutable W2 projection. | Projection is artifact evidence, not host execution evidence. |
 | [`MojoRuntimeWorker`](../../Sources/MojoRuntimeWorker/DESIGN.md) | used by RT4.B consumer | Public generic worker lifecycle | Its typed operations are exercised by the external consumer fixture. | Acceptance imports no worker internals or POSIX support. |
+| [`SourceIdentity`](Sources/RuntimeWorkerAcceptance/SourceIdentity/DESIGN.md) | child component | Versioned source inventory and incremental digest | Supplies the only acceptance-source identity authority used before authoring and around execution. | C/D consume the public value; they do not define an inventory or framing variant. |
 | [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements evidence schema | W1/W2/W3 process/protocol boundary | Fixes the distinction between verified artifacts and actual-host receipts. | Device, kernel, training, performance, and HIL remain outside this scope. |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    S["Canonical Swift + Mojo fixture"] --> AU["Pinned authoring CLI"]
+    S["Live canonical source"] --> SI["No-follow source verifier"]
+    SI --> SS["Read-only private source snapshot"]
+    G["Exact Git revision archive"] --> AU["Pinned authoring CLI"]
+    SS --> AU
     AU --> B["Ephemeral relocated worker bundle"]
     B --> V["Public W2 verifier"]
     V --> O["Independent field oracle"]
@@ -92,7 +102,7 @@ flowchart LR
 The data flow is intentionally one-way:
 
 ```text
-source fixture + pinned authoring
+verified private source snapshot + exact production revision + pinned authoring
     -> ephemeral bundle + public verifier
     -> field-by-field projection oracle
     -> clean external consumer process
@@ -104,6 +114,21 @@ The controller never fabricates a verifier projection. It maps the actual
 filesystem verifier result; the consumer creates the worker only from its own
 freshly verified public projection, and no receipt field can cause a worker
 launch.
+
+The source identity flow is a separate, read-only authority:
+
+```text
+repository root (explicit input)
+    -> descriptor-relative no-follow closed inventory expansion
+    -> normalized relative UTF-8 paths, byte sorted
+    -> incremental SHA-256(path + NUL + bytes + NUL)
+    -> public AcceptanceSourceIdentity
+    -> source A == read-only snapshot B == source C
+    -> descriptor-read script bytes == B script record
+    -> bash -c receives those exact bytes; no script path is reopened
+    -> snapshot digest == fresh-runner digest
+    -> execution-start identity == execution-end identity
+```
 
 ## Contracts and Invariants
 
@@ -229,19 +254,97 @@ five forbidden claims to true. Construction validates all cross-record
 invariants before a receipt can be encoded. It never turns missing evidence
 into a passed result.
 
+### Acceptance-source identity
+
+`SourceIdentity` is the sole authority for the source material used to produce
+RT4.B evidence. Its public value contains the literal algorithm
+`sha256-path-nul-bytes-nul-v1`, the closed sorted relative file inventory,
+per-file byte counts and digests, the total byte count, and the aggregate
+digest. The inventory is exactly these repository-relative files:
+
+```text
+Acceptance/RuntimeWorker/DESIGN.md
+Acceptance/RuntimeWorker/Fixtures/Consumer/Package.resolved
+Acceptance/RuntimeWorker/Fixtures/Consumer/Package.swift
+Acceptance/RuntimeWorker/Fixtures/Consumer/Sources/RuntimeWorkerAcceptanceConsumer/RuntimeWorkerAcceptanceConsumer.swift
+Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Mojo/RuntimeWorkerAcceptanceModel/__init__.mojo
+Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Package.swift
+Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift
+Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/SwiftMojo.json
+Acceptance/RuntimeWorker/Package.resolved
+Acceptance/RuntimeWorker/Package.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceContract.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceController.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceError.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceProjectionOracle.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunConfiguration.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunReport.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceRunnerError.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/DESIGN.md
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/FileSystemRuntimeWorkerAcceptanceSourceSnapshotter.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptancePOSIX.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentity.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentityError.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceIdentityVerifying.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceSnapshot.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/SourceIdentity/RuntimeWorkerAcceptanceSourceSnapshotting.swift
+Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceRunner/RuntimeWorkerAcceptanceRunner.swift
+Acceptance/RuntimeWorker/Tests/RuntimeWorkerAcceptanceTests/RuntimeWorkerAcceptanceSnapshotPackageLayout.swift
+scripts/command-timeout.sh
+scripts/runtime-worker-acceptance.sh
+```
+
+The verifier accepts an explicit repository root only. Every inventory file
+must exist and be a regular non-symlink file. Every entry below the four owned
+fixture/source directories must be either an inventory file or one of its
+ancestor directories; any other file or directory is rejected. Paths are
+normalized to root-relative ASCII/UTF-8 slash-separated form and sorted by
+their UTF-8 bytes.
+The aggregate hasher updates incrementally for each sorted entry with the
+entry path bytes, one zero byte, raw file bytes, and one zero byte. Invalid,
+missing, extra, symlinked, unreadable, non-regular, over-bound, or otherwise
+unrepresentable input fails with a typed error.
+
+The bootstrap runner receives the live repository root and materializes one
+verified, read-only private snapshot by copying only descriptor-opened,
+no-follow, bounded inventory files. It also captures the verified execution
+script through a retained snapshot descriptor and replaces itself with
+`/bin/bash -c` over those exact bytes; no post-verification script pathname is
+executed. The live tree is never again a build, authoring, or execution input.
+The verified script archives one captured Git revision into a separate
+read-only production tree. The execution runner, model, and consumer are built
+only from the source snapshot and resolve their parent package only from that
+production tree. The execution runner recomputes the snapshot identity before
+authoring and the controller recomputes the full identity immediately before
+and after consumer execution. A changed value is a typed failure; the consumer
+receives no repository-root or verifier authority. The lossless
+`RuntimeWorkerAcceptanceRunReport` carries the revision, canonical digest, and
+algorithm so later receipt mappers cannot substitute an independent source or
+parent implementation identity.
+
 ## Runtime Flows
 
 ```text
 authoring script
+  -> bootstrap only: materialize verified read-only source snapshot D
+  -> descriptor-read D's script and exec bash -c with those exact bytes
+  -> derive D and its private work root from the runner-owned fixed layout
+  -> ignore caller phase/source/work-directory environment claims
+  -> archive exact Git revision P as read-only production dependency tree
+  -> build execution runner from D with dependency root P; require identity D
   -> prepare pinned bundle
   -> verify bundle through public verifier
   -> relocate into acceptance-owned TMPDIR
+  -> source identity before execution
   -> launch consumer with empty PATH and no compiler/Python/loader variables
   -> consumer: success -> typed timeout -> clean success
   -> controller: compare projection fields and inspect stage/process cleanup
+  -> source identity after execution; reject mutation
   -> aborted run: TERM/KILL exact TMPDIR worker groups, wait boundedly, then
      remove only newly-created stage roots or return typed cleanup failure
   -> return lossless non-receipt run report and emit it as sorted JSON on stdout
+  -> original bootstrap shell removes only its own exact mktemp work root
   -> caller may construct/encode the closed receipt
 ```
 
@@ -260,9 +363,11 @@ temporary root. The consumer owns each `MojoRuntimeWorker.withAttempt` scope;
 the worker owns private staging, transport, and child reaping. The controller
 captures child output through two nonblocking pipes, bounded to 4 MiB per
 stream, and closes every descriptor before returning. It retains no process,
-descriptor, bundle, output file, or task after `run` returns. The lossless
-report is caller-owned material; the encoded receipt `Data`, when requested by
-a caller, remains caller-owned.
+descriptor, bundle, output file, or task after `run` returns. The bootstrap
+shell alone owns cleanup of the exact work root returned by its own `mktemp`;
+the verified script cannot replace that authority through an environment
+variable. The lossless report is caller-owned material; the encoded receipt
+`Data`, when requested by a caller, remains caller-owned.
 
 ## Failure, Concurrency, and Constraints
 
