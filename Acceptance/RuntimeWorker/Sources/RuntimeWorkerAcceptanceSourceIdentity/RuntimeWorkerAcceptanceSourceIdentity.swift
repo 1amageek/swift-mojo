@@ -16,13 +16,10 @@ public struct RuntimeWorkerAcceptanceSourceIdentity: Equatable, Sendable {
 
     public static let filePaths: [String] = [
         "Acceptance/RuntimeWorker/DESIGN.md",
-        "Acceptance/RuntimeWorker/Fixtures/Consumer/Package.resolved",
-        "Acceptance/RuntimeWorker/Fixtures/Consumer/Package.swift",
         "Acceptance/RuntimeWorker/Fixtures/Consumer/Sources/RuntimeWorkerAcceptanceConsumer/RuntimeWorkerAcceptanceConsumer.swift",
-        "Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Mojo/RuntimeWorkerAcceptanceModel/__init__.mojo",
-        "Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Package.swift",
         "Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift",
-        "Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/SwiftMojo.json",
+        "Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/RuntimeWorkerAcceptanceModelInventory.swift",
+        "Acceptance/RuntimeWorker/Mojo/RuntimeWorkerAcceptanceModel/__init__.mojo",
         "Acceptance/RuntimeWorker/Package.resolved",
         "Acceptance/RuntimeWorker/Package.swift",
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceContract.swift",
@@ -45,6 +42,7 @@ public struct RuntimeWorkerAcceptanceSourceIdentity: Equatable, Sendable {
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/DESIGN.md",
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/RuntimeWorkerAcceptanceSourceRunner.swift",
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/RuntimeWorkerAcceptanceSourceRunnerError.swift",
+        "Acceptance/RuntimeWorker/SwiftMojo.json",
         "Acceptance/RuntimeWorker/Tests/RuntimeWorkerAcceptanceTests/RuntimeWorkerAcceptanceSnapshotPackageLayout.swift",
         "scripts/command-timeout.sh",
         "scripts/runtime-worker-acceptance.sh",

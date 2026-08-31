@@ -25,6 +25,7 @@ public struct FileSystemRuntimeWorkerAcceptanceSourceIdentityVerifier:
     private static let ownedDirectoryPaths: [String] = [
         "Acceptance/RuntimeWorker/Fixtures/Consumer",
         "Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel",
+        "Acceptance/RuntimeWorker/Mojo",
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance",
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceRunner",
         "Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity",

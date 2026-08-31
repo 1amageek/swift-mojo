@@ -75,13 +75,10 @@ The closed file inventory is exactly:
 
 ```text
 Acceptance/RuntimeWorker/DESIGN.md
-Acceptance/RuntimeWorker/Fixtures/Consumer/Package.resolved
-Acceptance/RuntimeWorker/Fixtures/Consumer/Package.swift
 Acceptance/RuntimeWorker/Fixtures/Consumer/Sources/RuntimeWorkerAcceptanceConsumer/RuntimeWorkerAcceptanceConsumer.swift
-Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Mojo/RuntimeWorkerAcceptanceModel/__init__.mojo
-Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Package.swift
 Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift
-Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/SwiftMojo.json
+Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/RuntimeWorkerAcceptanceModelInventory.swift
+Acceptance/RuntimeWorker/Mojo/RuntimeWorkerAcceptanceModel/__init__.mojo
 Acceptance/RuntimeWorker/Package.resolved
 Acceptance/RuntimeWorker/Package.swift
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptance/RuntimeWorkerAcceptanceContract.swift
@@ -104,6 +101,7 @@ Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceIdentity/RuntimeWo
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/DESIGN.md
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/RuntimeWorkerAcceptanceSourceRunner.swift
 Acceptance/RuntimeWorker/Sources/RuntimeWorkerAcceptanceSourceRunner/RuntimeWorkerAcceptanceSourceRunnerError.swift
+Acceptance/RuntimeWorker/SwiftMojo.json
 Acceptance/RuntimeWorker/Tests/RuntimeWorkerAcceptanceTests/RuntimeWorkerAcceptanceSnapshotPackageLayout.swift
 scripts/command-timeout.sh
 scripts/runtime-worker-acceptance.sh
@@ -162,7 +160,8 @@ lightweight source runner built in isolated live-only arena GB
     -> archive exact swift-mojo revision P into private read-only tree T
     -> execution runner built from S with dependency root T in fresh arena GP
     -> execution runner recomputes D before authoring
-    -> model and consumer build only from S with dependency root T
+    -> model marker, explicit worker binding inventory, and consumer use only S
+       with dependency root T
     -> verifier.sourceIdentity(at: S) before execution
     -> verifier.sourceIdentity(at: S) after execution
     -> reject any digest/algorithm/inventory mismatch

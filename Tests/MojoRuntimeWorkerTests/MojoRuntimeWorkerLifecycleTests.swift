@@ -329,14 +329,7 @@ struct MojoRuntimeWorkerLifecycleTests {
         async throws
     {
         let fixture = try ScopedAttemptFixture.make(
-            behavior: .hangAfterWorkerShutdown,
-            timeouts: MojoRuntimeWorkerTimeouts(
-                startup: .seconds(2),
-                sessionCreation: .seconds(2),
-                gracefulShutdown: .milliseconds(40),
-                terminationGracePeriod: .nanoseconds(1),
-                forcedCleanup: .nanoseconds(1)
-            )
+            behavior: .nonzeroAfterWorkerShutdown
         )
         defer { fixture.removeSource() }
         let sentinel = LifecycleCallerSentinel("cleanup-sentinel")
@@ -361,16 +354,15 @@ struct MojoRuntimeWorkerLifecycleTests {
             )
             #expect(
                 failures == [
-                    .processGroupTerminationFailed,
-                    .processReapFailed,
-                    .privateStageRetained,
+                    .processTerminationFailed,
                 ]
             )
         } catch {
             Issue.record("Unexpected composed failure: \(error)")
         }
 
-        #expect(FileManager.default.fileExists(atPath: fixture.stageRoot.path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.stageRoot.path))
+        try fixture.expectObservedProcessReaped()
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -705,6 +697,7 @@ private enum LifecycleFixtureBehavior: String {
     case delayedInvocationFailure
     case delayedRemoteFailure
     case hangAfterWorkerShutdown
+    case nonzeroAfterWorkerShutdown
     case hangBeforeReady
     case delayedSessionCreated
     case delayedShutdown
@@ -1109,6 +1102,9 @@ private struct AttemptFixture: Sendable {
                 if BEHAVIOR == "hangAfterWorkerShutdown":
                     while True:
                         time.sleep(1)
+                if BEHAVIOR == "nonzeroAfterWorkerShutdown":
+                    record("exit:73")
+                    sys.exit(73)
                 record("exit:0")
                 sys.exit(0)
             else:

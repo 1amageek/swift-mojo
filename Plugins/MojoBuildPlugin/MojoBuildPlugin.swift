@@ -140,7 +140,10 @@ struct MojoBuildPlugin: BuildToolPlugin {
         }
 
         let verifier = try context.tool(named: "swift-mojo")
-        let sources = sourceTarget.sourceFiles(withSuffix: "swift")
+        let sources = sourceTarget.sourceFiles
+            .filter {
+                $0.type == .source && $0.url.pathExtension == "swift"
+            }
             .map(\.url)
             .sorted { $0.path < $1.path }
         let generatedDirectory = context.package.directoryURL

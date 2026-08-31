@@ -30,6 +30,7 @@ if ((${#BASH_SOURCE[@]} != 0)); then
     bootstrap_cancel_gate_lock_directory=""
     bootstrap_cancellation_publish_failed=0
     bootstrap_capture_sequence=0
+    bootstrap_runner=""
 
     bootstrap_publish_cancellation() {
         local cancellation_path=""
@@ -132,23 +133,23 @@ if ((${#BASH_SOURCE[@]} != 0)); then
     bootstrap_cancel_gate_lock_directory="$bootstrap_work_dir/cancel-gate-lock"
     bootstrap_publish_cancellation || true
 
-    bootstrap_wait_for_bounded() {
-        local bounded_pid="$1"
-        local bounded_status=0
-        if wait "$bounded_pid"; then
-            bounded_status=0
+    bootstrap_wait_for_child() {
+        local child_pid="$1"
+        local child_status=0
+        if wait "$child_pid"; then
+            child_status=0
         else
-            bounded_status=$?
+            child_status=$?
         fi
         if ((bootstrap_requested_exit_status != 0)); then
             # The first wait can be interrupted by the shell trap before the
             # bounded child exits. Ignore subsequent signals and wait once
             # more so the exact child is either reaped here or already reaped.
             trap '' TERM INT HUP
-            wait "$bounded_pid" 2>/dev/null || true
+            wait "$child_pid" 2>/dev/null || true
             return "$bootstrap_requested_exit_status"
         fi
-        return "$bounded_status"
+        return "$child_status"
     }
 
     run_bootstrap_bounded() {
@@ -167,7 +168,7 @@ if ((${#BASH_SOURCE[@]} != 0)); then
         COMMAND_TIMEOUT_GATE_LOCK_DIRECTORY="$bootstrap_cancel_gate_lock_directory" \
             "$LIVE_COMMAND_TIMEOUT" "$seconds" -- "$@" &
         local bounded_pid=$!
-        bootstrap_wait_for_bounded "$bounded_pid"
+        bootstrap_wait_for_child "$bounded_pid"
     }
 
     run_bootstrap_bounded_capture() {
@@ -185,12 +186,87 @@ if ((${#BASH_SOURCE[@]} != 0)); then
         printf -v "$result_name" '%s' "$(< "$capture_path")"
     }
 
-    bootstrap_require_no_worker_processes() {
-        local worker_prefix="$bootstrap_work_dir/execution-tmp/swift-mojo-worker-"
+    run_bootstrap_bounded_logged() {
+        local log_path="$1"
+        local seconds="$2"
+        shift 2
+        local command_status=0
+        : > "$log_path"
+        run_bootstrap_bounded "$seconds" "$@" > "$log_path" 2>&1 \
+            || command_status=$?
+        if ((command_status != 0)); then
+            /bin/cat "$log_path" >&2
+            return "$command_status"
+        fi
+    }
+
+    bootstrap_compiled_modules() {
+        local log_path="$1"
+        local modules_path="$2"
+        local line=""
+        : > "$modules_path"
+        while IFS= read -r line; do
+            if [[ "$line" != *" -c "* \
+                && "$line" != *" -emit-module"* \
+                && "$line" != *" -primary-file "* ]]; then
+                continue
+            fi
+            if [[ "$line" =~ (^|[[:space:]])-module-name[[:space:]]+([A-Za-z_][A-Za-z0-9_]*) ]]; then
+                if [[ "${BASH_REMATCH[2]}" != "main" ]]; then
+                    printf '%s\n' "${BASH_REMATCH[2]}" >> "$modules_path"
+                fi
+            fi
+        done < "$log_path"
+        LC_ALL=C /usr/bin/sort -u -o "$modules_path" "$modules_path"
+    }
+
+    bootstrap_require_expected_build_scope() {
+        local log_path="$1"
+        local modules_path="$bootstrap_work_dir/bootstrap-compiled-modules.txt"
+        bootstrap_compiled_modules "$log_path" "$modules_path"
+
+        local expected_module=""
+        for expected_module in \
+            RuntimeWorkerAcceptanceSourceIdentity \
+            RuntimeWorkerAcceptanceSourceRunner; do
+            if ! /usr/bin/grep -Fxq "$expected_module" "$modules_path"; then
+                echo "bootstrap build log is missing expected module: $expected_module" >&2
+                return 1
+            fi
+        done
+
+        local module_name=""
+        while IFS= read -r module_name; do
+            case "$module_name" in
+                Mojo*|SwiftSyntax*|_SwiftSyntax*|SwiftParser*|SwiftDiagnostics|SwiftOperators|Crypto|_CryptoExtras|CryptoBoringWrapper|CCryptoBoringSSL*)
+                    echo "bootstrap compiled a forbidden heavy module: $module_name" >&2
+                    return 1
+                    ;;
+            esac
+        done < "$modules_path"
+
+        local line=""
+        while IFS= read -r line; do
+            if [[ "$line" == *" -c "* \
+                && ("$line" == *"/CCryptoBoringSSL/"* \
+                    || "$line" == *"/CCryptoBoringSSLShims/"*) ]]; then
+                echo "bootstrap compiled forbidden BoringSSL C source" >&2
+                return 1
+            fi
+        done < "$log_path"
+
+        local module_count=""
+        module_count="$(/usr/bin/wc -l < "$modules_path")"
+        module_count="${module_count//[[:space:]]/}"
+        printf 'runtime-worker-acceptance build-log phase=bootstrap compiled-modules=%s\n' \
+            "$module_count" >&2
+    }
+
+    bootstrap_require_no_work_processes() {
         local process_command="/bin/ps"
         [[ -x "$process_command" ]] || process_command="/usr/bin/ps"
         if [[ ! -x "$process_command" ]]; then
-            echo "acceptance supervisor cannot inspect worker processes" >&2
+            echo "acceptance supervisor cannot inspect work-root processes" >&2
             return 1
         fi
 
@@ -199,8 +275,8 @@ if ((${#BASH_SOURCE[@]} != 0)); then
             || return 1
         local line=""
         while IFS= read -r line; do
-            if [[ "$line" == *"$worker_prefix"* ]]; then
-                echo "acceptance supervisor preserved unowned worker process: $line" >&2
+            if [[ "$line" == *"$bootstrap_work_dir/"* ]]; then
+                echo "acceptance supervisor preserved visible work-root process: $line" >&2
                 return 1
             fi
         done <<< "$process_listing"
@@ -211,8 +287,12 @@ if ((${#BASH_SOURCE[@]} != 0)); then
         local previous_status=$?
         trap - EXIT
         trap '' TERM INT HUP
+        if ((previous_status == 70)); then
+            echo "acceptance supervisor preserved work directory after an inherited process lease remained open: $bootstrap_work_dir" >&2
+            exit 70
+        fi
         local cleanup_status=0
-        bootstrap_require_no_worker_processes || cleanup_status=1
+        bootstrap_require_no_work_processes || cleanup_status=1
         if ((cleanup_status == 0)); then
             bootstrap_remove_work_directory || cleanup_status=1
         else
@@ -223,8 +303,6 @@ if ((${#BASH_SOURCE[@]} != 0)); then
         fi
         exit "$previous_status"
     }
-    trap bootstrap_cleanup EXIT
-
     if ((bootstrap_cancellation_publish_failed != 0)); then
         echo "acceptance supervisor could not publish cancellation" >&2
         exit 70
@@ -236,6 +314,7 @@ if ((${#BASH_SOURCE[@]} != 0)); then
     bootstrap_build_args=(
         env "SWIFT_MOJO_REPOSITORY_ROOT=$LIVE_REPOSITORY_ROOT"
         swift build
+        --verbose
         --package-path "$LIVE_ACCEPTANCE_ROOT"
         --product runtime-worker-acceptance-source
         --configuration release
@@ -243,9 +322,12 @@ if ((${#BASH_SOURCE[@]} != 0)); then
         --disable-sandbox
         --force-resolved-versions
     )
+    bootstrap_build_log="$bootstrap_work_dir/bootstrap-build.log"
     bootstrap_build_started_seconds=$SECONDS
-    run_bootstrap_bounded "$BOOTSTRAP_TIMEOUT_SECONDS" \
+    run_bootstrap_bounded_logged \
+        "$bootstrap_build_log" "$BOOTSTRAP_TIMEOUT_SECONDS" \
         "${bootstrap_build_args[@]}"
+    bootstrap_require_expected_build_scope "$bootstrap_build_log"
     printf 'runtime-worker-acceptance phase=bootstrap-build seconds=%d\n' \
         "$((SECONDS - bootstrap_build_started_seconds))" >&2
     bootstrap_runner_bin_dir=""
@@ -263,14 +345,25 @@ if ((${#BASH_SOURCE[@]} != 0)); then
         echo "runtime-worker acceptance bootstrap was not produced: $bootstrap_runner" >&2
         exit 1
     fi
+    trap bootstrap_cleanup EXIT
 
     source_snapshot_root="$bootstrap_work_dir/acceptance-source"
-    run_bootstrap_bounded "$BOOTSTRAP_TIMEOUT_SECONDS" \
+    # The verified body owns bounded leaf commands that create their own
+    # sessions. An ancestor KILL deadline could destroy a leaf owner while its
+    # session continues writing into the work root, so cancellation is
+    # cooperative here: publish the shared marker and wait for the leaf owner
+    # to terminate and reap its exact session.
+    COMMAND_TIMEOUT_TERM_FILE="$bootstrap_cancel_term_file" \
+    COMMAND_TIMEOUT_INT_FILE="$bootstrap_cancel_int_file" \
+    COMMAND_TIMEOUT_HUP_FILE="$bootstrap_cancel_hup_file" \
+    COMMAND_TIMEOUT_GATE_LOCK_DIRECTORY="$bootstrap_cancel_gate_lock_directory" \
         "$bootstrap_runner" \
         --execute-verified-source-at "$LIVE_REPOSITORY_ROOT" \
         --destination "$source_snapshot_root" \
         --live-git-root "$LIVE_REPOSITORY_ROOT" \
-        -- "$@"
+        -- "$@" &
+    verified_body_pid=$!
+    bootstrap_wait_for_child "$verified_body_pid"
     exit 0
 fi
 
@@ -294,9 +387,8 @@ readonly WORK_DIR="$(cd "$REPOSITORY_ROOT/.." && pwd)"
 readonly PRODUCTION_ROOT="$WORK_DIR/production/swift-mojo"
 readonly VERIFIED_BUILD_ROOT="$WORK_DIR/verified-build"
 readonly ACCEPTANCE_ROOT="$REPOSITORY_ROOT/Acceptance/RuntimeWorker"
-readonly MODEL_ROOT="$ACCEPTANCE_ROOT/Fixtures/RuntimeWorkerAcceptanceModel"
-readonly CONSUMER_ROOT="$ACCEPTANCE_ROOT/Fixtures/Consumer"
-readonly BINDINGS_SOURCE="$MODEL_ROOT/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
+readonly BINDINGS_SOURCE_RELATIVE="Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
+readonly BINDINGS_SOURCE="$ACCEPTANCE_ROOT/$BINDINGS_SOURCE_RELATIVE"
 readonly COMMAND_TIMEOUT="$REPOSITORY_ROOT/scripts/command-timeout.sh"
 
 if [[ "${REPOSITORY_ROOT##*/}" != "acceptance-source" \
@@ -414,6 +506,112 @@ run_bounded() {
     local seconds="$1"
     shift
     "$COMMAND_TIMEOUT" "$seconds" -- "$@"
+}
+
+run_bounded_logged() {
+    local log_path="$1"
+    local seconds="$2"
+    shift 2
+    local command_status=0
+    : > "$log_path"
+    run_bounded "$seconds" "$@" > "$log_path" 2>&1 \
+        || command_status=$?
+    if ((command_status != 0)); then
+        /bin/cat "$log_path" >&2
+        return "$command_status"
+    fi
+}
+
+run_bounded_logged_append() {
+    local log_path="$1"
+    local seconds="$2"
+    shift 2
+    local command_status=0
+    run_bounded "$seconds" "$@" >> "$log_path" 2>&1 \
+        || command_status=$?
+    if ((command_status != 0)); then
+        /bin/cat "$log_path" >&2
+        return "$command_status"
+    fi
+}
+
+compiled_modules() {
+    local log_path="$1"
+    local modules_path="$2"
+    local line=""
+    : > "$modules_path"
+    while IFS= read -r line; do
+        if [[ "$line" != *" -c "* \
+            && "$line" != *" -emit-module"* \
+            && "$line" != *" -primary-file "* ]]; then
+            continue
+        fi
+        if [[ "$line" =~ (^|[[:space:]])-module-name[[:space:]]+([A-Za-z_][A-Za-z0-9_]*) ]]; then
+            if [[ "${BASH_REMATCH[2]}" != "main" ]]; then
+                printf '%s\n' "${BASH_REMATCH[2]}" >> "$modules_path"
+            fi
+        fi
+    done < "$log_path"
+    LC_ALL=C /usr/bin/sort -u -o "$modules_path" "$modules_path"
+}
+
+require_compiled_module() {
+    local phase_name="$1"
+    local modules_path="$2"
+    local expected_module="$3"
+    if ! /usr/bin/grep -Fxq "$expected_module" "$modules_path"; then
+        echo "$phase_name build log is missing expected module: $expected_module" >&2
+        return 1
+    fi
+}
+
+require_disjoint_compiled_modules() {
+    local left_phase="$1"
+    local left_modules="$2"
+    local right_phase="$3"
+    local right_modules="$4"
+    local overlap_path="$BUILD_LOG_ROOT/$left_phase-$right_phase-overlap.txt"
+    LC_ALL=C /usr/bin/comm -12 \
+        "$left_modules" "$right_modules" > "$overlap_path"
+    if [[ -s "$overlap_path" ]]; then
+        echo "module compilation repeated across $left_phase and $right_phase" >&2
+        /bin/cat "$overlap_path" >&2
+        return 1
+    fi
+}
+
+verify_build_log_partition() {
+    local runner_modules="$BUILD_LOG_ROOT/runner-modules.txt"
+    local authoring_modules="$BUILD_LOG_ROOT/authoring-modules.txt"
+    local consumer_modules="$BUILD_LOG_ROOT/consumer-modules.txt"
+    compiled_modules "$RUNNER_BUILD_LOG" "$runner_modules"
+    compiled_modules "$AUTHORING_BUILD_LOG" "$authoring_modules"
+    compiled_modules "$CONSUMER_BUILD_LOG" "$consumer_modules"
+
+    require_compiled_module \
+        runner "$runner_modules" RuntimeWorkerAcceptanceRunner
+    require_compiled_module \
+        authoring "$authoring_modules" MojoCommandPlugin
+    require_compiled_module \
+        consumer "$consumer_modules" RuntimeWorkerAcceptanceConsumer
+    require_disjoint_compiled_modules \
+        runner "$runner_modules" authoring "$authoring_modules"
+    require_disjoint_compiled_modules \
+        runner "$runner_modules" consumer "$consumer_modules"
+    require_disjoint_compiled_modules \
+        authoring "$authoring_modules" consumer "$consumer_modules"
+
+    local runner_count=""
+    local authoring_count=""
+    local consumer_count=""
+    runner_count="$(/usr/bin/wc -l < "$runner_modules")"
+    authoring_count="$(/usr/bin/wc -l < "$authoring_modules")"
+    consumer_count="$(/usr/bin/wc -l < "$consumer_modules")"
+    runner_count="${runner_count//[[:space:]]/}"
+    authoring_count="${authoring_count//[[:space:]]/}"
+    consumer_count="${consumer_count//[[:space:]]/}"
+    printf 'runtime-worker-acceptance build-log phase=verified runner=%s authoring=%s consumer=%s overlaps=0\n' \
+        "$runner_count" "$authoring_count" "$consumer_count" >&2
 }
 
 compiler_version="$(run_bounded "$timeout_seconds" "$SWIFT_MOJO_EXECUTABLE" --version)"
@@ -558,9 +756,16 @@ run_bounded "$timeout_seconds" tar \
 find "$PRODUCTION_ROOT" -type f -exec chmod 0444 {} +
 find "$PRODUCTION_ROOT" -type d -exec chmod 0555 {} +
 
+readonly BUILD_LOG_ROOT="$work_dir/build-logs"
+readonly RUNNER_BUILD_LOG="$BUILD_LOG_ROOT/runner.log"
+readonly AUTHORING_BUILD_LOG="$BUILD_LOG_ROOT/authoring.log"
+readonly CONSUMER_BUILD_LOG="$BUILD_LOG_ROOT/consumer.log"
+mkdir -p "$BUILD_LOG_ROOT"
+
 runner_build_args=(
     env "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT"
     swift build
+    --verbose
     --package-path "$ACCEPTANCE_ROOT"
     --product runtime-worker-acceptance
     --configuration release
@@ -569,7 +774,8 @@ runner_build_args=(
     --force-resolved-versions
 )
 phase_started_seconds=$SECONDS
-run_bounded "$timeout_seconds" "${runner_build_args[@]}"
+run_bounded_logged "$RUNNER_BUILD_LOG" "$timeout_seconds" \
+    "${runner_build_args[@]}"
 printf 'runtime-worker-acceptance phase=execution-runner-build seconds=%d\n' \
     "$((SECONDS - phase_started_seconds))" >&2
 runner_bin_dir="$(run_bounded "$timeout_seconds" env \
@@ -593,36 +799,6 @@ if [[ "$execution_runner_source_digest" != "$ACCEPTANCE_SOURCE_DIGEST" ]]; then
     exit 1
 fi
 
-swift_build_args=(
-    swift build
-    --package-path "$PRODUCTION_ROOT"
-    --product swift-mojo
-    --configuration release
-    --scratch-path "$VERIFIED_BUILD_ROOT"
-    --disable-sandbox
-    --force-resolved-versions
-)
-phase_started_seconds=$SECONDS
-run_bounded "$timeout_seconds" "${swift_build_args[@]}"
-printf 'runtime-worker-acceptance phase=authoring-cli-build seconds=%d\n' \
-    "$((SECONDS - phase_started_seconds))" >&2
-swift_bin_dir="$(run_bounded "$timeout_seconds" swift build \
-    --package-path "$PRODUCTION_ROOT" \
-    --configuration release \
-    --scratch-path "$VERIFIED_BUILD_ROOT" \
-    --disable-sandbox \
-    --force-resolved-versions \
-    --show-bin-path)"
-swift_mojo="$swift_bin_dir/swift-mojo"
-if [[ "$swift_bin_dir" != "$VERIFIED_BIN_DIR" ]]; then
-    echo "verified builds did not share one product directory" >&2
-    exit 1
-fi
-if [[ ! -x "$swift_mojo" ]]; then
-    echo "swift-mojo executable was not produced: $swift_mojo" >&2
-    exit 1
-fi
-
 bundle_dir="$work_dir/RuntimeWorker.bundle"
 authoring_environment=(
     env
@@ -634,12 +810,21 @@ if [[ -n "${SWIFT_MOJO_LLVM_AR:-}" ]]; then
     authoring_environment+=("SWIFT_MOJO_LLVM_AR=$SWIFT_MOJO_LLVM_AR")
 fi
 
+acceptance_plugin_command=(
+    swift package
+    --verbose
+    --package-path "$ACCEPTANCE_ROOT"
+    --configuration release
+    --scratch-path "$VERIFIED_BUILD_ROOT"
+    --disable-sandbox
+    --force-resolved-versions
+    --allow-writing-to-package-directory
+    mojo
+)
 prepare_args=(
-    "$swift_mojo" runtime-worker-prepare
-    --package-root "$MODEL_ROOT"
+    "${acceptance_plugin_command[@]}" runtime-worker-prepare
     --target RuntimeWorkerAcceptanceModel
-    --source-root "$MODEL_ROOT"
-    --source "$BINDINGS_SOURCE"
+    --binding-source "$BINDINGS_SOURCE_RELATIVE"
     --output "$bundle_dir"
     --executable-name runtime-worker-acceptance
     --maximum-frame-payload-bytes "$maximum_frame_payload_bytes"
@@ -656,26 +841,40 @@ if ((${#system_libraries[@]} > 0)); then
     done
 fi
 prepare_args+=(--format json)
+: > "$AUTHORING_BUILD_LOG"
 phase_started_seconds=$SECONDS
-run_bounded "$timeout_seconds" "${authoring_environment[@]}" "${prepare_args[@]}"
+run_bounded_logged_append \
+    "$AUTHORING_BUILD_LOG" "$timeout_seconds" \
+    "${authoring_environment[@]}" "${prepare_args[@]}"
 printf 'runtime-worker-acceptance phase=worker-authoring seconds=%d\n' \
     "$((SECONDS - phase_started_seconds))" >&2
 
-clean_environment=(env -i "PATH=${PATH:-/usr/bin:/bin}" "HOME=${HOME:-/tmp}")
-run_bounded "$timeout_seconds" "${clean_environment[@]}" "$swift_mojo" \
-    runtime-worker-verify --bundle "$bundle_dir" --format json
+clean_environment=(
+    env -i
+    "PATH=${PATH:-/usr/bin:/bin}"
+    "HOME=${HOME:-/tmp}"
+)
+run_bounded_logged_append "$AUTHORING_BUILD_LOG" "$timeout_seconds" \
+    "${clean_environment[@]}" \
+    "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT" \
+    "${acceptance_plugin_command[@]}" runtime-worker-verify \
+    --bundle "$bundle_dir" --format json
 
 relocation_root="$work_dir/relocated"
 relocated_bundle="$relocation_root/RuntimeWorker.bundle"
 mkdir -p "$relocation_root"
 cp -a "$bundle_dir" "$relocated_bundle"
-run_bounded "$timeout_seconds" "${clean_environment[@]}" "$swift_mojo" \
-    runtime-worker-verify --bundle "$relocated_bundle" --format json
+run_bounded_logged_append "$AUTHORING_BUILD_LOG" "$timeout_seconds" \
+    "${clean_environment[@]}" \
+    "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT" \
+    "${acceptance_plugin_command[@]}" runtime-worker-verify \
+    --bundle "$relocated_bundle" --format json
 
 consumer_build_args=(
     env "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT"
     swift build
-    --package-path "$CONSUMER_ROOT"
+    --verbose
+    --package-path "$ACCEPTANCE_ROOT"
     --product RuntimeWorkerAcceptanceConsumer
     --configuration release
     --scratch-path "$VERIFIED_BUILD_ROOT"
@@ -683,12 +882,13 @@ consumer_build_args=(
     --force-resolved-versions
 )
 phase_started_seconds=$SECONDS
-run_bounded "$timeout_seconds" "${consumer_build_args[@]}"
+run_bounded_logged "$CONSUMER_BUILD_LOG" "$timeout_seconds" \
+    "${consumer_build_args[@]}"
 printf 'runtime-worker-acceptance phase=consumer-build seconds=%d\n' \
     "$((SECONDS - phase_started_seconds))" >&2
 consumer_bin_dir="$(run_bounded "$timeout_seconds" env \
     "SWIFT_MOJO_REPOSITORY_ROOT=$PRODUCTION_ROOT" swift build \
-    --package-path "$CONSUMER_ROOT" \
+    --package-path "$ACCEPTANCE_ROOT" \
     --configuration release \
     --scratch-path "$VERIFIED_BUILD_ROOT" \
     --disable-sandbox \
@@ -699,6 +899,7 @@ if [[ "$consumer_bin_dir" != "$VERIFIED_BIN_DIR" ]]; then
     echo "verified consumer did not share the verified product directory" >&2
     exit 1
 fi
+verify_build_log_partition
 
 execution_tmp="$work_dir/execution-tmp"
 execution_home="$work_dir/execution-home"

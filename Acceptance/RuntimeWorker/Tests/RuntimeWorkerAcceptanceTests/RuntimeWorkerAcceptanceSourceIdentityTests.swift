@@ -38,7 +38,7 @@ struct RuntimeWorkerAcceptanceSourceIdentityTests {
         #expect(first.files.map(\.path) == expectedInventory)
         #expect(
             first.digest
-                == "8f3cb8663014a4e3bc83de36d970f3cc6a4305054d9331e77129fbff22d1b4c7"
+                == "8191f6b732b594c522ea7589d6829b287886d8bbefc21bdcfbd0fbc9242dc241"
         )
     }
 
@@ -287,7 +287,7 @@ struct RuntimeWorkerAcceptanceSourceIdentityTests {
             .deletingLastPathComponent()
         let identity = try verifier.sourceIdentity(at: repositoryRoot)
 
-        #expect(identity.inventory.count == 33)
+        #expect(identity.inventory.count == 31)
         #expect(identity.files.count == identity.inventory.count)
         #expect(identity.totalByteCount > 0)
         #expect(identity.digest.utf8.count == 64)

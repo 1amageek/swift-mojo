@@ -32,6 +32,7 @@ exec /usr/bin/perl - \
 use strict;
 use warnings;
 use Errno qw(EEXIST EINTR);
+use Fcntl qw(F_GETFD F_SETFD FD_CLOEXEC);
 use IO::Select;
 use POSIX qw(
     setsid sigpending sigprocmask SIGHUP SIGINT SIGTERM SIG_BLOCK SIG_SETMASK
@@ -86,6 +87,8 @@ pipe(my $ready_reader, my $ready_writer)
     or die "ready pipe failed: $!\n";
 pipe(my $release_reader, my $release_writer)
     or die "release pipe failed: $!\n";
+pipe(my $lease_reader, my $lease_writer)
+    or die "process lease pipe failed: $!\n";
 my $timeout_deadline = clock_gettime(CLOCK_MONOTONIC) + $timeout;
 my $pid = fork();
 die "fork failed: $!\n" unless defined $pid;
@@ -93,6 +96,17 @@ die "fork failed: $!\n" unless defined $pid;
 if ($pid == 0) {
     close $ready_reader;
     close $release_writer;
+    close $lease_reader;
+    my $lease_flags = fcntl($lease_writer, F_GETFD, 0);
+    die "process lease flags read failed: $!\n"
+        unless defined $lease_flags;
+    my $lease_set = fcntl(
+        $lease_writer,
+        F_SETFD,
+        $lease_flags & ~FD_CLOEXEC
+    );
+    die "process lease inheritance failed: $!\n"
+        unless defined $lease_set;
     $SIG{TERM} = 'DEFAULT';
     $SIG{INT} = 'DEFAULT';
     $SIG{HUP} = 'DEFAULT';
@@ -117,6 +131,25 @@ if ($pid == 0) {
 }
 close $ready_writer;
 close $release_reader;
+close $lease_writer;
+
+my $lease_selector = IO::Select->new($lease_reader);
+my $lease_closed = 0;
+
+sub observe_lease_closed {
+    return 1 if $lease_closed;
+    return 0 unless $lease_selector->can_read(0);
+    my $unexpected = '';
+    my $read_count = sysread($lease_reader, $unexpected, 1);
+    if (defined $read_count) {
+        die "process lease carried unexpected data\n" if $read_count != 0;
+        close $lease_reader;
+        $lease_closed = 1;
+        return 1;
+    }
+    return 0 if $! == EINTR;
+    die "process lease read failed: $!\n";
+}
 
 sub reap_without_waiting {
     my $waited_pid = waitpid($pid, WNOHANG);
@@ -281,6 +314,21 @@ while (!$child_reaped) {
         last;
     }
     sleep 0.01;
+}
+
+# The inherited writer is a cooperative witness, not close-resistant process
+# containment. It observes ordinary fork/exec or setsid descendants that keep
+# inherited descriptors open. A process can intentionally close the witness;
+# exact child/session ownership and external isolation remain separate
+# contracts. The wrapper never signals a lease holder by an observed PID.
+my $lease_grace_deadline = clock_gettime(CLOCK_MONOTONIC) + 0.5;
+while (!observe_lease_closed()) {
+    last if clock_gettime(CLOCK_MONOTONIC) >= $lease_grace_deadline;
+    sleep 0.01;
+}
+if (!$lease_closed) {
+    print STDERR "error: inherited process lease remained open after leader reap\n";
+    exit 70;
 }
 $SIG{TERM} = 'IGNORE';
 $SIG{INT} = 'IGNORE';

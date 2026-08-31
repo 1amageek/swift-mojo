@@ -13,6 +13,9 @@ unset test_root_candidate
 readonly NESTED_CHILD_PID_FILE="$TEST_ROOT/nested-child.pid"
 readonly DIRECT_CHILD_PID_FILE="$TEST_ROOT/direct-child.pid"
 readonly DESCENDANT_PID_FILE="$TEST_ROOT/descendant.pid"
+readonly DETACHED_DESCENDANT_PID_FILE="$TEST_ROOT/detached-descendant.pid"
+readonly CLOSED_WITNESS_DESCENDANT_PID_FILE="$TEST_ROOT/closed-witness-descendant.pid"
+readonly CLOSED_WITNESS_MARKER_FILE="$TEST_ROOT/closed-witness-marker"
 readonly MARKER_CHILD_PID_FILE="$TEST_ROOT/marker-child.pid"
 readonly TERM_MARKER_FILE="$TEST_ROOT/cancel-term"
 readonly GATE_LOCK_DIRECTORY="$TEST_ROOT/cancel-gate-lock"
@@ -48,13 +51,17 @@ cleanup() {
     fi
     for cleanup_pid_file in \
         "$DESCENDANT_PID_FILE" \
+        "$DETACHED_DESCENDANT_PID_FILE" \
+        "$CLOSED_WITNESS_DESCENDANT_PID_FILE" \
         "$MARKER_CHILD_PID_FILE"; do
         if [[ -f "$cleanup_pid_file" ]]; then
             local cleanup_pid
             cleanup_pid="$(/bin/cat "$cleanup_pid_file")"
             if [[ "$cleanup_pid" =~ ^[1-9][0-9]*$ ]] \
                 && /bin/kill -0 "$cleanup_pid" 2>/dev/null; then
-                /bin/kill -KILL "$cleanup_pid" 2>/dev/null || true
+                /bin/kill -KILL -- "-$cleanup_pid" 2>/dev/null \
+                    || /bin/kill -KILL "$cleanup_pid" 2>/dev/null \
+                    || true
             fi
         fi
     done
@@ -197,6 +204,126 @@ if /bin/kill -0 "$descendant_pid" 2>/dev/null; then
     exit 1
 fi
 
+set +e
+"$COMMAND_TIMEOUT" 5 -- /usr/bin/perl -MPOSIX -e '
+    use strict;
+    use warnings;
+    my $path = shift @ARGV;
+    my $descendant = fork();
+    die "fork: $!\n" unless defined $descendant;
+    if ($descendant == 0) {
+        POSIX::setsid() or die "setsid: $!\n";
+        open my $handle, ">", $path or die "open $path: $!\n";
+        print {$handle} "$$\n" or die "write $path: $!\n";
+        close $handle or die "close $path: $!\n";
+        sleep 30;
+        exit 0;
+    }
+    exit 0;
+' "$DETACHED_DESCENDANT_PID_FILE"
+detached_status=$?
+set -e
+if ((detached_status != 70)); then
+    echo "detached descendant status was $detached_status, expected 70" >&2
+    exit 1
+fi
+if [[ ! -f "$DETACHED_DESCENDANT_PID_FILE" ]]; then
+    echo "detached descendant did not record its PID" >&2
+    exit 1
+fi
+readonly detached_descendant_pid="$(
+    /bin/cat "$DETACHED_DESCENDANT_PID_FILE"
+)"
+if [[ ! "$detached_descendant_pid" =~ ^[1-9][0-9]*$ ]]; then
+    echo "detached descendant PID is invalid: $detached_descendant_pid" >&2
+    exit 1
+fi
+if ! /bin/kill -0 "$detached_descendant_pid" 2>/dev/null; then
+    echo "detached descendant exited before test-owned cleanup" >&2
+    exit 1
+fi
+/bin/kill -KILL -- "-$detached_descendant_pid"
+for _ in 1 2 3 4 5; do
+    if ! /bin/kill -0 "$detached_descendant_pid" 2>/dev/null; then
+        break
+    fi
+    /bin/sleep 1
+done
+if /bin/kill -0 "$detached_descendant_pid" 2>/dev/null; then
+    echo "detached descendant survived test-owned cleanup: $detached_descendant_pid" >&2
+    exit 1
+fi
+
+set +e
+"$COMMAND_TIMEOUT" 5 -- /usr/bin/perl -MPOSIX -e '
+    use strict;
+    use warnings;
+    my ($pid_path, $marker_path) = @ARGV;
+    my $descendant = fork();
+    die "fork: $!\n" unless defined $descendant;
+    if ($descendant == 0) {
+        $0 = "closed-witness-descendant";
+        @ARGV = ();
+        POSIX::setsid() or die "setsid: $!\n";
+        for my $descriptor (3 .. 1024) {
+            POSIX::close($descriptor);
+        }
+        sleep 2;
+        open my $marker, ">", $marker_path
+            or die "open marker: $!\n";
+        print {$marker} "escaped\n" or die "write marker: $!\n";
+        close $marker or die "close marker: $!\n";
+        sleep 30;
+        exit 0;
+    }
+    open my $pid_file, ">", $pid_path or die "open pid: $!\n";
+    print {$pid_file} "$descendant\n" or die "write pid: $!\n";
+    close $pid_file or die "close pid: $!\n";
+    exit 0;
+' "$CLOSED_WITNESS_DESCENDANT_PID_FILE" "$CLOSED_WITNESS_MARKER_FILE"
+closed_witness_status=$?
+set -e
+if ((closed_witness_status != 0)); then
+    echo "closed-witness scope fixture status was $closed_witness_status, expected 0" >&2
+    exit 1
+fi
+readonly closed_witness_pid="$(
+    /bin/cat "$CLOSED_WITNESS_DESCENDANT_PID_FILE"
+)"
+if [[ ! "$closed_witness_pid" =~ ^[1-9][0-9]*$ ]] \
+    || ! /bin/kill -0 "$closed_witness_pid" 2>/dev/null; then
+    echo "closed-witness scope fixture did not leave its test-owned descendant" >&2
+    exit 1
+fi
+readonly closed_witness_command="$(
+    /bin/ps -p "$closed_witness_pid" -o command= 2>/dev/null || true
+)"
+if [[ "$closed_witness_command" == *"$TEST_ROOT"* ]]; then
+    echo "closed-witness scope fixture remained visible through its command line" >&2
+    exit 1
+fi
+for _ in 1 2 3 4 5; do
+    [[ -f "$CLOSED_WITNESS_MARKER_FILE" ]] && break
+    /bin/sleep 1
+done
+if [[ ! -f "$CLOSED_WITNESS_MARKER_FILE" ]]; then
+    echo "closed-witness scope fixture did not demonstrate the documented escape" >&2
+    exit 1
+fi
+/bin/kill -KILL -- "-$closed_witness_pid" 2>/dev/null \
+    || /bin/kill -KILL "$closed_witness_pid" 2>/dev/null \
+    || true
+for _ in 1 2 3 4 5; do
+    if ! /bin/kill -0 "$closed_witness_pid" 2>/dev/null; then
+        break
+    fi
+    /bin/sleep 1
+done
+if /bin/kill -0 "$closed_witness_pid" 2>/dev/null; then
+    echo "closed-witness descendant survived test-owned cleanup: $closed_witness_pid" >&2
+    exit 1
+fi
+
 : > "$TERM_MARKER_FILE"
 set +e
 COMMAND_TIMEOUT_TERM_FILE="$TERM_MARKER_FILE" \
@@ -273,4 +400,4 @@ if [[ -e "$STARTUP_SENTINEL_FILE" ]]; then
     exit 1
 fi
 
-echo "command-timeout normal, timeout, nested, descendant, direct, marker, and startup-gate paths passed"
+echo "command-timeout normal, timeout, nested, inherited-witness, scope-boundary, direct, marker, and startup-gate paths passed"

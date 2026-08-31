@@ -570,6 +570,27 @@ swift package --disable-sandbox --allow-writing-to-package-directory mojo prepar
 ```
 
 When `SWIFT_MOJO_EXECUTABLE` is not set, the command searches `PATH` for `mojo`. The plugin never downloads or runs the compiler inside the build sandbox.
+Worker-only packages may keep binding declarations out of ordinary Swift
+compilation and select their exact target-owned inventory explicitly:
+
+```bash
+swift package --disable-sandbox --allow-writing-to-package-directory mojo \
+  runtime-worker-prepare --target MyWorkerModel \
+  --binding-source Sources/MyWorkerModel/Bindings.swift \
+  --output /absolute/path/to/Worker.bundle \
+  --executable-name model-worker \
+  --maximum-frame-payload-bytes 1048576 \
+  --target-triple arm64-apple-macosx14.0 \
+  --target-cpu apple-m4 \
+  --target-accelerator apple-m4
+```
+
+Each repeated `--binding-source` contributes to the exact worker binding
+inventory and replaces the default SwiftPM source inventory for that command.
+The plugin accepts only regular, non-symlink `.swift` files
+inside the selected target directory and rejects duplicate or mixed raw
+`--source` / `--source-root` authority. This mode declares a worker authoring
+schema; it does not claim that the binding file is a compiled Swift API.
 When a macOS authoring toolchain does not expose `llvm-ar` through `xcrun`, a
 Linux slice additionally requires `SWIFT_MOJO_LLVM_AR` to name its absolute
 LLVM archiver path. Linux preparation fails unless the finished archive lists

@@ -163,7 +163,8 @@ let package = Package(
                     ),
                 ]
             ),
-            dependencies: ["swift-mojo"]
+            dependencies: ["swift-mojo"],
+            exclude: ["DESIGN.md"]
         ),
         .testTarget(
             name: "MojoMacroTests",

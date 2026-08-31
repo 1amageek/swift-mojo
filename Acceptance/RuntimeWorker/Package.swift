@@ -25,6 +25,10 @@ let package = Package(
             name: "runtime-worker-acceptance-source",
             targets: ["RuntimeWorkerAcceptanceSourceRunner"]
         ),
+        .executable(
+            name: "RuntimeWorkerAcceptanceConsumer",
+            targets: ["RuntimeWorkerAcceptanceConsumer"]
+        ),
     ],
     dependencies: [
         .package(path: swiftMojoPackagePath),
@@ -53,6 +57,19 @@ let package = Package(
             ],
             path: "Sources/RuntimeWorkerAcceptanceSourceIdentity",
             exclude: ["DESIGN.md"]
+        ),
+        .target(
+            name: "RuntimeWorkerAcceptanceModel",
+            path: "Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel",
+            exclude: ["Bindings.swift"]
+        ),
+        .executableTarget(
+            name: "RuntimeWorkerAcceptanceConsumer",
+            dependencies: [
+                .product(name: "MojoRuntime", package: "swift-mojo"),
+                .product(name: "MojoRuntimeWorker", package: "swift-mojo"),
+            ],
+            path: "Fixtures/Consumer/Sources/RuntimeWorkerAcceptanceConsumer"
         ),
         .executableTarget(
             name: "RuntimeWorkerAcceptanceRunner",

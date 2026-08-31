@@ -82,6 +82,10 @@ product=''
 package_path=''
 scratch_path=''
 show_bin_path=0
+plugin_command=''
+binding_source=''
+binding_source_count=0
+raw_source_option=0
 previous=''
 for argument in "$@"; do
     if [ "$previous" = '--product' ]; then
@@ -90,9 +94,17 @@ for argument in "$@"; do
         package_path="$argument"
     elif [ "$previous" = '--scratch-path' ]; then
         scratch_path="$argument"
+    elif [ "$previous" = 'mojo' ]; then
+        plugin_command="$argument"
+    elif [ "$previous" = '--binding-source' ]; then
+        binding_source="$argument"
+        binding_source_count=$((binding_source_count + 1))
     fi
     if [ "$argument" = '--show-bin-path' ]; then
         show_bin_path=1
+    fi
+    if [ "$argument" = '--source' ] || [ "$argument" = '--source-root' ]; then
+        raw_source_option=1
     fi
     previous="$argument"
 done
@@ -107,19 +119,42 @@ repository_root="${SWIFT_MOJO_REPOSITORY_ROOT:-}"
 printf 'fake-swift phase=%s product=%s package=%s repository=%s scratch=%s\n' \
     "$phase" "$product" "$package_path" "$repository_root" \
     "$scratch_path" >&2
+if [ -n "${FAKE_SWIFT_TRACE_PATH:-}" ]; then
+    printf 'fake-swift phase=%s product=%s package=%s repository=%s scratch=%s\n' \
+        "$phase" "$product" "$package_path" "$repository_root" \
+        "$scratch_path" >> "$FAKE_SWIFT_TRACE_PATH"
+fi
+
+case "$product" in
+    runtime-worker-acceptance-source)
+        printf '%s\n' \
+            'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceSourceIdentity' \
+            'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceSourceRunner' >&2
+        if [ "${FAKE_BOOTSTRAP_FORBIDDEN_MODULE:-0}" = '1' ]; then
+            printf '%s\n' \
+                'swiftc -frontend -c -module-name MojoRuntime' >&2
+        fi
+        ;;
+    runtime-worker-acceptance)
+        printf '%s\n' \
+            'swiftc -frontend -c -module-name MojoRuntime' \
+            'swiftc -frontend -c -module-name RuntimeWorkerAcceptance' \
+            'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceRunner' >&2
+        ;;
+    RuntimeWorkerAcceptanceConsumer)
+        printf '%s\n' \
+            'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceConsumer' >&2
+        if [ "${FAKE_CONSUMER_RECOMPILE:-0}" = '1' ]; then
+            printf '%s\n' \
+                'swiftc -frontend -c -module-name MojoRuntime' >&2
+        fi
+        ;;
+esac
 
 if [ "$phase" = 'verified-source-v1' ]; then
     case "$package_path" in
         */acceptance-source/Acceptance/RuntimeWorker)
             verified_source_root="${package_path%/Acceptance/RuntimeWorker}"
-            test -f "$verified_source_root/.verified-source-snapshot"
-            case "$repository_root" in
-                */production/swift-mojo) ;;
-                *) echo 'source package dependency root is not the production archive' >&2; exit 1 ;;
-            esac
-            ;;
-        */acceptance-source/Acceptance/RuntimeWorker/Fixtures/Consumer)
-            verified_source_root="${package_path%/Acceptance/RuntimeWorker/Fixtures/Consumer}"
             test -f "$verified_source_root/.verified-source-snapshot"
             case "$repository_root" in
                 */production/swift-mojo) ;;
@@ -136,60 +171,61 @@ if [ "$phase" = 'verified-source-v1' ]; then
     esac
 fi
 
-if [ "${1:-}" = 'build' ] && [ "$product" != '' ]; then
-    executable="$FAKE_BUILD_BIN/$product"
-    case "$product" in
-        swift-mojo)
-            cat > "$executable" <<'SCRIPT'
-#!/bin/sh
-set -eu
-if [ "${1:-}" = 'runtime-worker-prepare' ]; then
-    package_root=''
-    source_root=''
-    source=''
+if [ "$phase" = 'verified-source-v1' ] \
+    && [ "$product" = 'runtime-worker-acceptance' ] \
+    && [ "${FAKE_VERIFIED_BUILD_DELAY_SECONDS:-0}" != '0' ]; then
+    /bin/sleep "$FAKE_VERIFIED_BUILD_DELAY_SECONDS"
+fi
+
+if [ "$plugin_command" = 'runtime-worker-prepare' ]; then
+    printf '%s\n' \
+        'swiftc -frontend -c -module-name MojoCommandPlugin' \
+        'swiftc -frontend -c -module-name swift_mojo' >&2
     output=''
     previous=''
     for argument in "$@"; do
-        case "$previous" in
-            --package-root) package_root="$argument" ;;
-            --source-root) source_root="$argument" ;;
-            --source) source="$argument" ;;
-            --output) output="$argument" ;;
-        esac
+        if [ "$previous" = '--output' ]; then
+            output="$argument"
+        fi
         previous="$argument"
     done
-    verified_source_root="${package_root%/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel}"
+    verified_source_root="${package_path%/Acceptance/RuntimeWorker}"
+    source_root="$package_path"
+    source="$source_root/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
+    source_relative="Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
     printf 'fake-authoring package=%s source-root=%s source=%s repository=%s\n' \
-        "$package_root" "$source_root" "$source" \
-        "${SWIFT_MOJO_REPOSITORY_ROOT:-}" >&2
-    case "$package_root" in
-        "$verified_source_root"/*) ;;
-        *) echo 'model package did not come from verified source snapshot' >&2; exit 1 ;;
-    esac
-    case "$source_root" in
-        "$verified_source_root"/*) ;;
-        *) echo 'model source root did not come from verified source snapshot' >&2; exit 1 ;;
-    esac
-    case "$source" in
-        "$verified_source_root"/*) ;;
-        *) echo 'binding source did not come from verified source snapshot' >&2; exit 1 ;;
-    esac
-    case "${SWIFT_MOJO_REPOSITORY_ROOT:-}" in
+        "$package_path" "$source_root" "$source" "$repository_root" >&2
+    if [ -n "${FAKE_SWIFT_TRACE_PATH:-}" ]; then
+        printf 'fake-authoring package=%s source-root=%s source=%s repository=%s\n' \
+            "$package_path" "$source_root" "$source" "$repository_root" \
+            >> "$FAKE_SWIFT_TRACE_PATH"
+    fi
+    test -f "$verified_source_root/.verified-source-snapshot"
+    test -f "$source"
+    test "$binding_source_count" -eq 1
+    test "$binding_source" = "$source_relative"
+    test "$raw_source_option" -eq 0
+    case "$repository_root" in
         */production/swift-mojo) ;;
         *) echo 'authoring dependency root did not come from production archive' >&2; exit 1 ;;
     esac
+    test "$output" != ''
     /bin/mkdir -p "$output"
     : > "$output/manifest.json"
     exit 0
 fi
-if [ "${1:-}" = 'runtime-worker-verify' ]; then
+
+if [ "$plugin_command" = 'runtime-worker-verify' ]; then
+    printf '%s\n' \
+        'swiftc -frontend -c -module-name MojoCommandPlugin' \
+        'swiftc -frontend -c -module-name swift_mojo' >&2
     printf '%s\n' 'fake-runtime-worker-verify=passed' >&2
     exit 0
 fi
-echo "unexpected fake swift-mojo invocation: $*" >&2
-exit 1
-SCRIPT
-            ;;
+
+if [ "${1:-}" = 'build' ] && [ "$product" != '' ]; then
+    executable="$FAKE_BUILD_BIN/$product"
+    case "$product" in
         RuntimeWorkerAcceptanceConsumer)
             cat > "$executable" <<'SCRIPT'
 #!/bin/sh
@@ -216,7 +252,6 @@ if [ "${1:-}" = '--execute-verified-source-at' ]; then
     live_git_root="$6"
     /bin/mkdir -p \
         "$destination/scripts" \
-        "$destination/Acceptance/RuntimeWorker/Fixtures/Consumer" \
         "$destination/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel"
     /bin/cp "$source_root/scripts/runtime-worker-acceptance.sh" \
         "$destination/scripts/runtime-worker-acceptance.sh"
@@ -224,13 +259,14 @@ if [ "${1:-}" = '--execute-verified-source-at' ]; then
         "$destination/scripts/command-timeout.sh"
     /bin/cp "$source_root/Acceptance/RuntimeWorker/Package.swift" \
         "$destination/Acceptance/RuntimeWorker/Package.swift"
-    /bin/cp "$source_root/Acceptance/RuntimeWorker/Fixtures/Consumer/Package.swift" \
-        "$destination/Acceptance/RuntimeWorker/Fixtures/Consumer/Package.swift"
-    /bin/cp "$source_root/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Package.swift" \
-        "$destination/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Package.swift"
+    /bin/cp "$source_root/Acceptance/RuntimeWorker/SwiftMojo.json" \
+        "$destination/Acceptance/RuntimeWorker/SwiftMojo.json"
     /bin/cp \
         "$source_root/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift" \
         "$destination/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
+    /bin/cp \
+        "$source_root/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/RuntimeWorkerAcceptanceModelInventory.swift" \
+        "$destination/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/RuntimeWorkerAcceptanceModelInventory.swift"
     : > "$destination/.verified-source-snapshot"
     /usr/bin/find "$destination" -type f -exec /bin/chmod 0444 {} +
     /bin/chmod 0555 \
@@ -258,7 +294,6 @@ if [ "${1:-}" = '--snapshot-source-at' ]; then
     destination="$4"
     /bin/mkdir -p \
         "$destination/scripts" \
-        "$destination/Acceptance/RuntimeWorker/Fixtures/Consumer" \
         "$destination/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel"
     /bin/cp "$source_root/scripts/runtime-worker-acceptance.sh" \
         "$destination/scripts/runtime-worker-acceptance.sh"
@@ -266,13 +301,14 @@ if [ "${1:-}" = '--snapshot-source-at' ]; then
         "$destination/scripts/command-timeout.sh"
     /bin/cp "$source_root/Acceptance/RuntimeWorker/Package.swift" \
         "$destination/Acceptance/RuntimeWorker/Package.swift"
-    /bin/cp "$source_root/Acceptance/RuntimeWorker/Fixtures/Consumer/Package.swift" \
-        "$destination/Acceptance/RuntimeWorker/Fixtures/Consumer/Package.swift"
-    /bin/cp "$source_root/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Package.swift" \
-        "$destination/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Package.swift"
+    /bin/cp "$source_root/Acceptance/RuntimeWorker/SwiftMojo.json" \
+        "$destination/Acceptance/RuntimeWorker/SwiftMojo.json"
     /bin/cp \
         "$source_root/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift" \
         "$destination/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
+    /bin/cp \
+        "$source_root/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/RuntimeWorkerAcceptanceModelInventory.swift" \
+        "$destination/Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/RuntimeWorkerAcceptanceModelInventory.swift"
     : > "$destination/.verified-source-snapshot"
     /usr/bin/find "$destination" -type f -exec /bin/chmod 0444 {} +
     /bin/chmod 0555 \
@@ -322,6 +358,12 @@ if [ "$mode" = 'leak' ]; then
         "POSIX::setsid() or die \$!; exec '/bin/sh', \$ARGV[0] or die \$!;" \
         "$stage/sleeper.sh" >/dev/null 2>&1 &
     printf '%s\n' "$!" > "$tmpdir/fake-worker.pid"
+    /bin/sleep 1
+elif [ "$mode" = 'writer' ]; then
+    TARGET_W="$tmpdir" /usr/bin/perl -MPOSIX -e \
+        'POSIX::setsid() or die $!; exec "/bin/sh", "-c", q{/bin/sleep 30; /bin/mkdir -p "$TARGET_W/recreated"} or die $!;' \
+        >/dev/null 2>&1 &
+    printf '%s\n' "$!" > "$tmpdir/delayed-writer.pid"
     /bin/sleep 1
 fi
 exit 0
@@ -426,8 +468,10 @@ run_acceptance() {
     local source_digest_mismatch="${4:-0}"
     local controller_mode="${5:-clean}"
     local direct_signal_delay_seconds="${6:-0}"
-    local source_runner_delay_seconds="${7:-0}"
+    local verified_build_delay_seconds="${7:-0}"
     local direct_signal_name="${8:-TERM}"
+    local bootstrap_forbidden_module="${9:-0}"
+    local consumer_recompile="${10:-0}"
     mkdir -p "$case_tmpdir"
     local acceptance_command=(/usr/bin/env \
         "MODULAR_HOME=$fake_modular_home" \
@@ -435,7 +479,10 @@ run_acceptance() {
         "FAKE_BUILD_BIN=$fake_build_bin" \
         "FAKE_SOURCE_DIGEST_MISMATCH=$source_digest_mismatch" \
         "FAKE_CONTROLLER_MODE=$controller_mode" \
-        "FAKE_SOURCE_RUNNER_DELAY_SECONDS=$source_runner_delay_seconds" \
+        "FAKE_VERIFIED_BUILD_DELAY_SECONDS=$verified_build_delay_seconds" \
+        "FAKE_SWIFT_TRACE_PATH=$case_tmpdir/fake-swift.trace" \
+        "FAKE_BOOTSTRAP_FORBIDDEN_MODULE=$bootstrap_forbidden_module" \
+        "FAKE_CONSUMER_RECOMPILE=$consumer_recompile" \
         "TMPDIR=$case_tmpdir" \
         "PATH=$case_path" \
         "RT4_TIMEOUT_SECONDS=5" \
@@ -482,46 +529,58 @@ assert_verified_inputs() {
     local work_dir="${actual_snapshot_root%/acceptance-source}"
     local production_root="$work_dir/production/swift-mojo"
     local acceptance_root="$actual_snapshot_root/Acceptance/RuntimeWorker"
-    local consumer_root="$acceptance_root/Fixtures/Consumer"
-    local model_root="$acceptance_root/Fixtures/RuntimeWorkerAcceptanceModel"
-    local bindings_source="$model_root/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
+    local bindings_source="$acceptance_root/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
     local bootstrap_build="$work_dir/acceptance-bootstrap-build"
     local verified_build="$work_dir/verified-build"
     local expected_digest="$(printf '%064d' 0)"
+    local swift_trace="$case_tmpdir/fake-swift.trace"
 
     /usr/bin/grep -Fq \
         "fake-swift phase=bootstrap product=runtime-worker-acceptance-source package=$REPOSITORY_ROOT/Acceptance/RuntimeWorker repository=$REPOSITORY_ROOT scratch=$bootstrap_build" \
-        "$output_path"
+        "$swift_trace"
     /usr/bin/grep -Fq \
         "fake-swift phase=verified-source-v1 product=runtime-worker-acceptance package=$acceptance_root repository=$production_root scratch=$verified_build" \
-        "$output_path"
+        "$swift_trace"
     /usr/bin/grep -Fq \
-        "fake-swift phase=verified-source-v1 product=swift-mojo package=$production_root repository= scratch=$verified_build" \
-        "$output_path"
+        "fake-swift phase=verified-source-v1 product= package=$acceptance_root repository=$production_root scratch=$verified_build" \
+        "$swift_trace"
     /usr/bin/grep -Fq \
-        "fake-swift phase=verified-source-v1 product=RuntimeWorkerAcceptanceConsumer package=$consumer_root repository=$production_root scratch=$verified_build" \
-        "$output_path"
+        "fake-swift phase=verified-source-v1 product=RuntimeWorkerAcceptanceConsumer package=$acceptance_root repository=$production_root scratch=$verified_build" \
+        "$swift_trace"
     /usr/bin/grep -Fq \
-        "fake-authoring package=$model_root source-root=$model_root source=$bindings_source repository=$production_root" \
-        "$output_path"
+        "fake-authoring package=$acceptance_root source-root=$acceptance_root source=$bindings_source repository=$production_root" \
+        "$swift_trace"
+    if /usr/bin/grep -Fq \
+        "product=swift-mojo package=$production_root" \
+        "$swift_trace"; then
+        echo "authoring rebuilt swift-mojo as a root package" >&2
+        /bin/cat "$output_path" >&2
+        exit 1
+    fi
     /usr/bin/grep -Fq \
         "fake-source-digest-root=$actual_snapshot_root" \
         "$output_path"
     /usr/bin/grep -Fq \
         "fake-controller repository=$actual_snapshot_root digest=$expected_digest revision=$EXPECTED_REVISION" \
         "$output_path"
-    if /usr/bin/grep -F 'phase=verified-source-v1' "$output_path" | \
+    if /usr/bin/grep -F 'phase=verified-source-v1' "$swift_trace" | \
         /usr/bin/grep -Fq "package=$REPOSITORY_ROOT"; then
         echo "verified phase read a live-repository package path" >&2
         /bin/cat "$output_path" >&2
         exit 1
     fi
-    if /usr/bin/grep -F 'phase=verified-source-v1' "$output_path" | \
+    if /usr/bin/grep -F 'phase=verified-source-v1' "$swift_trace" | \
         /usr/bin/grep -Fq "scratch=$bootstrap_build"; then
         echo "verified phase reused the live bootstrap scratch" >&2
         /bin/cat "$output_path" >&2
         exit 1
     fi
+    /usr/bin/grep -Fq \
+        'runtime-worker-acceptance build-log phase=bootstrap compiled-modules=2' \
+        "$output_path"
+    /usr/bin/grep -Fq \
+        'runtime-worker-acceptance build-log phase=verified runner=3 authoring=2 consumer=1 overlaps=0' \
+        "$output_path"
 }
 
 verified_tmpdir="$TEST_ROOT/verified-tmp"
@@ -541,6 +600,65 @@ fi
 assert_verified_inputs "$verified_output" "$verified_tmpdir"
 assert_no_worker_process "$verified_tmpdir"
 assert_no_acceptance_temp "$verified_tmpdir"
+
+bootstrap_scope_tmpdir="$TEST_ROOT/bootstrap-scope-tmp"
+bootstrap_scope_output="$TEST_ROOT/bootstrap-scope-output.log"
+set +e
+run_acceptance \
+    "$bootstrap_scope_tmpdir" \
+    "$fake_bin:/usr/bin:/bin" \
+    "$bootstrap_scope_output" \
+    0 \
+    clean \
+    0 \
+    0 \
+    TERM \
+    1
+exit_status=$?
+set -e
+if ((exit_status != 1)); then
+    echo "expected forbidden bootstrap module to exit 1, got $exit_status" >&2
+    /bin/cat "$bootstrap_scope_output" >&2
+    exit 1
+fi
+if ! /usr/bin/grep -Fq \
+    'bootstrap compiled a forbidden heavy module: MojoRuntime' \
+    "$bootstrap_scope_output"; then
+    echo 'forbidden bootstrap compilation was not reported' >&2
+    /bin/cat "$bootstrap_scope_output" >&2
+    exit 1
+fi
+assert_no_acceptance_temp "$bootstrap_scope_tmpdir"
+
+phase_overlap_tmpdir="$TEST_ROOT/phase-overlap-tmp"
+phase_overlap_output="$TEST_ROOT/phase-overlap-output.log"
+set +e
+run_acceptance \
+    "$phase_overlap_tmpdir" \
+    "$fake_bin:/usr/bin:/bin" \
+    "$phase_overlap_output" \
+    0 \
+    clean \
+    0 \
+    0 \
+    TERM \
+    0 \
+    1
+exit_status=$?
+set -e
+if ((exit_status != 1)); then
+    echo "expected repeated module compilation to exit 1, got $exit_status" >&2
+    /bin/cat "$phase_overlap_output" >&2
+    exit 1
+fi
+if ! /usr/bin/grep -Fq \
+    'module compilation repeated across runner and consumer' \
+    "$phase_overlap_output"; then
+    echo 'cross-phase module recompilation was not reported' >&2
+    /bin/cat "$phase_overlap_output" >&2
+    exit 1
+fi
+assert_no_acceptance_temp "$phase_overlap_tmpdir"
 
 aborted_tmpdir="$TEST_ROOT/aborted-tmp"
 aborted_output="$TEST_ROOT/aborted-output.log"
@@ -567,9 +685,9 @@ if ((SECONDS - aborted_started_seconds < 3)); then
     exit 1
 fi
 if /usr/bin/grep -Eq \
-    '^(fake-snapshot-destination=|fake-swift phase=verified-source-v1)' \
+    '^(fake-authoring|fake-controller|fake-swift .*product=RuntimeWorkerAcceptanceConsumer)' \
     "$aborted_output"; then
-    echo "acceptance started verified work after cancellation" >&2
+    echo "acceptance started a later verified phase after cancellation" >&2
     /bin/cat "$aborted_output" >&2
     exit 1
 fi
@@ -686,7 +804,7 @@ if ! /usr/bin/grep -q 'acceptance cleanup observed leaked worker stage' \
     exit 1
 fi
 if ! /usr/bin/grep -q \
-    'acceptance supervisor preserved work directory after losing process authority' \
+    'acceptance supervisor preserved work directory after an inherited process lease remained open' \
     "$leak_output"; then
     echo 'unowned worker work directory was not preserved' >&2
     /bin/cat "$leak_output" >&2
@@ -719,5 +837,50 @@ done
 assert_no_worker_process "$leak_tmpdir"
 /usr/bin/find "$leak_tmpdir" -type d -exec /bin/chmod u+w {} +
 /bin/rm -rf -- "$leak_tmpdir"
+
+writer_tmpdir="$TEST_ROOT/writer-tmp"
+writer_output="$TEST_ROOT/writer-output.log"
+
+set +e
+run_acceptance \
+    "$writer_tmpdir" \
+    "$fake_bin:/usr/bin:/bin" \
+    "$writer_output" \
+    0 \
+    writer
+exit_status=$?
+set -e
+
+if ((exit_status != 70)); then
+    echo "expected preserved W-bound writer to exit 70, got $exit_status" >&2
+    /bin/cat "$writer_output" >&2
+    exit 1
+fi
+if ! /usr/bin/grep -q \
+    'acceptance supervisor preserved work directory after an inherited process lease remained open' \
+    "$writer_output"; then
+    echo 'W-bound writer process was not reported' >&2
+    /bin/cat "$writer_output" >&2
+    exit 1
+fi
+writer_pid_file="$(
+    /usr/bin/find "$writer_tmpdir" -name delayed-writer.pid -type f -print -quit
+)"
+if [[ -z "$writer_pid_file" ]]; then
+    echo "delayed writer PID file is missing" >&2
+    exit 1
+fi
+writer_pid="$(/bin/cat "$writer_pid_file")"
+if [[ ! "$writer_pid" =~ ^[1-9][0-9]*$ ]]; then
+    echo "delayed writer PID is invalid: $writer_pid" >&2
+    exit 1
+fi
+/bin/kill -KILL "-$writer_pid"
+for _ in 1 2 3 4 5; do
+    /bin/kill -0 "$writer_pid" 2>/dev/null || break
+    /bin/sleep 1
+done
+/usr/bin/find "$writer_tmpdir" -type d -exec /bin/chmod u+w {} +
+/bin/rm -rf -- "$writer_tmpdir"
 
 echo 'runtime-worker-acceptance verified-source, failure, and cleanup paths passed'
