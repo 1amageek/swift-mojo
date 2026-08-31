@@ -225,6 +225,19 @@ if ((${#BASH_SOURCE[@]} != 0)); then
         local modules_path="$bootstrap_work_dir/bootstrap-compiled-modules.txt"
         bootstrap_compiled_modules "$log_path" "$modules_path"
 
+        local host_system=""
+        if ! host_system="$(/usr/bin/uname -s)"; then
+            echo "bootstrap could not determine the host operating system" >&2
+            return 1
+        fi
+        case "$host_system" in
+            Darwin|Linux) ;;
+            *)
+                echo "bootstrap does not support host system: $host_system" >&2
+                return 1
+                ;;
+        esac
+
         local expected_module=""
         for expected_module in \
             RuntimeWorkerAcceptanceSourceIdentity \
@@ -238,22 +251,34 @@ if ((${#BASH_SOURCE[@]} != 0)); then
         local module_name=""
         while IFS= read -r module_name; do
             case "$module_name" in
-                Mojo*|SwiftSyntax*|_SwiftSyntax*|SwiftParser*|SwiftDiagnostics|SwiftOperators|Crypto|_CryptoExtras|CryptoBoringWrapper|CCryptoBoringSSL*)
+                Mojo*|SwiftSyntax*|_SwiftSyntax*|SwiftParser*|\
+                SwiftDiagnostics|SwiftOperators|RuntimeWorkerAcceptance|\
+                RuntimeWorkerAcceptanceRunner|\
+                RuntimeWorkerAcceptanceConsumer|\
+                RuntimeWorkerAcceptanceModel)
                     echo "bootstrap compiled a forbidden heavy module: $module_name" >&2
                     return 1
+                    ;;
+                Crypto|_CryptoExtras|CryptoBoringWrapper|CCryptoBoringSSL*)
+                    if [[ "$host_system" == Darwin ]]; then
+                        echo "bootstrap compiled a forbidden heavy module: $module_name" >&2
+                        return 1
+                    fi
                     ;;
             esac
         done < "$modules_path"
 
-        local line=""
-        while IFS= read -r line; do
-            if [[ "$line" == *" -c "* \
-                && ("$line" == *"/CCryptoBoringSSL/"* \
-                    || "$line" == *"/CCryptoBoringSSLShims/"*) ]]; then
-                echo "bootstrap compiled forbidden BoringSSL C source" >&2
-                return 1
-            fi
-        done < "$log_path"
+        if [[ "$host_system" == Darwin ]]; then
+            local line=""
+            while IFS= read -r line; do
+                if [[ "$line" == *" -c "* \
+                    && ("$line" == *"/CCryptoBoringSSL/"* \
+                        || "$line" == *"/CCryptoBoringSSLShims/"*) ]]; then
+                    echo "bootstrap compiled forbidden BoringSSL C source" >&2
+                    return 1
+                fi
+            done < "$log_path"
+        fi
 
         local module_count=""
         module_count="$(/usr/bin/wc -l < "$modules_path")"
@@ -565,7 +590,19 @@ require_compiled_module() {
     fi
 }
 
-require_disjoint_compiled_modules() {
+forbid_compiled_module() {
+    local phase_name="$1"
+    local modules_path="$2"
+    local forbidden_module="$3"
+    local owner_phase="$4"
+    if /usr/bin/grep -Fxq "$forbidden_module" "$modules_path"; then
+        printf '%s build log compiled %s phase-owned module: %s\n' \
+            "$phase_name" "$owner_phase" "$forbidden_module" >&2
+        return 1
+    fi
+}
+
+compiled_module_overlap_count() {
     local left_phase="$1"
     local left_modules="$2"
     local right_phase="$3"
@@ -573,11 +610,16 @@ require_disjoint_compiled_modules() {
     local overlap_path="$BUILD_LOG_ROOT/$left_phase-$right_phase-overlap.txt"
     LC_ALL=C /usr/bin/comm -12 \
         "$left_modules" "$right_modules" > "$overlap_path"
-    if [[ -s "$overlap_path" ]]; then
-        echo "module compilation repeated across $left_phase and $right_phase" >&2
-        /bin/cat "$overlap_path" >&2
-        return 1
-    fi
+
+    local module_name=""
+    while IFS= read -r module_name; do
+        printf 'runtime-worker-acceptance build-log overlap=%s-%s module=%s\n' \
+            "$left_phase" "$right_phase" "$module_name" >&2
+    done < "$overlap_path"
+
+    local overlap_count=""
+    overlap_count="$(/usr/bin/wc -l < "$overlap_path")"
+    printf '%s\n' "${overlap_count//[[:space:]]/}"
 }
 
 verify_build_log_partition() {
@@ -593,13 +635,40 @@ verify_build_log_partition() {
     require_compiled_module \
         authoring "$authoring_modules" MojoCommandPlugin
     require_compiled_module \
+        authoring "$authoring_modules" swift_mojo
+    require_compiled_module \
         consumer "$consumer_modules" RuntimeWorkerAcceptanceConsumer
-    require_disjoint_compiled_modules \
-        runner "$runner_modules" authoring "$authoring_modules"
-    require_disjoint_compiled_modules \
-        runner "$runner_modules" consumer "$consumer_modules"
-    require_disjoint_compiled_modules \
-        authoring "$authoring_modules" consumer "$consumer_modules"
+
+    forbid_compiled_module \
+        runner "$runner_modules" MojoCommandPlugin authoring
+    forbid_compiled_module \
+        runner "$runner_modules" MojoCommandCore authoring
+    forbid_compiled_module \
+        runner "$runner_modules" swift_mojo authoring
+    forbid_compiled_module \
+        runner "$runner_modules" RuntimeWorkerAcceptanceConsumer consumer
+    forbid_compiled_module \
+        authoring "$authoring_modules" RuntimeWorkerAcceptanceRunner runner
+    forbid_compiled_module \
+        authoring "$authoring_modules" RuntimeWorkerAcceptanceConsumer consumer
+    forbid_compiled_module \
+        consumer "$consumer_modules" RuntimeWorkerAcceptanceRunner runner
+    forbid_compiled_module \
+        consumer "$consumer_modules" MojoCommandPlugin authoring
+    forbid_compiled_module \
+        consumer "$consumer_modules" MojoCommandCore authoring
+    forbid_compiled_module \
+        consumer "$consumer_modules" swift_mojo authoring
+
+    local runner_authoring_overlap_count=""
+    local runner_consumer_overlap_count=""
+    local authoring_consumer_overlap_count=""
+    runner_authoring_overlap_count="$(compiled_module_overlap_count \
+        runner "$runner_modules" authoring "$authoring_modules")"
+    runner_consumer_overlap_count="$(compiled_module_overlap_count \
+        runner "$runner_modules" consumer "$consumer_modules")"
+    authoring_consumer_overlap_count="$(compiled_module_overlap_count \
+        authoring "$authoring_modules" consumer "$consumer_modules")"
 
     local runner_count=""
     local authoring_count=""
@@ -610,8 +679,13 @@ verify_build_log_partition() {
     runner_count="${runner_count//[[:space:]]/}"
     authoring_count="${authoring_count//[[:space:]]/}"
     consumer_count="${consumer_count//[[:space:]]/}"
-    printf 'runtime-worker-acceptance build-log phase=verified runner=%s authoring=%s consumer=%s overlaps=0\n' \
-        "$runner_count" "$authoring_count" "$consumer_count" >&2
+    printf 'runtime-worker-acceptance build-log phase=verified runner=%s authoring=%s consumer=%s runner-authoring-overlap=%s runner-consumer-overlap=%s authoring-consumer-overlap=%s\n' \
+        "$runner_count" \
+        "$authoring_count" \
+        "$consumer_count" \
+        "$runner_authoring_overlap_count" \
+        "$runner_consumer_overlap_count" \
+        "$authoring_consumer_overlap_count" >&2
 }
 
 compiler_version="$(run_bounded "$timeout_seconds" "$SWIFT_MOJO_EXECUTABLE" --version)"

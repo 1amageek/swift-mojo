@@ -336,8 +336,15 @@ production tree. They are targets of the same Acceptance SwiftPM package and
 their sequential builds use one initially empty verified-only scratch without
 copying or relocating it. Authoring invokes the parent command plugin from that
 same package graph rather than rebuilding the parent package as a root package,
-so every shared parent target has one dependency-package identity and one set
-of build settings. The model target compiles only its marker source;
+so every phase has the same dependency-package identity, resolved pins, release
+configuration, and verified scratch argument. SwiftPM may still compile a
+shared source module separately for a product, command-plugin, or plugin-tool
+build context. Such overlap is diagnostic evidence, not a graph-identity
+failure. Phase ownership is instead enforced at the executable boundary:
+`RuntimeWorkerAcceptanceRunner` belongs only to runner build logs,
+`MojoCommandPlugin` and `swift_mojo` belong only to authoring build logs, and
+`RuntimeWorkerAcceptanceConsumer` belongs only to consumer build logs. The
+model target compiles only its marker source;
 `Bindings.swift` is build-excluded and the command plugin selects it as the
 exact source inventory only for `runtime-worker-prepare`. No generated
 registry stub or false runtime implementation is compiled. The execution
@@ -520,14 +527,23 @@ RT4.B additionally requires a bounded actual Mac authoring-and-consumer run,
 a source-boundary test, exact typed timeout/zero-partial-output/zero-
 cleanup evidence, an empty PATH that makes compiler and Python resolution
 impossible, and zero worker stage/process entries under the configured TMPDIR.
-The clean bootstrap build log must contain no `Mojo*`, SwiftSyntax/parser, or
-SwiftCrypto/BoringSSL target compilation on macOS. A fixed-toolchain build-log
-gate must also prove the verified runner, model command-plugin tool, and
-consumer use one Acceptance package graph and one fresh scratch. It extracts
-actual compile-job module names from each phase and rejects any parent module
-that is compiled in more than one phase; multiple frontend jobs for one module
-inside its owning phase are normal and are collapsed before comparison. Normal,
-own-timeout, and
+The clean bootstrap build log must contain no `Mojo*` or SwiftSyntax/parser
+target compilation. It must additionally contain no SwiftCrypto/BoringSSL
+target compilation on macOS; Linux permits that conditional source-identity
+dependency. A fixed-toolchain invocation gate must prove the verified runner,
+model command-plugin tool, and consumer receive the same canonical Acceptance
+package path, exact production dependency root, resolved pins, release
+configuration, and one fresh verified scratch argument. The build-log gate
+extracts actual compile-job module names, requires each phase-owned root module
+in its owning phase, and rejects that root module in every other phase. Shared
+dependency modules may appear in multiple phase logs because SwiftPM can create
+separate product, command-plugin, and plugin-tool build contexts; every
+cross-phase overlap is emitted as diagnostic evidence and is not a failure.
+Build logs are not dependency-closure authority because cached modules need not
+produce compile jobs. The exact consumer product dependencies are instead
+verified from the decoded package manifest, and its source import set is
+verified independently. Multiple frontend jobs for one module inside a phase
+are normal and are collapsed before evaluation. Normal, own-timeout, and
 externally terminated nested timeout paths for the fixed synchronous toolchain
 must leave no observed child process or acceptance work root. An outer cancellation while a leaf command is active must
 wait for the leaf owner to reap its separate session; the outer owner must never

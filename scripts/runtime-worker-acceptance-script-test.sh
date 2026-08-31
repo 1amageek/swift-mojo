@@ -130,23 +130,29 @@ case "$product" in
         printf '%s\n' \
             'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceSourceIdentity' \
             'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceSourceRunner' >&2
-        if [ "${FAKE_BOOTSTRAP_FORBIDDEN_MODULE:-0}" = '1' ]; then
+        if [ -n "${FAKE_BOOTSTRAP_EXTRA_MODULE:-}" ]; then
             printf '%s\n' \
-                'swiftc -frontend -c -module-name MojoRuntime' >&2
+                "swiftc -frontend -c -module-name $FAKE_BOOTSTRAP_EXTRA_MODULE" >&2
         fi
         ;;
     runtime-worker-acceptance)
         printf '%s\n' \
             'swiftc -frontend -c -module-name MojoRuntime' \
+            'swiftc -frontend -c -module-name MojoArtifactCore' \
+            'swiftc -frontend -c -module-name MojoArtifactCore' \
             'swiftc -frontend -c -module-name RuntimeWorkerAcceptance' \
             'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceRunner' >&2
         ;;
     RuntimeWorkerAcceptanceConsumer)
         printf '%s\n' \
-            'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceConsumer' >&2
-        if [ "${FAKE_CONSUMER_RECOMPILE:-0}" = '1' ]; then
+            'swiftc -frontend -c -module-name MojoArtifactCore' >&2
+        if [ "${FAKE_PHASE_OWNERSHIP_MODE:-clean}" != 'missing-consumer-owner' ]; then
             printf '%s\n' \
-                'swiftc -frontend -c -module-name MojoRuntime' >&2
+                'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceConsumer' >&2
+        fi
+        if [ "${FAKE_PHASE_OWNERSHIP_MODE:-clean}" = 'authoring-owner-in-consumer' ]; then
+            printf '%s\n' \
+                'swiftc -frontend -c -module-name MojoCommandPlugin' >&2
         fi
         ;;
 esac
@@ -180,7 +186,13 @@ fi
 if [ "$plugin_command" = 'runtime-worker-prepare' ]; then
     printf '%s\n' \
         'swiftc -frontend -c -module-name MojoCommandPlugin' \
+        'swiftc -frontend -c -module-name MojoCommandCore' \
+        'swiftc -frontend -c -module-name MojoArtifactCore' \
         'swiftc -frontend -c -module-name swift_mojo' >&2
+    if [ "${FAKE_PHASE_OWNERSHIP_MODE:-clean}" = 'runner-owner-in-authoring' ]; then
+        printf '%s\n' \
+            'swiftc -frontend -c -module-name RuntimeWorkerAcceptanceRunner' >&2
+    fi
     output=''
     previous=''
     for argument in "$@"; do
@@ -218,6 +230,8 @@ fi
 if [ "$plugin_command" = 'runtime-worker-verify' ]; then
     printf '%s\n' \
         'swiftc -frontend -c -module-name MojoCommandPlugin' \
+        'swiftc -frontend -c -module-name MojoCommandCore' \
+        'swiftc -frontend -c -module-name MojoArtifactCore' \
         'swiftc -frontend -c -module-name swift_mojo' >&2
     printf '%s\n' 'fake-runtime-worker-verify=passed' >&2
     exit 0
@@ -470,8 +484,11 @@ run_acceptance() {
     local direct_signal_delay_seconds="${6:-0}"
     local verified_build_delay_seconds="${7:-0}"
     local direct_signal_name="${8:-TERM}"
-    local bootstrap_forbidden_module="${9:-0}"
-    local consumer_recompile="${10:-0}"
+    local bootstrap_extra_module="${9:-}"
+    local phase_ownership_mode="${10:-clean}"
+    if [[ "$bootstrap_extra_module" == 0 ]]; then
+        bootstrap_extra_module=""
+    fi
     mkdir -p "$case_tmpdir"
     local acceptance_command=(/usr/bin/env \
         "MODULAR_HOME=$fake_modular_home" \
@@ -481,8 +498,8 @@ run_acceptance() {
         "FAKE_CONTROLLER_MODE=$controller_mode" \
         "FAKE_VERIFIED_BUILD_DELAY_SECONDS=$verified_build_delay_seconds" \
         "FAKE_SWIFT_TRACE_PATH=$case_tmpdir/fake-swift.trace" \
-        "FAKE_BOOTSTRAP_FORBIDDEN_MODULE=$bootstrap_forbidden_module" \
-        "FAKE_CONSUMER_RECOMPILE=$consumer_recompile" \
+        "FAKE_BOOTSTRAP_EXTRA_MODULE=$bootstrap_extra_module" \
+        "FAKE_PHASE_OWNERSHIP_MODE=$phase_ownership_mode" \
         "TMPDIR=$case_tmpdir" \
         "PATH=$case_path" \
         "RT4_TIMEOUT_SECONDS=5" \
@@ -579,7 +596,16 @@ assert_verified_inputs() {
         'runtime-worker-acceptance build-log phase=bootstrap compiled-modules=2' \
         "$output_path"
     /usr/bin/grep -Fq \
-        'runtime-worker-acceptance build-log phase=verified runner=3 authoring=2 consumer=1 overlaps=0' \
+        'runtime-worker-acceptance build-log phase=verified runner=4 authoring=4 consumer=2 runner-authoring-overlap=1 runner-consumer-overlap=1 authoring-consumer-overlap=1' \
+        "$output_path"
+    /usr/bin/grep -Fq \
+        'runtime-worker-acceptance build-log overlap=runner-authoring module=MojoArtifactCore' \
+        "$output_path"
+    /usr/bin/grep -Fq \
+        'runtime-worker-acceptance build-log overlap=runner-consumer module=MojoArtifactCore' \
+        "$output_path"
+    /usr/bin/grep -Fq \
+        'runtime-worker-acceptance build-log overlap=authoring-consumer module=MojoArtifactCore' \
         "$output_path"
 }
 
@@ -613,7 +639,7 @@ run_acceptance \
     0 \
     0 \
     TERM \
-    1
+    MojoRuntime
 exit_status=$?
 set -e
 if ((exit_status != 1)); then
@@ -630,35 +656,124 @@ if ! /usr/bin/grep -Fq \
 fi
 assert_no_acceptance_temp "$bootstrap_scope_tmpdir"
 
-phase_overlap_tmpdir="$TEST_ROOT/phase-overlap-tmp"
-phase_overlap_output="$TEST_ROOT/phase-overlap-output.log"
+darwin_crypto_tmpdir="$TEST_ROOT/darwin-crypto-tmp"
+darwin_crypto_output="$TEST_ROOT/darwin-crypto-output.log"
 set +e
 run_acceptance \
-    "$phase_overlap_tmpdir" \
+    "$darwin_crypto_tmpdir" \
     "$fake_bin:/usr/bin:/bin" \
-    "$phase_overlap_output" \
+    "$darwin_crypto_output" \
+    0 \
+    clean \
+    0 \
+    0 \
+    TERM \
+    Crypto
+exit_status=$?
+set -e
+if ((exit_status != 1)); then
+    echo "expected Darwin bootstrap Crypto compilation to exit 1, got $exit_status" >&2
+    /bin/cat "$darwin_crypto_output" >&2
+    exit 1
+fi
+if ! /usr/bin/grep -Fq \
+    'bootstrap compiled a forbidden heavy module: Crypto' \
+    "$darwin_crypto_output"; then
+    echo 'Darwin bootstrap Crypto compilation was not rejected' >&2
+    /bin/cat "$darwin_crypto_output" >&2
+    exit 1
+fi
+assert_no_acceptance_temp "$darwin_crypto_tmpdir"
+
+phase_contamination_tmpdir="$TEST_ROOT/phase-contamination-tmp"
+phase_contamination_output="$TEST_ROOT/phase-contamination-output.log"
+set +e
+run_acceptance \
+    "$phase_contamination_tmpdir" \
+    "$fake_bin:/usr/bin:/bin" \
+    "$phase_contamination_output" \
     0 \
     clean \
     0 \
     0 \
     TERM \
     0 \
-    1
+    authoring-owner-in-consumer
 exit_status=$?
 set -e
 if ((exit_status != 1)); then
-    echo "expected repeated module compilation to exit 1, got $exit_status" >&2
-    /bin/cat "$phase_overlap_output" >&2
+    echo "expected cross-phase owner contamination to exit 1, got $exit_status" >&2
+    /bin/cat "$phase_contamination_output" >&2
     exit 1
 fi
 if ! /usr/bin/grep -Fq \
-    'module compilation repeated across runner and consumer' \
-    "$phase_overlap_output"; then
-    echo 'cross-phase module recompilation was not reported' >&2
-    /bin/cat "$phase_overlap_output" >&2
+    'consumer build log compiled authoring phase-owned module: MojoCommandPlugin' \
+    "$phase_contamination_output"; then
+    echo 'cross-phase owner contamination was not reported' >&2
+    /bin/cat "$phase_contamination_output" >&2
     exit 1
 fi
-assert_no_acceptance_temp "$phase_overlap_tmpdir"
+assert_no_acceptance_temp "$phase_contamination_tmpdir"
+
+missing_owner_tmpdir="$TEST_ROOT/missing-owner-tmp"
+missing_owner_output="$TEST_ROOT/missing-owner-output.log"
+set +e
+run_acceptance \
+    "$missing_owner_tmpdir" \
+    "$fake_bin:/usr/bin:/bin" \
+    "$missing_owner_output" \
+    0 \
+    clean \
+    0 \
+    0 \
+    TERM \
+    0 \
+    missing-consumer-owner
+exit_status=$?
+set -e
+if ((exit_status != 1)); then
+    echo "expected missing phase owner to exit 1, got $exit_status" >&2
+    /bin/cat "$missing_owner_output" >&2
+    exit 1
+fi
+if ! /usr/bin/grep -Fq \
+    'consumer build log is missing expected module: RuntimeWorkerAcceptanceConsumer' \
+    "$missing_owner_output"; then
+    echo 'missing phase owner was not reported' >&2
+    /bin/cat "$missing_owner_output" >&2
+    exit 1
+fi
+assert_no_acceptance_temp "$missing_owner_tmpdir"
+
+wrong_owner_tmpdir="$TEST_ROOT/wrong-owner-tmp"
+wrong_owner_output="$TEST_ROOT/wrong-owner-output.log"
+set +e
+run_acceptance \
+    "$wrong_owner_tmpdir" \
+    "$fake_bin:/usr/bin:/bin" \
+    "$wrong_owner_output" \
+    0 \
+    clean \
+    0 \
+    0 \
+    TERM \
+    0 \
+    runner-owner-in-authoring
+exit_status=$?
+set -e
+if ((exit_status != 1)); then
+    echo "expected wrong-phase runner owner to exit 1, got $exit_status" >&2
+    /bin/cat "$wrong_owner_output" >&2
+    exit 1
+fi
+if ! /usr/bin/grep -Fq \
+    'authoring build log compiled runner phase-owned module: RuntimeWorkerAcceptanceRunner' \
+    "$wrong_owner_output"; then
+    echo 'wrong-phase runner owner was not reported' >&2
+    /bin/cat "$wrong_owner_output" >&2
+    exit 1
+fi
+assert_no_acceptance_temp "$wrong_owner_tmpdir"
 
 aborted_tmpdir="$TEST_ROOT/aborted-tmp"
 aborted_output="$TEST_ROOT/aborted-output.log"
