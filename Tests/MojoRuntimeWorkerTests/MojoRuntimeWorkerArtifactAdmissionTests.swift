@@ -8,6 +8,99 @@ import Testing
 @Suite("Mojo runtime worker artifact admission")
 struct MojoRuntimeWorkerArtifactAdmissionTests {
     @Test(.timeLimit(.minutes(1)))
+    func resourceAdmissionCopiesIdentityBeforeSpawnAndRollsBackFailures() throws {
+        let digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        for variant in ["valid", "missing", "link", "directory", "size", "digest"] {
+            let fixture = try makeFixture()
+            defer { fixture.remove() }
+            let source = fixture.rootURL.appendingPathComponent("model")
+            switch variant {
+            case "missing": break
+            case "directory":
+                try FileManager.default.createDirectory(at: source, withIntermediateDirectories: false)
+            case "link":
+                let target = fixture.rootURL.appendingPathComponent("target")
+                try Data("abc".utf8).write(to: target)
+                try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
+            default:
+                try Data("abc".utf8).write(to: source)
+            }
+            let resource = try MojoRuntimeWorkerInputResource(
+                fileURL: source,
+                expectedByteCount: variant == "size" ? 4 : 3,
+                expectedSHA256: variant == "digest" ? String(repeating: "0", count: 64) : digest
+            )
+            let stageRoot = fixture.rootURL.appendingPathComponent("attempt", isDirectory: true)
+            var spawnCount = 0
+            let admission = MojoRuntimeWorkerArtifactAdmission(
+                fileManager: .default,
+                verify: { MojoRuntimeWorkerTestFixture.rebased(fixture.verification, to: $0) },
+                spawn: { executable, arguments, environment in
+                    spawnCount += 1
+                    let environment = try #require(environment)
+                    #expect(Set(environment.keys) == [
+                        "SWIFT_MOJO_INPUT_RESOURCE_PATH", "SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY"
+                    ])
+                    let staged = URL(fileURLWithPath: try #require(environment["SWIFT_MOJO_INPUT_RESOURCE_PATH"]))
+                    #expect(staged != source)
+                    #expect(staged.deletingLastPathComponent() == stageRoot)
+                    #expect(try Data(contentsOf: staged) == Data("abc".utf8))
+                    let attributes = try FileManager.default.attributesOfItem(atPath: staged.path)
+                    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o400)
+                    #expect(environment["SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY"] ==
+                        stageRoot.appendingPathComponent("bundle/lib").path)
+                    return try MojoPOSIXWorkerSupport.spawn(
+                        executablePath: executable, arguments: arguments, environment: environment
+                    )
+                },
+                readStartup: { process, verification, timeout in
+                    try MojoRuntimeWorkerStartupReader.readReady(
+                        from: process, verification: verification, timeout: timeout
+                    )
+                },
+                makeStageRoot: { stageRoot }
+            )
+            do {
+                let admitted = try admission.admit(
+                    verification: fixture.verification, inputResource: resource,
+                    startupDeadline: ContinuousClock.now.advanced(by: .seconds(3)),
+                    terminationGracePeriod: .seconds(1), forcedCleanup: .seconds(3)
+                )
+                #expect(variant == "valid")
+                cleanup(admitted)
+            } catch let error as MojoRuntimeWorkerError {
+                switch variant {
+                case "missing", "link", "directory": #expect(error == .inputResourceUnavailable)
+                case "size": #expect(error == .inputResourceByteCountMismatch)
+                case "digest": #expect(error == .inputResourceDigestMismatch)
+                default: Issue.record("Valid resource failed: \(error)")
+                }
+            }
+            #expect(spawnCount == (variant == "valid" ? 1 : 0))
+            #expect(!FileManager.default.fileExists(atPath: stageRoot.path))
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func inputResourceRequiresExactIdentity() throws {
+        let url = URL(fileURLWithPath: "/unused")
+        let digest = String(repeating: "a", count: 64)
+        for (count, hash) in [(Int64(0), digest), (-1, digest), (1, "bad"), (1, digest.uppercased())] {
+            #expect(throws: MojoRuntimeWorkerError.invalidInputResourceIdentity) {
+                try MojoRuntimeWorkerInputResource(
+                    fileURL: url, expectedByteCount: count, expectedSHA256: hash
+                )
+            }
+        }
+        #expect(throws: MojoRuntimeWorkerError.invalidInputResourceIdentity) {
+            try MojoRuntimeWorkerInputResource(
+                fileURL: URL(string: "https://example.com/model")!,
+                expectedByteCount: 1, expectedSHA256: digest
+            )
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func stagesPrivatelyAndSpawnsOnlyTheFreshVerifiedExecutable() throws {
         let fixture = try makeFixture()
         defer { fixture.remove() }

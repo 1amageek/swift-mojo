@@ -9,6 +9,12 @@ extern "C" {
 
 int32_t swift_mojo_posix_platform_supported(void);
 
+int32_t swift_mojo_posix_open_regular_input(
+    const char *path,
+    int64_t *byte_count,
+    int32_t *error_code
+);
+
 int32_t swift_mojo_posix_open_file(
     const char *path,
     int32_t truncate,

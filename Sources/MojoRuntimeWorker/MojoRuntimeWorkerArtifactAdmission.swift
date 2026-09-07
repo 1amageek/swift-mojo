@@ -1,3 +1,4 @@
+import Crypto
 import Foundation
 import MojoPOSIXSupport
 import MojoRuntime
@@ -165,6 +166,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
     package func admit(
         verification trustedVerification:
             MojoRuntimeWorkerBundleVerification,
+        inputResource: MojoRuntimeWorkerInputResource? = nil,
         startupDeadline: ContinuousClock.Instant,
         terminationGracePeriod: Duration,
         forcedCleanup: Duration
@@ -235,8 +237,18 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             )
             try Self.requireAdmissionActive(until: startupDeadline)
 
+            var environment: [String: String] = [:]
+            if let inputResource {
+                let resourceURL = try stageInputResource(
+                    inputResource, in: stageRoot, deadline: startupDeadline
+                )
+                environment["SWIFT_MOJO_INPUT_RESOURCE_PATH"] = resourceURL.path
+                environment["SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY"] =
+                    bundleURL.appendingPathComponent("lib", isDirectory: true).path
+            }
+            try Self.requireAdmissionActive(until: startupDeadline)
             do {
-                process = try spawn(executableURL.path, [], [:])
+                process = try spawn(executableURL.path, [], environment)
             } catch {
                 throw MojoRuntimeWorkerError.workerSpawnFailed
             }
@@ -367,6 +379,97 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         guard !isCancelled else {
             throw MojoRuntimeWorkerError.cancellationRequested
         }
+    }
+
+    private func stageInputResource(
+        _ resource: MojoRuntimeWorkerInputResource,
+        in rootURL: URL,
+        deadline: ContinuousClock.Instant
+    ) throws -> URL {
+        try Self.requireAdmissionActive(until: deadline)
+        let opened: (descriptor: Int32, byteCount: Int64)
+        do {
+            opened = try MojoPOSIXSupport.openRegularInputFile(path: resource.fileURL.path)
+        } catch {
+            throw MojoRuntimeWorkerError.inputResourceUnavailable
+        }
+        let input = FileHandle(fileDescriptor: opened.descriptor, closeOnDealloc: true)
+        var output: FileHandle?
+        var primary: MojoRuntimeWorkerError?
+        let destination = rootURL.appendingPathComponent("input-resource")
+        do {
+            guard opened.byteCount == resource.expectedByteCount else {
+                throw MojoRuntimeWorkerError.inputResourceByteCountMismatch
+            }
+            guard fileManager.createFile(
+                atPath: destination.path, contents: nil,
+                attributes: [.posixPermissions: 0o600]
+            ) else {
+                throw MojoRuntimeWorkerError.inputResourceCopyFailed
+            }
+            let target = try FileHandle(forUpdating: destination)
+            output = target
+            var remaining = resource.expectedByteCount
+            while remaining > 0 {
+                try Self.requireAdmissionActive(until: deadline)
+                let chunk = try input.read(upToCount: Int(min(remaining, 1_048_576)))
+                guard let chunk, !chunk.isEmpty else {
+                    throw MojoRuntimeWorkerError.inputResourceByteCountMismatch
+                }
+                try target.write(contentsOf: chunk)
+                remaining -= Int64(chunk.count)
+            }
+            if let extra = try input.read(upToCount: 1), !extra.isEmpty {
+                throw MojoRuntimeWorkerError.inputResourceByteCountMismatch
+            }
+            try target.seek(toOffset: 0)
+            var digest = SHA256()
+            remaining = resource.expectedByteCount
+            while remaining > 0 {
+                try Self.requireAdmissionActive(until: deadline)
+                let chunk = try target.read(upToCount: Int(min(remaining, 1_048_576)))
+                guard let chunk, !chunk.isEmpty else {
+                    throw MojoRuntimeWorkerError.inputResourceByteCountMismatch
+                }
+                digest.update(data: chunk)
+                remaining -= Int64(chunk.count)
+            }
+            let actual = digest.finalize().map { String(format: "%02x", $0) }.joined()
+            guard actual == resource.expectedSHA256 else {
+                throw MojoRuntimeWorkerError.inputResourceDigestMismatch
+            }
+            try Self.requireAdmissionActive(until: deadline)
+        } catch let error as MojoRuntimeWorkerError {
+            primary = error
+        } catch {
+            primary = .inputResourceCopyFailed
+        }
+        var cleanupFailures: [MojoRuntimeWorkerCleanupFailure] = []
+        if let output {
+            do { try output.close() }
+            catch { cleanupFailures.append(.inputResourceCloseFailed) }
+        }
+        do { try input.close() }
+        catch { cleanupFailures.append(.inputResourceCloseFailed) }
+        guard cleanupFailures.isEmpty else {
+            throw MojoRuntimeWorkerError.cleanupFailed(
+                primary: primary.map { .worker($0) }, failures: cleanupFailures
+            )
+        }
+        if let primary { throw primary }
+        do {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o400], ofItemAtPath: destination.path
+            )
+            let attributes = try fileManager.attributesOfItem(atPath: destination.path)
+            guard (attributes[.posixPermissions] as? NSNumber)?.intValue == 0o400 else {
+                throw MojoRuntimeWorkerError.inputResourcePermissionFailed
+            }
+        } catch {
+            throw MojoRuntimeWorkerError.inputResourcePermissionFailed
+        }
+        try Self.requireAdmissionActive(until: deadline)
+        return destination
     }
 
     private static func requireAdmissionActive(

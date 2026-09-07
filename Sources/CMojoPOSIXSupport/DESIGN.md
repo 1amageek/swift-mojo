@@ -15,8 +15,9 @@ must still compile this target and report an unsupported platform at runtime.
 This target owns the C representation of file descriptors, advisory locks,
 `socketpair`, `posix_spawn`, descriptor mapping, bounded poll/read/write,
 non-reaping exact-child observation, bounded process-group enumeration,
-process-group signaling, `waitpid`, seek/read, error text, and process exit. It
-normalizes platform declarations and constants into fixed-width C values.
+process-group signaling, `waitpid`, regular-input opening, `fstat`, seek/read,
+error text, and process exit. It normalizes platform declarations and constants
+into fixed-width C values.
 
 It does not own timeout policy, polling intervals, command construction,
 temporary paths, output decoding, artifact identity, or Swift error types. It
@@ -44,6 +45,11 @@ Swift package-scoped adapter
 ```
 
 ## Contracts and Invariants
+
+- Regular input admission uses `O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC`
+  and checks the opened descriptor with `fstat`, returning its byte count.
+  Failed admission closes the descriptor; successful admission transfers it
+  to the Swift caller. No source pointer escapes the synchronous call.
 
 - `swift_mojo_posix_platform_supported()` returns one only when the complete
   process and descriptor contract is available.
@@ -114,6 +120,11 @@ worker spawn request
 worker I/O request
   -> bounded readiness wait
   -> partial read/write, EOF, timeout, or errno result
+
+regular input request
+  -> open with no-follow, nonblocking, and close-on-exec flags
+  -> fstat the opened descriptor and require a regular file
+  -> return owned descriptor + exact size, or errno-compatible failure
 ```
 
 ## State, Ownership, and Lifecycle
@@ -133,7 +144,8 @@ referencing an unavailable symbol.
 
 ## Verification and Change Impact
 
-`MojoPOSIXSupportTests` exercises lock exclusion and wait-status compatibility.
+`MojoPOSIXSupportTests` exercises lock exclusion, regular-input link/type/size
+admission, and wait-status compatibility.
 `MojoCompilerCoreTests` exercises real spawn success, nonzero exit, timeout,
 descendant termination, and reap behavior on Darwin and Linux. Changes to this
 ABI require rechecking `MojoPOSIXSupport`, `MojoCompilerCore`, output locking,

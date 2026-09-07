@@ -152,7 +152,7 @@ flowchart TB
 | `MojoBuildPlugin` | verifier command | SwiftPM/Xcode | missing required inputs or verifier failure stops build |
 | generated Registry | internal scalar/buffer/session call thunk and exact static-artifact attestation | expanded Swift body and `@mojoStaticArtifactAttestation` | ABI/input-graph/binding mismatch is cached before invocation; buffer/session/attestation failures throw typed errors |
 | generated worker artifact | direct-linked Mojo ABI + C protocol endpoint and closed W2 deployment identity | `MojoRuntimeWorker` through bounded fd-3 frames | W2 proves generation/link/closure; W3 separately proves process/session behavior |
-| `MojoRuntimeWorker` | W2-trusted projection, private staged bundle, process/descriptor owner, bounded generic session client | consuming package through typed operations | arbitrary executable/path/protocol access is absent; termination signals the process group, reaps the exact child, and never reuses a failed worker |
+| `MojoRuntimeWorker` | W2-trusted projection, optional typed immutable input resource, private staged bundle/resource, process/descriptor owner, bounded generic session client | consuming package through typed operations | arbitrary executable/environment/protocol access and private staged paths are absent; termination signals the process group, reaps the exact child, removes the full private stage, and never reuses a failed worker |
 
 ## Runtime Flows
 
@@ -447,6 +447,16 @@ projectionを所有し、いずれもpublic launcherを持ちません。W3のpu
 `MojoRuntimeWorker`だけがW2-trusted projectionからgeneric worker attemptを生成し、
 private staging、fd-3 I/O、session lifecycle、termination/reapを所有します。これは任意
 executable launcherではなく、filesystem/POSIX/raw protocolをconsumerへ公開しません。
+consumerが選択した単一のimmutable input resourceは、source URL・exact byte count・
+SHA-256を持つbackend-neutral valueとしてだけ受け取ります。W3はworker bundleとは
+別にattempt-private stageへbounded copyして再検証し、read-onlyにしたprivate pathを
+固定`SWIFT_MOJO_INPUT_RESOURCE_PATH`でchildへ渡します。resource-bearing attemptでは、
+検証済みstaged bundleの`lib` directoryも固定
+`SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY`で渡します。W3はvendor library名を解釈せず、
+model-specific Mojo workerがこのdirectoryから固定runtime library名を選びます。resourceが
+ない既存workerは空environmentのままです。任意environment、W2 bundle layout、fd-3
+protocol、factory ABIは変更せず、resourceのmodel意味とbinding/resourceの許可tupleは
+consumerが所有します。
 AppleとNVIDIA artifactはsource/input graph、ABI、protocol、binding semanticsを共有し、
 target/compiler/object/runtime/executable closureを分離します。worker execution契約は
 `RuntimeWorkerBundle.json`が一意に所有し、nested `RuntimeBundle.json`と
@@ -468,6 +478,7 @@ schema、protocol、TOCTOU、lifecycle、evidence契約は
 | static artifact | linker/process | executable image | process lifetime | immutable code/data | link failure or invariant trap |
 | worker bundle | W2 managed transaction | consuming package selects its trusted projection | one immutable deployment revision | closed tree + fresh W2 verification | schema/tree/closure drift is typed failure |
 | worker private stage/process/session | W3 `MojoRuntimeWorker` attempt / generated worker | W3 attempt owner | private-copy verification through graceful exit or hard termination/reap | isolated process boundary + serial protocol-v1 admission | graceful destroys live handles exactly once; hard failure relies on OS reclamation and requires a clean next attempt |
+| worker input resource and runtime closure paths | consuming package selects source identity; W3 stages the admitted copy and verified bundle | W3 attempt owner | source/bundle validation through graceful exit or hard termination/reap | exact byte count/SHA-256, private read-only copy, exactly two fixed child-only environment keys | missing/non-regular/link/count/digest/copy/permission/deadline/cancellation fails before spawn and removes staging; model-specific worker owns runtime library names |
 | borrowed `[Float]` storage | Swift caller | Swift `Array` | synchronous `withUnsafeBufferPointer` closure | immutable borrow; no shared mutation | empty buffer is typed failure |
 | buffer result value | Swift caller | returned `Float` | value lifetime | immutable value | no separate status channel in the current signature family |
 | mutable output `[Float]` storage | Swift caller | Swift `Array` | nested synchronous `withUnsafeMutableBufferPointer` closure | exclusive mutable borrow during call | empty output or nonzero Mojo status is typed failure; content after failure is unspecified |
@@ -491,7 +502,7 @@ scalar/borrowed-buffer runtimeに共有可変ownership stateはありません�
 | mutable-output runtime | caller-owned output mutation + `Void` | cached artifact errors; per-call empty input/output errors; nonzero Mojo status with binding ID |
 | opaque-session runtime | typed capabilities + factory-domain-bound `MojoSessionOwner` | create/status/schema/capability errors; busy、shutdown、domain mismatch; paired cleanup after rejected creation |
 | session-owned Float32 buffer | typed `MojoFloat32BufferOwner` | missing capability、byte-count overflow、status/missing handle、busy/resource shutdown/active-resource errors; paired cleanup after rejected creation |
-| persistent worker client | typed generic attempt/session result | untrusted projection、private-stage、spawn、protocol、busy、deadline、cancellation、shutdown、signal/reap、cleanup errors; partial output never succeeds |
+| persistent worker client | typed generic attempt/session result | untrusted projection、input-resource identity/copy/permission、private-stage、spawn、protocol、busy、deadline、cancellation、shutdown、signal/reap、cleanup errors; partial output never succeeds |
 
 scalar runtimeで `throws` にしないのは、toolchain/artifact failureをprepare/build gateへ移した静的設計だからです。immutable borrowed-buffer sliceはdirect-return ABIとtyped Swift validation errorの最小形です。mutable-output sliceはrecoverable Mojo-side statusを追加しましたが、owned diagnostic payloadやtransactional output rollbackは持ちません。opaque session/resource sliceはMojo-created stateのlifetimeを跨ぎますが、operationは同期かつsingle-leaseです。Accelerator availability、device execution、async completionはcapability spellingから推測せず、downstream adapterの実行証拠を要求します。
 
@@ -511,6 +522,7 @@ scalar runtimeで `throws` にしないのは、toolchain/artifact failureをpre
 | relocation | static executable | artifact copy outside build location returns scalar `42` and buffer `10.0` without Mojo installed |
 | persistent worker artifact (W1/W2) | generated Mojo+C objects + ADR-0011 direct link + worker schema/protocol 1 + immutable W2 verifier projection | deterministic identity、two-object direct link、closed tree、no callable primary library/loader imports、staged and committed verification rollback、public construction/path/handle absence verified; relocated macOS process/protocol execution is verified by RT4.B, while persistent receipt generation remains pending |
 | persistent worker client (W3) | trusted W2 projection + private staging/process/protocol owner | fragmented/oversized/truncated frames、zero-session preflight mismatch、one-in-flight exclusion、graceful exactly-once teardown、hard-kill application survival/group termination/exact-child reap/clean-next-attempt verified on local macOS fixtures; RT4.B verifies relocated production execution on macOS, while persistent macOS receipts and native Linux execution remain pending |
+| optional worker input resource | `MojoRuntimeWorkerInputResource` + W3 private admission | exact byte-count/digest success、missing/link/non-regular/mutated/late/cancelled failure before spawn、resource path + verified staged runtime-library directoryのtwo-fixed-key-only environment、read-only private copy、graceful/hard cleanup、nil-resource empty environment、resource-required remote create failure |
 
 Changes to canonical identity or generated ABI require the binding, artifact,
 plugin, release-verifier, and compiler-free consumer tests. Changes to process,

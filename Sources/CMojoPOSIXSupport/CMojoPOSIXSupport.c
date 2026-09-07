@@ -26,6 +26,7 @@
 #include <spawn.h>
 #include <sys/file.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -392,6 +393,39 @@ int32_t swift_mojo_posix_worker_platform_supported(void) {
     return 1;
 #else
     return 0;
+#endif
+}
+
+int32_t swift_mojo_posix_open_regular_input(
+    const char *path,
+    int64_t *byte_count,
+    int32_t *error_code
+) {
+#if SWIFT_MOJO_HAS_POSIX
+    int descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (descriptor < 0) {
+        set_error(error_code, errno);
+        return -1;
+    }
+    struct stat metadata;
+    if (fstat(descriptor, &metadata) != 0) {
+        int saved_error = errno;
+        (void)close(descriptor);
+        set_error(error_code, saved_error);
+        return -1;
+    }
+    if (!S_ISREG(metadata.st_mode) || metadata.st_size < 0) {
+        (void)close(descriptor);
+        set_error(error_code, EINVAL);
+        return -1;
+    }
+    *byte_count = (int64_t)metadata.st_size;
+    return (int32_t)descriptor;
+#else
+    (void)path;
+    (void)byte_count;
+    set_error(error_code, ENOTSUP);
+    return -1;
 #endif
 }
 

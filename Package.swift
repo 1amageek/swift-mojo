@@ -109,6 +109,7 @@ let package = Package(
         .target(
             name: "MojoRuntimeWorker",
             dependencies: [
+                .product(name: "Crypto", package: "swift-crypto"),
                 "Mojo",
                 "MojoRuntime",
                 "MojoPOSIXSupport",

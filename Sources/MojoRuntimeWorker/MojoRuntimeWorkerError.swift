@@ -42,6 +42,7 @@ public enum MojoRuntimeWorkerCleanupFailure:
     case wakeupCloseFailed
     case privateStageRemovalFailed
     case privateStageRetained
+    case inputResourceCloseFailed
 }
 
 public enum MojoRuntimeWorkerTimeoutField: String, Equatable, Sendable {
@@ -84,6 +85,12 @@ public indirect enum MojoRuntimeWorkerError:
     case privateStageCreationFailed
     case privateStagePermissions(actual: Int)
     case privateStageCopyFailed
+    case invalidInputResourceIdentity
+    case inputResourceUnavailable
+    case inputResourceByteCountMismatch
+    case inputResourceDigestMismatch
+    case inputResourceCopyFailed
+    case inputResourcePermissionFailed
     case stagedVerificationFailed
     case stagedProjectionMismatch
     case invalidExecutablePath
@@ -157,6 +164,18 @@ public indirect enum MojoRuntimeWorkerError:
             return "Private worker staging permissions are invalid: \(actual)"
         case .privateStageCopyFailed:
             return "Private worker staging copy failed"
+        case .invalidInputResourceIdentity:
+            return "Input resource requires a file URL, positive byte count, and lowercase SHA-256"
+        case .inputResourceUnavailable:
+            return "Input resource is missing, linked, or not a readable regular file"
+        case .inputResourceByteCountMismatch:
+            return "Input resource byte count differs from its selected identity"
+        case .inputResourceDigestMismatch:
+            return "Input resource digest differs from its selected identity"
+        case .inputResourceCopyFailed:
+            return "Private input resource copy failed"
+        case .inputResourcePermissionFailed:
+            return "Private input resource could not be made read-only"
         case .stagedVerificationFailed:
             return "Staged worker verification failed"
         case .stagedProjectionMismatch:

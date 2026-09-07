@@ -11,8 +11,9 @@ design is [`DESIGN.md`](../../DESIGN.md); it has no child components.
 This target owns Swift string/environment marshalling, temporary C-string
 storage, `Data` collection for process output, fixed-width PID/descriptor values,
 socket-endpoint marshalling, bounded partial-I/O results, platform capability
-checks, non-reaping child observation, bounded process-group inspection,
-wait-status decoding, and typed package-internal errors.
+checks, regular-input descriptor admission, non-reaping child observation,
+bounded process-group inspection, wait-status decoding, and typed
+package-internal errors.
 
 It does not own process timeouts, cancellation policy, termination escalation,
 output-lock paths, artifact transactions, command exit policy, or user-facing
@@ -39,6 +40,11 @@ MojoCompilerCore / MojoArtifactCore / swift-mojo executable / MojoRuntimeWorker
 ```
 
 ## Contracts and Invariants
+
+- `openRegularInputFile` returns one caller-owned read-only descriptor and its
+  `fstat` byte count. It rejects a final symbolic link and non-regular file,
+  opens nonblocking to avoid a FIFO admission hang, and sets close-on-exec.
+  W3 owns content identity, copying, deadline checks, and explicit close.
 
 - Every fallible platform operation first requires the complete supported-host
   contract; unsupported hosts throw `unsupportedPlatform`.
@@ -94,6 +100,11 @@ Swift output read
   -> append bounded chunks until EOF
   -> return owned Data
 
+Swift regular input admission
+  -> open without following links and with nonblocking/close-on-exec flags
+  -> require regular-file metadata and obtain exact size from the descriptor
+  -> return the owned descriptor or a typed package-internal error
+
 Swift worker spawn
   -> receive a verified private-stage executable from MojoRuntimeWorker
   -> create socketpair and map the child endpoint to fd 3
@@ -137,9 +148,9 @@ target-internal Swift C-linkage declarations can name the raw ABI.
 ## Verification and Change Impact
 
 `MojoPOSIXSupportTests` verifies host support, exclusive locking, typed
-non-reaping child observation, bounded tri-state group inspection, status
-decoding, worker descriptor mapping, partial I/O, EOF, interruption, and timeout
-results.
+regular-input link/type/size admission, non-reaping child observation, bounded
+tri-state group inspection, status decoding, worker descriptor mapping, partial
+I/O, EOF, interruption, and timeout results.
 `MojoCompilerCoreTests` verifies the existing tool-process lifecycle.
 `MojoRuntimeWorker` acceptance verifies the distinct worker lifecycle on macOS
 and native Linux/aarch64. The build-plugin integration test verifies that the

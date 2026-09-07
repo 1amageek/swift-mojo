@@ -51,6 +51,21 @@ package enum MojoPOSIXSupport {
         try openFile(path: path, truncate: true)
     }
 
+    package static func openRegularInputFile(
+        path: String
+    ) throws -> (descriptor: Int32, byteCount: Int64) {
+        try requireSupported(operation: "open regular input file")
+        var byteCount: Int64 = 0
+        var errorCode: Int32 = 0
+        let descriptor = path.withCString {
+            swift_mojo_posix_open_regular_input($0, &byteCount, &errorCode)
+        }
+        guard descriptor >= 0 else {
+            throw failure(operation: "open regular input file", code: errorCode)
+        }
+        return (descriptor, byteCount)
+    }
+
     package static func openLockFile(path: String) throws -> Int32 {
         try openFile(path: path, truncate: false)
     }

@@ -21,6 +21,13 @@ let SWIFT_MOJO_POSIX_WORKER_EVENT_WAKEUP_ERROR: Int32 = 512
 @_extern(c, "swift_mojo_posix_platform_supported")
 func swift_mojo_posix_platform_supported() -> Int32
 
+@_extern(c, "swift_mojo_posix_open_regular_input")
+func swift_mojo_posix_open_regular_input(
+  _ path: UnsafePointer<CChar>?,
+  _ byteCount: UnsafeMutablePointer<Int64>?,
+  _ errorCode: UnsafeMutablePointer<Int32>?
+) -> Int32
+
 @_extern(c, "swift_mojo_posix_open_file")
 func swift_mojo_posix_open_file(
   _ path: UnsafePointer<CChar>?,
