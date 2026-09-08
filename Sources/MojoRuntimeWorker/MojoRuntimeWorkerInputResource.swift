@@ -2,11 +2,13 @@ import Foundation
 
 /// The exact identity of one immutable input file admitted for a worker attempt.
 public struct MojoRuntimeWorkerInputResource: Sendable {
+    public let identifier: MojoRuntimeWorkerInputResourceID
     package let fileURL: URL
-    package let expectedByteCount: Int64
-    package let expectedSHA256: String
+    public let expectedByteCount: Int64
+    public let expectedSHA256: String
 
     public init(
+        identifier: MojoRuntimeWorkerInputResourceID,
         fileURL: URL,
         expectedByteCount: Int64,
         expectedSHA256: String
@@ -20,6 +22,7 @@ public struct MojoRuntimeWorkerInputResource: Sendable {
               }) else {
             throw MojoRuntimeWorkerError.invalidInputResourceIdentity
         }
+        self.identifier = identifier
         self.fileURL = fileURL
         self.expectedByteCount = expectedByteCount
         self.expectedSHA256 = expectedSHA256

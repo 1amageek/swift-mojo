@@ -5,7 +5,7 @@ import MojoRuntimeProtocolCore
 import MojoRuntimeWorker
 import Testing
 
-@Suite("Mojo runtime worker artifact admission")
+@Suite("Mojo runtime worker artifact admission", .serialized)
 struct MojoRuntimeWorkerArtifactAdmissionTests {
     @Test(.timeLimit(.minutes(1)))
     func resourceAdmissionCopiesIdentityBeforeSpawnAndRollsBackFailures() throws {
@@ -25,10 +25,19 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             default:
                 try Data("abc".utf8).write(to: source)
             }
+            let identifier = try MojoRuntimeWorkerInputResourceID("model")
             let resource = try MojoRuntimeWorkerInputResource(
+                identifier: identifier,
                 fileURL: source,
                 expectedByteCount: variant == "size" ? 4 : 3,
                 expectedSHA256: variant == "digest" ? String(repeating: "0", count: 64) : digest
+            )
+            let limits = try MojoRuntimeWorkerInputResourceLimits(
+                maximumResourceCount: 1,
+                maximumAggregateByteCount: 4
+            )
+            let inputResources = try MojoRuntimeWorkerInputResources(
+                resources: [resource], limits: limits
             )
             let stageRoot = fixture.rootURL.appendingPathComponent("attempt", isDirectory: true)
             var spawnCount = 0
@@ -39,11 +48,23 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
                     spawnCount += 1
                     let environment = try #require(environment)
                     #expect(Set(environment.keys) == [
-                        "SWIFT_MOJO_INPUT_RESOURCE_PATH", "SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY"
+                        "SWIFT_MOJO_INPUT_RESOURCE_DIRECTORY",
+                        "SWIFT_MOJO_INPUT_RESOURCE_COUNT",
+                        "SWIFT_MOJO_INPUT_RESOURCE_BYTES",
+                        "SWIFT_MOJO_INPUT_RESOURCE_SHA256",
+                        "SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY"
                     ])
-                    let staged = URL(fileURLWithPath: try #require(environment["SWIFT_MOJO_INPUT_RESOURCE_PATH"]))
+                    let directory = URL(fileURLWithPath: try #require(
+                        environment["SWIFT_MOJO_INPUT_RESOURCE_DIRECTORY"]
+                    ))
+                    #expect(directory == stageRoot.appendingPathComponent(
+                        "input-resources", isDirectory: true
+                    ))
+                    #expect(environment["SWIFT_MOJO_INPUT_RESOURCE_COUNT"] == "1")
+                    #expect(environment["SWIFT_MOJO_INPUT_RESOURCE_BYTES"] == "3")
+                    #expect(environment["SWIFT_MOJO_INPUT_RESOURCE_SHA256"] == inputResources.aggregateSHA256)
+                    let staged = directory.appendingPathComponent("model")
                     #expect(staged != source)
-                    #expect(staged.deletingLastPathComponent() == stageRoot)
                     #expect(try Data(contentsOf: staged) == Data("abc".utf8))
                     let attributes = try FileManager.default.attributesOfItem(atPath: staged.path)
                     #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o400)
@@ -62,7 +83,7 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             )
             do {
                 let admitted = try admission.admit(
-                    verification: fixture.verification, inputResource: resource,
+                    verification: fixture.verification, inputResources: inputResources,
                     startupDeadline: ContinuousClock.now.advanced(by: .seconds(3)),
                     terminationGracePeriod: .seconds(1), forcedCleanup: .seconds(3)
                 )
@@ -88,16 +109,240 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
         for (count, hash) in [(Int64(0), digest), (-1, digest), (1, "bad"), (1, digest.uppercased())] {
             #expect(throws: MojoRuntimeWorkerError.invalidInputResourceIdentity) {
                 try MojoRuntimeWorkerInputResource(
+                    identifier: try MojoRuntimeWorkerInputResourceID("model"),
                     fileURL: url, expectedByteCount: count, expectedSHA256: hash
                 )
             }
         }
         #expect(throws: MojoRuntimeWorkerError.invalidInputResourceIdentity) {
             try MojoRuntimeWorkerInputResource(
+                identifier: try MojoRuntimeWorkerInputResourceID("model"),
                 fileURL: URL(string: "https://example.com/model")!,
                 expectedByteCount: 1, expectedSHA256: digest
             )
         }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func inputResourceSetRequiresBoundsAndStableIdentity() throws {
+        let first = try MojoRuntimeWorkerInputResource(
+            identifier: try MojoRuntimeWorkerInputResourceID("first"),
+            fileURL: URL(fileURLWithPath: "/unused-first"),
+            expectedByteCount: 1,
+            expectedSHA256: String(repeating: "a", count: 64)
+        )
+        let second = try MojoRuntimeWorkerInputResource(
+            identifier: try MojoRuntimeWorkerInputResourceID("second"),
+            fileURL: URL(fileURLWithPath: "/unused-second"),
+            expectedByteCount: 2,
+            expectedSHA256: String(repeating: "b", count: 64)
+        )
+        let limits = try MojoRuntimeWorkerInputResourceLimits(
+            maximumResourceCount: 2,
+            maximumAggregateByteCount: 3
+        )
+        let ordered = try MojoRuntimeWorkerInputResources(
+            resources: [first, second], limits: limits
+        )
+        let reversed = try MojoRuntimeWorkerInputResources(
+            resources: [second, first], limits: limits
+        )
+        #expect(ordered.count == 2)
+        #expect(ordered.aggregateByteCount == 3)
+        #expect(
+            ordered.aggregateSHA256
+                == "3a09b5dad8b4153501c5d7dc91f9cd9b15abdd830e9f6f08d567d739aca9b224"
+        )
+        #expect(ordered.aggregateSHA256 == reversed.aggregateSHA256)
+
+        let large = try MojoRuntimeWorkerInputResource(
+            identifier: try MojoRuntimeWorkerInputResourceID("large"),
+            fileURL: URL(fileURLWithPath: "/unused-large"),
+            expectedByteCount: Int64.max - 3,
+            expectedSHA256: String(repeating: "c", count: 64)
+        )
+        let explicitLimits = try MojoRuntimeWorkerInputResourceLimits(
+            maximumResourceCount: 3, maximumAggregateByteCount: Int64.max
+        )
+        let largeSet = try MojoRuntimeWorkerInputResources(
+            resources: [first, second, large], limits: explicitLimits
+        )
+        #expect(largeSet.count == 3)
+        #expect(largeSet.aggregateByteCount == Int64.max)
+        let extra = try MojoRuntimeWorkerInputResource(
+            identifier: try MojoRuntimeWorkerInputResourceID("extra"),
+            fileURL: URL(fileURLWithPath: "/unused-extra"),
+            expectedByteCount: 4,
+            expectedSHA256: String(repeating: "d", count: 64)
+        )
+        #expect(throws: MojoRuntimeWorkerError.inputResourceAggregateByteCountLimitExceeded) {
+            _ = try MojoRuntimeWorkerInputResources(
+                resources: [large, extra], limits: explicitLimits
+            )
+        }
+
+        #expect(throws: MojoRuntimeWorkerError.emptyInputResources) {
+            try MojoRuntimeWorkerInputResources(resources: [], limits: limits)
+        }
+        #expect(throws: MojoRuntimeWorkerError.duplicateInputResourceIdentifier) {
+            try MojoRuntimeWorkerInputResources(
+                resources: [first, first], limits: limits
+            )
+        }
+        #expect(throws: MojoRuntimeWorkerError.inputResourceCountLimitExceeded) {
+            let countLimit = try MojoRuntimeWorkerInputResourceLimits(
+                maximumResourceCount: 1, maximumAggregateByteCount: 3
+            )
+            _ = try MojoRuntimeWorkerInputResources(
+                resources: [first, second], limits: countLimit
+            )
+        }
+        #expect(throws: MojoRuntimeWorkerError.inputResourceAggregateByteCountLimitExceeded) {
+            let byteLimit = try MojoRuntimeWorkerInputResourceLimits(
+                maximumResourceCount: 2, maximumAggregateByteCount: 2
+            )
+            _ = try MojoRuntimeWorkerInputResources(
+                resources: [first, second], limits: byteLimit
+            )
+        }
+        #expect(throws: MojoRuntimeWorkerError.invalidInputResourceLimits) {
+            try MojoRuntimeWorkerInputResourceLimits(
+                maximumResourceCount: 0, maximumAggregateByteCount: 1
+            )
+        }
+        for invalid in ["", ".", "..", "a/b", "a\0b", "日本語", String(repeating: "a", count: 129)] {
+            #expect(throws: MojoRuntimeWorkerError.invalidInputResourceIdentifier) {
+                try MojoRuntimeWorkerInputResourceID(invalid)
+            }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func resourceAdmissionStagesMultipleMembersAndFixedMetadata() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let firstURL = fixture.rootURL.appendingPathComponent("first")
+        let secondURL = fixture.rootURL.appendingPathComponent("second")
+        try Data("abc".utf8).write(to: firstURL)
+        try Data("abc".utf8).write(to: secondURL)
+        let digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        let resources = try MojoRuntimeWorkerInputResources(
+            resources: [
+                try MojoRuntimeWorkerInputResource(
+                    identifier: try MojoRuntimeWorkerInputResourceID("z-model"),
+                    fileURL: secondURL, expectedByteCount: 3, expectedSHA256: digest
+                ),
+                try MojoRuntimeWorkerInputResource(
+                    identifier: try MojoRuntimeWorkerInputResourceID("a-model"),
+                    fileURL: firstURL, expectedByteCount: 3, expectedSHA256: digest
+                ),
+            ],
+            limits: try MojoRuntimeWorkerInputResourceLimits(
+                maximumResourceCount: 2, maximumAggregateByteCount: 6
+            )
+        )
+        let stageRoot = fixture.rootURL.appendingPathComponent("attempt", isDirectory: true)
+        var observedEnvironment: [String: String]?
+        let admission = MojoRuntimeWorkerArtifactAdmission(
+            fileManager: .default,
+            verify: { MojoRuntimeWorkerTestFixture.rebased(fixture.verification, to: $0) },
+            spawn: { executable, arguments, environment in
+                guard let environment else {
+                    throw AdmissionTestFailure("Resource environment was omitted")
+                }
+                observedEnvironment = environment
+                let directory = URL(fileURLWithPath: try #require(
+                    environment[MojoRuntimeWorkerInputResources.directoryEnvironmentKey]
+                ))
+                #expect(directory == stageRoot.appendingPathComponent(
+                    "input-resources", isDirectory: true
+                ))
+                let directoryAttributes = try FileManager.default.attributesOfItem(
+                    atPath: directory.path
+                )
+                #expect(
+                    (directoryAttributes[.posixPermissions] as? NSNumber)?.intValue
+                        == 0o700
+                )
+                let names = try FileManager.default.contentsOfDirectory(
+                    at: directory, includingPropertiesForKeys: nil, options: []
+                ).map(\.lastPathComponent).sorted()
+                #expect(names == ["a-model", "z-model"])
+                #expect(environment[MojoRuntimeWorkerInputResources.countEnvironmentKey] == "2")
+                #expect(environment[MojoRuntimeWorkerInputResources.bytesEnvironmentKey] == "6")
+                #expect(environment[MojoRuntimeWorkerInputResources.sha256EnvironmentKey] == resources.aggregateSHA256)
+                for name in names {
+                    let attributes = try FileManager.default.attributesOfItem(
+                        atPath: directory.appendingPathComponent(name).path
+                    )
+                    #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o400)
+                }
+                return try MojoPOSIXWorkerSupport.spawn(
+                    executablePath: executable, arguments: arguments, environment: environment
+                )
+            },
+            readStartup: { process, verification, timeout in
+                try MojoRuntimeWorkerStartupReader.readReady(
+                    from: process, verification: verification, timeout: timeout
+                )
+            },
+            makeStageRoot: { stageRoot }
+        )
+        let admitted = try admission.admit(
+            verification: fixture.verification, inputResources: resources,
+            startupDeadline: ContinuousClock.now.advanced(by: .seconds(3)),
+            terminationGracePeriod: .seconds(1), forcedCleanup: .seconds(3)
+        )
+        cleanup(admitted)
+        #expect(observedEnvironment?.count == 5)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func secondResourceFailureRollsBackEarlierStagedMembersBeforeSpawn() throws {
+        let fixture = try makeFixture()
+        defer { fixture.remove() }
+        let firstURL = fixture.rootURL.appendingPathComponent("first")
+        try Data("abc".utf8).write(to: firstURL)
+        let digest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        let resources = try MojoRuntimeWorkerInputResources(
+            resources: [
+                try MojoRuntimeWorkerInputResource(
+                    identifier: try MojoRuntimeWorkerInputResourceID("first"),
+                    fileURL: firstURL, expectedByteCount: 3, expectedSHA256: digest
+                ),
+                try MojoRuntimeWorkerInputResource(
+                    identifier: try MojoRuntimeWorkerInputResourceID("second"),
+                    fileURL: fixture.rootURL.appendingPathComponent("missing"),
+                    expectedByteCount: 3, expectedSHA256: digest
+                ),
+            ],
+            limits: try MojoRuntimeWorkerInputResourceLimits(
+                maximumResourceCount: 2, maximumAggregateByteCount: 6
+            )
+        )
+        let stageRoot = fixture.rootURL.appendingPathComponent("attempt", isDirectory: true)
+        var spawnCount = 0
+        let admission = MojoRuntimeWorkerArtifactAdmission(
+            fileManager: .default,
+            verify: { MojoRuntimeWorkerTestFixture.rebased(fixture.verification, to: $0) },
+            spawn: { _, _, _ in
+                spawnCount += 1
+                throw AdmissionTestFailure("Second-resource failure unexpectedly reached spawn")
+            },
+            readStartup: { _, _, _ in
+                throw AdmissionTestFailure("Second-resource failure unexpectedly reached startup")
+            },
+            makeStageRoot: { stageRoot }
+        )
+        #expect(throws: MojoRuntimeWorkerError.inputResourceUnavailable) {
+            try admission.admit(
+                verification: fixture.verification, inputResources: resources,
+                startupDeadline: ContinuousClock.now.advanced(by: .seconds(3)),
+                terminationGracePeriod: .seconds(1), forcedCleanup: .seconds(3)
+            )
+        }
+        #expect(spawnCount == 0)
+        #expect(!FileManager.default.fileExists(atPath: stageRoot.path))
     }
 
     @Test(.timeLimit(.minutes(1)))

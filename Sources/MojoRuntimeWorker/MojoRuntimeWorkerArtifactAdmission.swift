@@ -166,7 +166,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
     package func admit(
         verification trustedVerification:
             MojoRuntimeWorkerBundleVerification,
-        inputResource: MojoRuntimeWorkerInputResource? = nil,
+        inputResources: MojoRuntimeWorkerInputResources? = nil,
         startupDeadline: ContinuousClock.Instant,
         terminationGracePeriod: Duration,
         forcedCleanup: Duration
@@ -238,12 +238,26 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             try Self.requireAdmissionActive(until: startupDeadline)
 
             var environment: [String: String] = [:]
-            if let inputResource {
-                let resourceURL = try stageInputResource(
-                    inputResource, in: stageRoot, deadline: startupDeadline
+            if let inputResources {
+                let resourceDirectory = try stageInputResources(
+                    inputResources, in: stageRoot, deadline: startupDeadline
                 )
-                environment["SWIFT_MOJO_INPUT_RESOURCE_PATH"] = resourceURL.path
-                environment["SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY"] =
+                environment[
+                    MojoRuntimeWorkerInputResources.directoryEnvironmentKey
+                ] = resourceDirectory.path
+                environment[
+                    MojoRuntimeWorkerInputResources.countEnvironmentKey
+                ] = String(inputResources.count)
+                environment[
+                    MojoRuntimeWorkerInputResources.bytesEnvironmentKey
+                ] = String(inputResources.aggregateByteCount)
+                environment[
+                    MojoRuntimeWorkerInputResources.sha256EnvironmentKey
+                ] = inputResources.aggregateSHA256
+                environment[
+                    MojoRuntimeWorkerInputResources
+                        .runtimeLibraryDirectoryEnvironmentKey
+                ] =
                     bundleURL.appendingPathComponent("lib", isDirectory: true).path
             }
             try Self.requireAdmissionActive(until: startupDeadline)
@@ -381,9 +395,48 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         }
     }
 
+    private func stageInputResources(
+        _ resources: MojoRuntimeWorkerInputResources,
+        in rootURL: URL,
+        deadline: ContinuousClock.Instant
+    ) throws -> URL {
+        try Self.requireAdmissionActive(until: deadline)
+        let directory = rootURL.appendingPathComponent(
+            MojoRuntimeWorkerInputResources.directoryName, isDirectory: true
+        )
+        do {
+            try fileManager.createDirectory(
+                at: directory,
+                withIntermediateDirectories: false,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            throw MojoRuntimeWorkerError.inputResourceDirectoryCreationFailed
+        }
+        do {
+            try Self.verifyPrivatePermissions(
+                at: directory, fileManager: fileManager
+            )
+        } catch {
+            throw MojoRuntimeWorkerError.inputResourceDirectoryPermissionFailed
+        }
+
+        for resource in resources.values {
+            try Self.requireAdmissionActive(until: deadline)
+            let destination = directory.appendingPathComponent(
+                resource.identifier.rawValue, isDirectory: false
+            )
+            _ = try stageInputResource(
+                resource, destination: destination, deadline: deadline
+            )
+        }
+        try Self.requireAdmissionActive(until: deadline)
+        return directory
+    }
+
     private func stageInputResource(
         _ resource: MojoRuntimeWorkerInputResource,
-        in rootURL: URL,
+        destination: URL,
         deadline: ContinuousClock.Instant
     ) throws -> URL {
         try Self.requireAdmissionActive(until: deadline)
@@ -396,7 +449,6 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         let input = FileHandle(fileDescriptor: opened.descriptor, closeOnDealloc: true)
         var output: FileHandle?
         var primary: MojoRuntimeWorkerError?
-        let destination = rootURL.appendingPathComponent("input-resource")
         do {
             guard opened.byteCount == resource.expectedByteCount else {
                 throw MojoRuntimeWorkerError.inputResourceByteCountMismatch

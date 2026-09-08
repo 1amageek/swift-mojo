@@ -528,6 +528,63 @@ struct MojoRuntimeWorkerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func resourceBearingAttemptCancellationRemovesTheCompletePrivateStage()
+        async throws
+    {
+        let fixture = try ScopedAttemptFixture.make(behavior: .hangOnInvoke)
+        defer { fixture.removeSource() }
+        let firstURL = fixture.sourceRoot.appendingPathComponent("first-resource")
+        let secondURL = fixture.sourceRoot.appendingPathComponent("second-resource")
+        try Data("abc".utf8).write(to: firstURL)
+        try Data("def".utf8).write(to: secondURL)
+        let firstDigest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        let secondDigest = "cb8379ac2098aa165029e3938a51da0bcecfc008fd6795f401178647f96c5b34"
+        let resources = try MojoRuntimeWorkerInputResources(
+            resources: [
+                try MojoRuntimeWorkerInputResource(
+                    identifier: try MojoRuntimeWorkerInputResourceID("first"),
+                    fileURL: firstURL,
+                    expectedByteCount: 3,
+                    expectedSHA256: firstDigest
+                ),
+                try MojoRuntimeWorkerInputResource(
+                    identifier: try MojoRuntimeWorkerInputResourceID("second"),
+                    fileURL: secondURL,
+                    expectedByteCount: 3,
+                    expectedSHA256: secondDigest
+                ),
+            ],
+            limits: try MojoRuntimeWorkerInputResourceLimits(
+                maximumResourceCount: 2, maximumAggregateByteCount: 6
+            )
+        )
+
+        let invocation = Task {
+            try await fixture.withAttempt(inputResources: resources) { session in
+                try await session.invoke(
+                    fixture.operation,
+                    input: [1, 2, 3],
+                    outputElementCount: 1,
+                    timeout: .seconds(5)
+                )
+            }
+        }
+        try await waitForTrace(fixture, containing: "invoke:")
+        invocation.cancel()
+
+        switch await invocation.result {
+        case .success:
+            Issue.record("A cancelled resource-bearing invocation succeeded")
+        case .failure(let error as MojoRuntimeWorkerError):
+            #expect(error == .cancellationRequested)
+        case .failure(let error):
+            Issue.record("Unexpected resource-bearing cancellation error: \(error)")
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.stageRoot.path))
+        try fixture.expectObservedProcessReaped()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func timeoutRejectsAPartialResultAndReclaimsTheWorker() async throws {
         let fixture = try AttemptFixture.make(behavior: .partialResult)
         defer { fixture.removeSource() }
@@ -1232,6 +1289,7 @@ private struct ScopedAttemptFixture: Sendable {
     }
 
     func withAttempt<Result: Sendable>(
+        inputResources: MojoRuntimeWorkerInputResources? = nil,
         wakeupFactory: @escaping @Sendable () throws
             -> MojoPOSIXWorkerWakeup = {
                 try MojoPOSIXWorkerSupport.createWakeup()
@@ -1247,6 +1305,7 @@ private struct ScopedAttemptFixture: Sendable {
         return try await worker.withAttempt(
             sessionFactory: factory,
             requirements: requirements,
+            inputResources: inputResources,
             timeouts: timeouts,
             admissionFactory: {
                 let fileManager = FileManager.default

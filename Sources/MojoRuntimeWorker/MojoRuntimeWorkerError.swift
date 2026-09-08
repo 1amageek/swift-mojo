@@ -86,6 +86,14 @@ public indirect enum MojoRuntimeWorkerError:
     case privateStagePermissions(actual: Int)
     case privateStageCopyFailed
     case invalidInputResourceIdentity
+    case invalidInputResourceIdentifier
+    case invalidInputResourceLimits
+    case emptyInputResources
+    case duplicateInputResourceIdentifier
+    case inputResourceCountLimitExceeded
+    case inputResourceAggregateByteCountLimitExceeded
+    case inputResourceDirectoryCreationFailed
+    case inputResourceDirectoryPermissionFailed
     case inputResourceUnavailable
     case inputResourceByteCountMismatch
     case inputResourceDigestMismatch
@@ -166,6 +174,22 @@ public indirect enum MojoRuntimeWorkerError:
             return "Private worker staging copy failed"
         case .invalidInputResourceIdentity:
             return "Input resource requires a file URL, positive byte count, and lowercase SHA-256"
+        case .invalidInputResourceIdentifier:
+            return "Input resource identifier is not a safe ASCII filename"
+        case .invalidInputResourceLimits:
+            return "Input resource limits must be positive"
+        case .emptyInputResources:
+            return "Input resource set must contain at least one resource"
+        case .duplicateInputResourceIdentifier:
+            return "Input resource identifiers must be unique"
+        case .inputResourceCountLimitExceeded:
+            return "Input resource count exceeds its selected limit"
+        case .inputResourceAggregateByteCountLimitExceeded:
+            return "Input resource aggregate byte count exceeds its selected limit"
+        case .inputResourceDirectoryCreationFailed:
+            return "Private input resource directory creation failed"
+        case .inputResourceDirectoryPermissionFailed:
+            return "Private input resource directory permissions are invalid"
         case .inputResourceUnavailable:
             return "Input resource is missing, linked, or not a readable regular file"
         case .inputResourceByteCountMismatch:

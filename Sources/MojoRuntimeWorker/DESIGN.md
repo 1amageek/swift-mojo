@@ -19,14 +19,16 @@ operation and is never run on the actor executor. A session facade is usable
 only while its attempt is live; an escaped value observes a typed
 closed-attempt failure.
 
-An attempt may also receive one typed immutable input resource. This is a
-file-backed model or data input selected by the consuming package, not a worker
-artifact or a generic environment channel. W3 privately stages and verifies it
-before spawn and exposes only its private path to the child under the fixed
-`SWIFT_MOJO_INPUT_RESOURCE_PATH` key. A resource-bearing attempt also exposes
-the verified staged bundle's `lib` directory under the fixed
-`SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY` key so model-specific worker code can
-configure its runtime closure without ambient SDK state.
+An attempt may also receive a bounded set of typed immutable input resources.
+Each resource has an opaque identifier, a source file URL, an exact byte count,
+and a SHA-256 identity selected by the consuming package. W3 privately stages
+and verifies every resource before spawn. The child receives one fixed private
+resource directory and the set's count, aggregate byte count, and aggregate
+SHA-256 through fixed environment keys. Resource identifiers become filenames
+inside that directory; W3 does not interpret their meaning. A resource-bearing
+attempt also exposes the verified staged bundle's `lib` directory under the
+fixed `SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY` key so model-specific worker code
+can configure its runtime closure without ambient SDK state.
 
 ## Responsibilities and Boundaries
 
@@ -34,16 +36,18 @@ This product owns one verified attempt at a time: private bundle copy and fresh
 verification, socketpair creation, child fd-3 mapping, process-group spawn,
 bounded protocol-v1 I/O, startup identity admission, generic session creation,
 verified Float32 binding invocation, graceful shutdown, deadline/cancellation
-termination, process-group reap, optional input-resource admission, and
-deletion of its private attempt staging.
+termination, process-group reap, bounded input-resource admission, and deletion
+of its private attempt staging.
 
 Its public contract accepts only a W2-trusted worker projection and binding
 records originating from that projection. It exposes typed worker/session values
 and bounded payload/results. It does not expose paths, PIDs, file descriptors,
 signals, wait statuses, raw headers/frames/codecs, executable arguments,
 arbitrary environment mutation, private staged paths, or arbitrary binding
-identifiers. The caller may supply one source file URL only through the typed
-resource value together with its exact byte count and SHA-256 identity.
+identifiers. The caller may supply only a typed resource set with a bounded
+count and aggregate-byte limit; each resource carries an opaque identifier,
+source file URL, exact byte count, and SHA-256 identity. The consumer must supply explicit positive count and aggregate-byte limits for
+each resource set. W3 enforces these bounds without a model-derived default.
 
 The consuming package owns which verified artifact is allowed, the mapping from
 domain operations to verified binding records, attempt policy, budgets,
@@ -55,10 +59,16 @@ The public construction and scoped execution surface is:
 let worker = try MojoRuntimeWorker(verification: verification)
 let factory = try worker.sessionFactory(for: verifiedFactoryBinding)
 let operation = try worker.float32Operation(for: verifiedOperationBinding)
-let inputResource = try MojoRuntimeWorkerInputResource(
-    fileURL: modelURL,
-    expectedByteCount: modelByteCount,
-    expectedSHA256: modelSHA256
+let inputResources = try MojoRuntimeWorkerInputResources(
+    resources: [
+        try MojoRuntimeWorkerInputResource(
+            identifier: try MojoRuntimeWorkerInputResourceID("model-a"),
+            fileURL: modelURL,
+            expectedByteCount: modelByteCount,
+            expectedSHA256: modelSHA256
+        )
+    ],
+    limits: .default
 )
 let timeouts = try MojoRuntimeWorkerTimeouts(
     startup: .seconds(5),
@@ -71,7 +81,7 @@ let timeouts = try MojoRuntimeWorkerTimeouts(
 let result = try await worker.withAttempt(
     sessionFactory: factory,
     requirements: requirements,
-    inputResource: inputResource,
+    inputResources: inputResources,
     timeouts: timeouts
 ) { session in
     try await session.invoke(
@@ -87,12 +97,39 @@ The returned token values have no public initializer or raw binding identifier
 property. W3 validates their full binding record and worker-bundle provenance
 again at the package-internal execution boundary.
 
-`MojoRuntimeWorkerInputResource` is backend-neutral and carries one regular,
-non-symbolic-link source file, an exact byte count, and a canonical SHA-256.
-It does not carry an environment key, destination name, model meaning, or
-binding identifier. A nil resource preserves the existing empty child
-environment. The consuming package owns the allowed resource and binding
-tuple; W3 owns only immutable admission and lifetime.
+`MojoRuntimeWorkerInputResourceID` is a validated opaque ASCII filename
+identifier. It rejects empty values, `.`/`..`, path separators, NUL, and every
+character outside letters, digits, `_`, `-`, and `.`. The identifier is not a
+model role or binding identifier. `MojoRuntimeWorkerInputResource` carries one
+regular, non-symbolic-link source file, an exact positive byte count, and a
+canonical lowercase SHA-256. `MojoRuntimeWorkerInputResourceLimits` supplies a
+positive maximum resource count and aggregate byte count for one attempt. The
+consumer owns their concrete values. W3 validates positivity and overflow-safe
+aggregate arithmetic and does not assign resource roles or default budgets.
+`MojoRuntimeWorkerInputResources` rejects an empty set, duplicate identifiers,
+count/aggregate-byte overflow, and values above those limits. Its aggregate
+SHA-256 is the SHA-256 of the canonical sorted descriptor stream
+`[idByteCount(UInt32 LE), idUTF8, byteCount(UInt64 LE), sha256Bytes]` for every
+resource. This makes the set identity deterministic without giving W3 model
+knowledge. A nil set preserves the resource-free empty child environment. The
+consuming package owns the allowed resource and binding tuple; W3 owns only
+immutable admission and lifetime.
+
+The fixed child resource contract is:
+
+```text
+SWIFT_MOJO_INPUT_RESOURCE_DIRECTORY=<private attempt>/input-resources
+SWIFT_MOJO_INPUT_RESOURCE_COUNT=<set.count>
+SWIFT_MOJO_INPUT_RESOURCE_BYTES=<set.aggregateByteCount>
+SWIFT_MOJO_INPUT_RESOURCE_SHA256=<set.aggregateSHA256>
+SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY=<private bundle>/lib
+```
+
+The directory contains exactly one read-only regular file named by each
+resource ID. The resource directory and every file are created before spawn,
+and all five keys are generated by W3. A nil set produces an empty child
+environment. The previous single-resource key and single-resource API are not
+part of this contract.
 
 `MojoRuntimeWorkerTimeouts` is caller-supplied lifecycle policy. It contains
 positive bounds for startup, session creation, graceful shutdown, termination
@@ -134,8 +171,9 @@ into a second tensor buffer by W3.
 flowchart LR
     Selection["Consumer selects W2-trusted projection"] --> Attempt["MojoRuntimeWorker attempt"]
     Attempt --> Stage["private bundle copy + fresh verification"]
-    Stage --> Resource["optional private resource copy + digest"]
-    Resource --> Spawn["socketpair + fd 3 spawn"]
+    Stage --> Resources["bounded private resource set copy + digests"]
+    Resources --> ResourceDirectory["fixed resource directory + receipt metadata"]
+    ResourceDirectory --> Spawn["socketpair + fd 3 spawn"]
     Spawn --> Ready["ready ABI/input graph/all-binding admission"]
     Ready --> Session["generic session create/invoke/shutdown"]
     Session --> Graceful["graceful destroy exactly once"]
@@ -178,20 +216,29 @@ binding as a model, optimizer, checkpoint, Metal, CUDA, or Jetson operation.
   verifies that copy, and spawns only the relative executable fixed by the
   projection. A changed, extra, missing, linked, or non-private entry fails
   before process or session creation as applicable.
-- An optional input resource is accepted only as a typed regular non-symlink
-  file with an exact positive byte count and SHA-256. W3 copies it beside the
-  staged bundle using bounded chunks under the startup deadline, verifies the
-  copied byte count and digest, makes it read-only, and spawns only after those
-  checks succeed. Source mutation, cancellation, timeout, copy, permission, or
-  identity failure produces no process and removes the private stage.
-- W3 supplies either an empty environment or exactly two internally generated
-  entries: `SWIFT_MOJO_INPUT_RESOURCE_PATH` names the admitted private copy and
+- A resource set is accepted only when its opaque identifiers are unique safe
+  filenames, its count and aggregate byte count satisfy the selected limits,
+  and its canonical aggregate SHA-256 is internally consistent. The consumer must
+  explicitly supply the selected positive limits for the resource set. Each
+  member must be a typed regular non-symlink file with an exact positive byte
+  count and SHA-256. W3 copies every member into the private
+  `input-resources/<identifier>` directory using bounded chunks under the
+  startup deadline, verifies each copied byte count and digest, makes every
+  file read-only, and spawns only after the complete set passes. A failure on
+  any member, including the second or later member, rolls back the complete
+  private stage and produces no process.
+- W3 supplies either an empty environment or exactly five internally generated
+  entries for a resource-bearing attempt:
+  `SWIFT_MOJO_INPUT_RESOURCE_DIRECTORY` names the private directory,
+  `SWIFT_MOJO_INPUT_RESOURCE_COUNT` and
+  `SWIFT_MOJO_INPUT_RESOURCE_BYTES` report the admitted set, and
+  `SWIFT_MOJO_INPUT_RESOURCE_SHA256` reports its canonical aggregate identity;
   `SWIFT_MOJO_RUNTIME_LIBRARY_DIRECTORY` names the verified staged bundle's
-  `lib` directory. No public API selects either key or private path. W3 assigns
-  no vendor meaning to the library directory; model-specific worker code owns
-  the fixed runtime library names it derives from that directory. Protocol-v1,
-  factory ABI, binding identity, and the W2 worker-bundle layout remain
-  unchanged.
+  `lib` directory. No public API selects an environment key or private path.
+  W3 assigns no vendor meaning to the library directory or resource IDs;
+  model-specific worker code owns its fixed runtime library names and resource
+  lookup. Protocol-v1, factory ABI, binding identity, and the W2 worker-bundle
+  layout remain unchanged.
 - The child protocol endpoint is exactly fd 3. Standard output and error are
   bounded diagnostics and never protocol channels.
 - W3 compares `ready` protocol/ABI/input-graph/all-binding/target fields and
@@ -293,7 +340,8 @@ trusted W2 projection
   -> create private attempt directory
   -> copy complete worker bundle
   -> fresh closed-tree verification
-  -> optionally copy and verify one immutable input resource beside the bundle
+  -> optionally copy and verify the complete bounded immutable input-resource set
+     beside the bundle
   -> socketpair + spawn verified executable with child endpoint at fd 3
   -> receive and admit ready
   -> create one session
@@ -325,7 +373,7 @@ in-flight deadline / protocol failure / EOF / crash
 |---|---|---|---|
 | Trusted worker projection | caller, borrowed by attempt creation | Selection through private-copy verification | Never mutated or treated as execution evidence |
 | Private staged bundle | W3 attempt | Before spawn through terminal cleanup | Removed after child reap; never exposed publicly |
-| Private staged input resource | W3 attempt | Verified copy before spawn through terminal cleanup | Read-only, visible only to the child through the fixed private resource key, and removed with the attempt stage |
+| Private staged input-resource set | W3 attempt | Complete verified copy before spawn through terminal cleanup | Private `input-resources/<identifier>` directory, read-only regular files, visible only through fixed metadata/directory keys, and removed with the attempt stage |
 | Verified staged runtime-library directory | W3 attempt | Private bundle verification through terminal cleanup | Visible only through the fixed private directory key; model-specific worker code selects library names and the directory is removed with the attempt stage |
 | Parent protocol descriptor and child PID/process group | W3 attempt | Successful spawn through final group signal and exact reap | Child remains unreaped until no later group signal is possible; closed/signaled/reaped exactly once by W3 |
 | Protocol sequence and bounded buffers | W3 attempt isolation | Ready through terminal frame/close | Never shared across attempts |
@@ -345,9 +393,10 @@ socket/spawn failure, malformed or oversized frames, preflight mismatch,
 invalid binding provenance, busy use, timeout, cancellation, worker failure,
 shutdown contradiction, session capability mismatch, wakeup creation failure,
 signal failure, reap failure, and cleanup failure are distinct typed errors.
-Input-resource missing, non-regular/symbolic-link, byte-count, digest,
+Input-resource identifier, duplicate, count-limit, aggregate-byte-limit,
+missing, non-regular/symbolic-link, byte-count, digest, directory,
 copy/permission, mutation, timeout, and cancellation failures are also distinct
-typed admission errors and never fall back to the source path.
+typed admission errors and never fall back to a source path.
 Primary and cleanup failures are preserved together in actual cleanup order. A
 failed cleanup does not make a process, descriptor, or stage look successfully
 reclaimed.
@@ -389,11 +438,12 @@ forced in-flight termination/reap, no signal after child reap, bounded
 tri-state group inspection, partial-output rejection, cleanup-failure
 composition, application survival, and clean next-attempt recovery.
 
-Resource-focused tests must prove exact size/digest admission, rejection of a
-missing, linked, non-regular, changed, cancelled, or late input,
-two-fixed-key-only spawn, staged runtime-library directory identity, read-only
-private copy, zero spawn on admission failure, resource removal on graceful and
-hard cleanup, resource-required factory failure when omitted, and an empty
+Resource-focused tests must prove identifier/duplicate/explicit-limit admission, exact
+size/digest admission, rejection of a missing, linked, non-regular, changed,
+cancelled, or late member, second-member failure rollback, five-fixed-key-only
+spawn, staged resource-directory identity and aggregate metadata, read-only
+private files, zero spawn on admission failure, resource removal on graceful
+and hard cleanup, resource-required factory failure when omitted, and an empty
 environment for an existing resource-free worker.
 
 Real worker acceptance must execute the same client on macOS and native Linux;

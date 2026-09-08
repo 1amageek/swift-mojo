@@ -111,7 +111,7 @@ public struct MojoRuntimeWorker: Sendable {
     public func withAttempt<Result: Sendable>(
         sessionFactory: MojoRuntimeWorkerSessionFactory,
         requirements: MojoSessionRequirements,
-        inputResource: MojoRuntimeWorkerInputResource? = nil,
+        inputResources: MojoRuntimeWorkerInputResources? = nil,
         timeouts: MojoRuntimeWorkerTimeouts,
         _ body: @Sendable (
             MojoRuntimeWorkerSession
@@ -120,7 +120,7 @@ public struct MojoRuntimeWorker: Sendable {
         try await withAttempt(
             sessionFactory: sessionFactory,
             requirements: requirements,
-            inputResource: inputResource,
+            inputResources: inputResources,
             timeouts: timeouts,
             admissionFactory: {
                 MojoRuntimeWorkerArtifactAdmission()
@@ -135,7 +135,7 @@ public struct MojoRuntimeWorker: Sendable {
     package func withAttempt<Result: Sendable>(
         sessionFactory: MojoRuntimeWorkerSessionFactory,
         requirements: MojoSessionRequirements,
-        inputResource: MojoRuntimeWorkerInputResource? = nil,
+        inputResources: MojoRuntimeWorkerInputResources? = nil,
         timeouts: MojoRuntimeWorkerTimeouts,
         admissionFactory: @escaping @Sendable ()
             -> MojoRuntimeWorkerArtifactAdmission,
@@ -153,7 +153,7 @@ public struct MojoRuntimeWorker: Sendable {
         let admissionTask = Task.detached {
             try admissionFactory().admit(
                 verification: self.verification,
-                inputResource: inputResource,
+                inputResources: inputResources,
                 startupDeadline: startupDeadline,
                 terminationGracePeriod: timeouts.terminationGracePeriod,
                 forcedCleanup: timeouts.forcedCleanup
