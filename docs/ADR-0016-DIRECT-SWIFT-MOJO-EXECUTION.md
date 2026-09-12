@@ -6,6 +6,11 @@
 
 ## Decision and authority
 
+The user's subsequent instruction places MAX model loading, tensor management
+and inference in Swift through MAX's official C API. These operations do not
+require swift-mojo or a custom Mojo wrapper. This ADR governs generic custom
+Mojo calls only; MAX session ownership is not forced through MojoSessionOwner.
+
 The user's latest instruction replaces the worker-first resource migration.
 Swift calls generated Mojo functions through C ABI in the same process. C ABI
 specifies the calling convention; it does not require C implementation code.
@@ -16,7 +21,7 @@ its artifact identity and runtime-closure verification remain applicable.
 
 ```text
 Swift owner -> scoped typed borrow -> generated C ABI call
-                                        -> Mojo -> MAX -> GPU
+                                        -> consumer's Mojo computation
 Swift owner <- return after every reader/writer has completed
 ```
 
@@ -36,8 +41,9 @@ Swift owner <- return after every reader/writer has completed
 ## Responsibilities and invariants
 
 swift-mojo owns generated typed calls, artifact/runtime identity, session and
-buffer lifetime, and explicit failure. Lume owns models, preprocessing, camera
-leases, scheduling, frame deadlines and display matching. MAX/Mojo own GPU work.
+buffer lifetime, and explicit failure. Lume owns models, MAX C API orchestration,
+preprocessing, camera leases, scheduling, frame deadlines and display matching.
+MAX owns model execution; custom Mojo kernels own their computation.
 Reuse the existing session owner after verifying its actual direct execution path;
 new parallel ownership or session abstractions require a demonstrated gap.
 
@@ -55,12 +61,11 @@ A Mojo crash affects the Swift process; this is part of the selected boundary.
 
 ## Qualification and change impact
 
-Before finalizing new APIs, run Swift -> generated C ABI -> Mojo on Jetson with
-MAX initialization, GPU execution, numerical comparison, synchronization,
-failure and shutdown in that same process. Reuse existing model fixtures and
-runtime receipts. Benchmark public calls with retained input, then integrate the
-Lume camera path and measure capture-to-matched-display p95 <=100ms without
-changing model selection or lowering accuracy.
+Before finalizing generic APIs, qualify Swift -> generated C ABI -> Mojo calls
+with actual consumer computation, numerical comparison, synchronization, failure
+and shutdown. Benchmark public calls with retained input. Lume separately owns
+the direct MAX C API model lifecycle and capture-to-matched-display p95 <=100ms;
+neither package may use the other's proof as a substitute for its own boundary.
 
 After direct-path verification, remove superseded worker-only migration code and
 update package, Mojo, ArtifactCore and Lume designs together. Preserve unrelated
@@ -78,3 +83,8 @@ MAX requires a worker for language interoperability. The fixture uses direct
 borrowed pointers and C declarations, with no C processing implementation.
 It does not yet qualify the generic public API, pose execution, cancellation,
 RAW integration or capture-to-matched-display latency.
+
+The same fixture directory now separately qualifies Swift -> official MAX C API
+on Jetson, without the Mojo wrapper. Its README owns the exact scope and results;
+that evidence establishes MAX interoperability, not generic swift-mojo API
+performance. Host tensor staging remains a MAX transfer even with direct calls.
