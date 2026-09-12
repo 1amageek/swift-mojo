@@ -30,6 +30,7 @@ let package = Package(
         .target(
             name: "MojoBindingCore",
             dependencies: [
+                "MojoRuntimeProtocolCore",
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(
@@ -37,7 +38,8 @@ let package = Package(
                     package: "swift-syntax"
                 ),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
-            ]
+            ],
+            exclude: ["DESIGN.md"]
         ),
         .macro(
             name: "MojoMacros",
@@ -104,7 +106,7 @@ let package = Package(
         ),
         .target(
             name: "MojoRuntime",
-            dependencies: ["MojoArtifactCore"],
+            dependencies: ["MojoArtifactCore", "MojoRuntimeProtocolCore"],
             exclude: ["DESIGN.md"]
         ),
         .target(

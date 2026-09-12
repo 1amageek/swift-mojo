@@ -1,9 +1,60 @@
 import Foundation
 import MojoBindingCore
+import MojoRuntimeProtocolCore
 import Testing
 
 @Suite("Inline Mojo binding model")
 struct MojoBindingCoreTests {
+    @Test(.timeLimit(.minutes(1)))
+    func resourceTypesAreParsedPersistedAndBoundToGraphIdentity() throws {
+        let original = try graph(source: resourceSource)
+        let operation = try #require(original.bindings.first { $0.signature == .resourceInvocation })
+        let signature = try #require(operation.resourceSignature)
+        #expect(signature.arguments == [.uint32])
+        #expect(signature.inputs == [.init(element: .uint16, rank: 2)])
+        #expect(signature.results == [.int32])
+        #expect(signature.outputs == [.float32])
+        let encoded = try JSONEncoder().encode(operation)
+        #expect(try JSONDecoder().decode(MojoBinding.self, from: encoded) == operation)
+        for (before, after) in [
+            ("argumentTypes: [.uint32]", "argumentTypes: [.int32]"),
+            ("inputTypes: [.uint16]", "inputTypes: [.int16]"),
+            ("inputRanks: [2]", "inputRanks: [1]"),
+            ("resultTypes: [.int32]", "resultTypes: [.uint32]"),
+            ("outputTypes: [.float32]", "outputTypes: [.uint32]"),
+        ] {
+            let changed = try graph(source: resourceSource.replacingOccurrences(of: before, with: after))
+            #expect(changed.digest != original.digest)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func resourceMetadataRejectsNonliteralIncompleteAndMismatchedTypes() throws {
+        for (before, after) in [
+            ("inputRanks: [2]", "inputRanks: []"),
+            ("inputRanks: [2]", "inputRanks: [65536]"),
+            ("inputTypes: [.uint16]", "inputTypes: [.unknown]"),
+            ("argumentTypes: [.uint32]", "argumentTypes: computedTypes()"),
+            ("resultTypes: [.int32],", ""),
+            ("inputRanks: [2]", "inputRanks: [2], inputRanks: [2]"),
+        ] {
+            #expect(throws: MojoBindingError.invalidResourceArguments) {
+                try graph(source: resourceSource.replacingOccurrences(of: before, with: after))
+            }
+        }
+    }
+
+    private var resourceSource: String {
+        """
+        @mojo(package: "Numeric", function: "create", shutdown: "destroy")
+        func open(_ requirements: MojoSessionRequirements) throws -> MojoSessionOwner
+        @mojo(package: "Numeric", function: "transform", sessionFactory: "open",
+              argumentTypes: [.uint32], inputTypes: [.uint16], inputRanks: [2],
+              resultTypes: [.int32], outputTypes: [.float32])
+        func transform(_ worker: MojoRuntimeWorker) throws -> MojoRuntimeWorkerOperation
+        """
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func exactSyntaxProducesStableCanonicalIdentity() throws {
         let first = try graph(

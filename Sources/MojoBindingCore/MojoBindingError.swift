@@ -7,6 +7,7 @@ package enum MojoBindingError: Error, Equatable, CustomStringConvertible {
     case genericUnsupported
     case invalidExternalArguments
     case invalidSessionArguments
+    case invalidResourceArguments
     case invalidSourceFile(String)
     case invalidSwiftSyntax(file: String, diagnosticCount: Int)
     case missingInlineBody
@@ -43,6 +44,8 @@ package enum MojoBindingError: Error, Equatable, CustomStringConvertible {
             "@mojo functions cannot be generic in the current ABI"
         case .invalidExternalArguments:
             "@mojo accepts either no arguments or package/function string literals"
+        case .invalidResourceArguments:
+            "Resource bindings require complete literal argumentTypes, inputTypes, inputRanks, resultTypes and outputTypes with matching input counts"
         case .invalidSessionArguments:
             "Mojo session bindings require package/function literals plus the shutdown and sessionFactory literals required by their ownership contract"
         case .invalidSourceFile(let path):

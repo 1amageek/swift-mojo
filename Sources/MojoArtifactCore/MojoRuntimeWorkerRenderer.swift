@@ -45,6 +45,12 @@ package struct MojoRuntimeWorkerRenderer: Sendable {
         receipt: MojoRuntimeDependencyReceipt,
         maximumFramePayloadBytes: UInt64
     ) throws -> MojoRuntimeWorkerRenderedSources {
+        // FIXME(INCOMPLETE_IMPLEMENTATION): Resource binding metadata is admitted
+        // by the graph, but this endpoint still dispatches Float32 calls. Worker
+        // publication must fail until generated resource dispatch is qualified.
+        guard !inputGraph.bindingGraph.bindings.contains(where: { $0.signature == .resourceInvocation }) else {
+            throw MojoRuntimeProtocolError.invalidPayload(kind: .ready, reason: "resource worker dispatch is not implemented")
+        }
         let limits = try MojoRuntimeProtocolLimits(
             maximumFramePayloadBytes: maximumFramePayloadBytes
         )
@@ -548,6 +554,9 @@ package struct MojoRuntimeWorkerRenderer: Sendable {
                     "        return swmo_send_invocation_result(send_storage, send_capacity, request_id, status, result_count);"
                 )
                 lines.append("    }")
+            case .resourceInvocation:
+                // Rendering rejects this signature before dispatch generation.
+                continue
             case .sessionBorrowedMutableFloat32Buffers:
                 let factoryName: String?
                 if case .sessionExternal(_, _, let factory) = binding.implementation {

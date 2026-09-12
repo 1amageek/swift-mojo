@@ -66,7 +66,7 @@ public struct MojoRuntimeWorker: Sendable {
                     .unresolvedSessionFactoryRelationship
             }
         case .int32Binary, .borrowedMutableFloat64Buffers,
-                .runtimeSessionFactory, .sessionFloat32BufferFactory:
+                .runtimeSessionFactory, .sessionFloat32BufferFactory, .resourceInvocation:
             throw MojoRuntimeWorkerError.unsupportedBindingSignature(
                 expected: [
                     .borrowedFloat32Buffer,

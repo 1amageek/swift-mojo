@@ -1,4 +1,5 @@
 import Foundation
+import MojoRuntimeProtocolCore
 import SwiftSyntax
 
 package struct MojoBinding: Codable, Equatable, Sendable {
@@ -10,6 +11,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         case runtimeSessionFactory
         case sessionFloat32BufferFactory
         case sessionBorrowedMutableFloat32Buffers
+        case resourceInvocation
 
         package var canonicalRecord: String {
             switch self {
@@ -28,6 +30,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                 "(MojoSessionOwner,UInt64,MojoBufferMemoryKind)->throws MojoFloat32BufferOwner"
             case .sessionBorrowedMutableFloat32Buffers:
                 "(MojoSessionOwner,[Float],inout [Float])->throws Void"
+            case .resourceInvocation:
+                "(MojoRuntimeWorker)->throws MojoRuntimeWorkerOperation"
             }
         }
     }
@@ -103,6 +107,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     package let functionName: String
     package let signature: Signature
     package let parameterNames: [String]
+    package let resourceSignature: MojoRuntimeResourceSignature?
     package let implementation: Implementation
     package let abiDigest: String
     package let implementationDigest: String
@@ -129,6 +134,10 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         }
 
         let signature = try Self.signature(function: function)
+        let resourceSignature = try MojoResourceBindingAttribute.signature(of: function)
+        guard (signature == .resourceInvocation) == (resourceSignature != nil) else {
+            throw MojoBindingError.invalidResourceArguments
+        }
         let parameterNames = try function.signature.parameterClause.parameters
             .map { parameter in
                 guard let name = Self.localName(of: parameter) else {
@@ -151,7 +160,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         case .inline(let operation):
             implementationKey = "\(abiKey)|operation=\(operation.rawValue)"
         case .external, .session, .sessionExternal, .sessionResource:
-            implementationKey = "\(abiKey)|\(implementation.canonicalRecord)"
+            let resourceRecord = resourceSignature.map { "|resources=\($0.encoded.base64EncodedString())" } ?? ""
+            implementationKey = "\(abiKey)|\(implementation.canonicalRecord)\(resourceRecord)"
         }
 
         self.bindingID = Self.bindingIdentifier(
@@ -161,6 +171,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         self.functionName = functionName
         self.signature = signature
         self.parameterNames = parameterNames
+        self.resourceSignature = resourceSignature
         self.implementation = implementation
         self.abiDigest = MojoCanonicalDigest.hex(abiKey)
         self.implementationDigest = MojoCanonicalDigest.hex(implementationKey)
@@ -293,7 +304,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     ) throws -> Implementation {
         let invalidArgumentsError: MojoBindingError = switch signature {
         case .runtimeSessionFactory, .sessionFloat32BufferFactory,
-                .sessionBorrowedMutableFloat32Buffers:
+                .sessionBorrowedMutableFloat32Buffers, .resourceInvocation:
             .invalidSessionArguments
         case .int32Binary, .borrowedFloat32Buffer,
                 .borrowedMutableFloat32Buffers,
@@ -302,7 +313,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         }
         let arguments = try mojoArguments(
             function: function,
-            invalidArgumentsError: invalidArgumentsError
+            invalidArgumentsError: invalidArgumentsError,
+            resource: signature == .resourceInvocation
         )
         if !arguments.isEmpty {
             let package: String
@@ -344,7 +356,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                 resourceCopyToHost = parsedCopyToHost
                 resourceSynchronize = parsedSynchronize
                 sessionFactory = parsedFactory
-            } else if signature == .sessionBorrowedMutableFloat32Buffers {
+            } else if signature == .sessionBorrowedMutableFloat32Buffers || signature == .resourceInvocation {
                 guard arguments.count == 3,
                       let parsedPackage = arguments["package"],
                       let parsedFunction = arguments["function"],
@@ -492,7 +504,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
 
     private static func mojoArguments(
         function: FunctionDeclSyntax,
-        invalidArgumentsError: MojoBindingError
+        invalidArgumentsError: MojoBindingError,
+        resource: Bool
     ) throws -> [String: String] {
         guard let attribute = function.attributes.compactMap({ element in
             element.as(AttributeSyntax.self)
@@ -507,6 +520,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
 
         var values: [String: String] = [:]
         for argument in list {
+            if resource, let label = argument.label?.text,
+               MojoResourceBindingAttribute.labels.contains(label) { continue }
             guard let label = argument.label?.text,
                   let literal = argument.expression.as(
                     StringLiteralExprSyntax.self
@@ -602,6 +617,13 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             .trimmedDescription
         let throwsClause = function.signature.effectSpecifiers?.throwsClause
         let isUntypedThrowing = throwsClause?.trimmedDescription == "throws"
+
+        if parameters.count == 1, let parameter = parameters.first,
+           parameter.ellipsis == nil, parameter.defaultValue == nil,
+           parameter.type.trimmedDescription == "MojoRuntimeWorker",
+           returnType == "MojoRuntimeWorkerOperation", isUntypedThrowing {
+            return .resourceInvocation
+        }
 
         if parameters.count == 3 {
             let session = parameters[parameters.startIndex]

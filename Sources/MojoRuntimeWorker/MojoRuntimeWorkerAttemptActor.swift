@@ -177,7 +177,7 @@ package actor MojoRuntimeWorkerAttemptActor {
                 throw MojoRuntimeWorkerError.invalidOutputElementCount
             }
         case .int32Binary, .borrowedMutableFloat64Buffers,
-             .runtimeSessionFactory, .sessionFloat32BufferFactory:
+             .runtimeSessionFactory, .sessionFloat32BufferFactory, .resourceInvocation:
             throw MojoRuntimeWorkerError.unsupportedBindingSignature(
                 expected: [
                     .borrowedFloat32Buffer,
@@ -566,7 +566,7 @@ package actor MojoRuntimeWorkerAttemptActor {
                 throw MojoRuntimeWorkerError.missingSessionFactoryRelationship
             }
         case .int32Binary, .borrowedMutableFloat64Buffers,
-             .runtimeSessionFactory, .sessionFloat32BufferFactory:
+             .runtimeSessionFactory, .sessionFloat32BufferFactory, .resourceInvocation:
             break
         }
         return binding

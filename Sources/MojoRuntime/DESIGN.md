@@ -5,7 +5,9 @@
 Project the immutable binding schemas, bounds and required transfer capabilities
 from the next closed worker manifest defined by
 [ArtifactCore](../MojoArtifactCore/DESIGN.md#resource-binding-generation-delta-target-design-2026-09-12).
-Reject old/mixed versions or unknown records rather than adapting them.
+Reject mismatched contract identities and unknown records.
+The immutable binding projection now retains the resource signature package-internally;
+its raw wire types are not added to the public verification API.
 Remain a read-only verifier: no resource import, mmap, device query or worker
 launch here. A verified shared-input declaration is not host capability evidence.
 Worker compares actual endpoint capability and schema identity before admitting

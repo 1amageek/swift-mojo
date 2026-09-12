@@ -8,12 +8,14 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
         package let bindingID: UInt64
         package let functionName: String
         package let signature: MojoBinding.Signature
+        package let resourceSignature: MojoRuntimeResourceSignature?
         package let sessionFactoryFunctionName: String?
 
         private enum CodingKeys: String, CodingKey, CaseIterable {
             case bindingID
             case functionName
             case signature
+            case resourceSignature
             case sessionFactoryFunctionName
         }
 
@@ -21,6 +23,7 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
             self.bindingID = binding.bindingID
             self.functionName = binding.functionName
             self.signature = binding.signature
+            self.resourceSignature = binding.resourceSignature
             self.sessionFactoryFunctionName = binding.sessionFactoryFunctionName
         }
 
@@ -28,11 +31,13 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
             bindingID: UInt64,
             functionName: String,
             signature: MojoBinding.Signature,
-            sessionFactoryFunctionName: String?
+            sessionFactoryFunctionName: String?,
+            resourceSignature: MojoRuntimeResourceSignature? = nil
         ) {
             self.bindingID = bindingID
             self.functionName = functionName
             self.signature = signature
+            self.resourceSignature = resourceSignature
             self.sessionFactoryFunctionName = sessionFactoryFunctionName
         }
 
@@ -49,6 +54,9 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
                 sessionFactoryFunctionName: try container.decodeIfPresent(
                     String.self,
                     forKey: .sessionFactoryFunctionName
+                ),
+                resourceSignature: try container.decodeIfPresent(
+                    MojoRuntimeResourceSignature.self, forKey: .resourceSignature
                 )
             )
         }
@@ -58,6 +66,7 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
             try container.encode(bindingID, forKey: .bindingID)
             try container.encode(functionName, forKey: .functionName)
             try container.encode(signature, forKey: .signature)
+            try container.encode(resourceSignature, forKey: .resourceSignature)
             if let sessionFactoryFunctionName {
                 try container.encode(
                     sessionFactoryFunctionName,
@@ -73,7 +82,8 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
                 bindingID: bindingID,
                 functionName: functionName,
                 signature: signature,
-                sessionFactoryFunctionName: sessionFactoryFunctionName
+                sessionFactoryFunctionName: sessionFactoryFunctionName,
+                resourceSignature: resourceSignature
             )
         }
 

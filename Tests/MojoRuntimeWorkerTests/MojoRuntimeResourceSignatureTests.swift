@@ -15,6 +15,20 @@ struct MojoRuntimeResourceSignatureTests {
             2, 0, 1, 0, 1, 0, 2, 0,
             6, 0, 11, 0, 4, 0, 2, 0, 5, 0, 10, 0, 2, 0,
         ]))
+        #expect(try MojoRuntimeResourceSignature(encoded: signature.encoded) == signature)
+        for length in 0..<signature.encoded.count {
+            #expect(throws: (any Error).self) {
+                try MojoRuntimeResourceSignature(encoded: Data(signature.encoded.prefix(length)))
+            }
+        }
+        #expect(throws: MojoRuntimeProtocolError.invalidPayloadLength) {
+            try MojoRuntimeResourceSignature(encoded: signature.encoded + Data([0]))
+        }
+        var unknown = signature.encoded
+        unknown[8] = 0xff
+        #expect(throws: MojoRuntimeBufferError.unknownElement(255)) {
+            try MojoRuntimeResourceSignature(encoded: unknown)
+        }
         #expect(signature.argumentByteCount == 12)
         #expect(signature.resultByteCount == 4)
         #expect(signature.argumentSchema != signature.resultSchema)

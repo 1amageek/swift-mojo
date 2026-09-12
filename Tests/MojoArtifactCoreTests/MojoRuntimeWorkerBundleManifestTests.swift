@@ -8,6 +8,36 @@ import Testing
 @Suite("Mojo runtime worker bundle manifest")
 struct MojoRuntimeWorkerBundleManifestTests {
     @Test(.timeLimit(.minutes(1)))
+    func resourceSignatureSurvivesManifestCodingAndChangesBindingIdentity() throws {
+        let fixture = try Fixture()
+        let signature = try MojoRuntimeResourceSignature(
+            arguments: [.uint32], inputs: [.init(element: .uint16, rank: 2)],
+            results: [.int32], outputs: [.float32]
+        )
+        let changed = try MojoRuntimeResourceSignature(
+            arguments: [.uint32], inputs: [.init(element: .uint16, rank: 1)],
+            results: [.int32], outputs: [.float32]
+        )
+        func semantic(_ schema: MojoRuntimeResourceSignature?) throws -> MojoRuntimeWorkerBundleManifest.SemanticIdentity {
+            let binding = MojoRuntimeWorkerBundleManifest.Binding(
+                bindingID: MojoBinding.bindingIdentifier(functionName: "resource", signature: .resourceInvocation),
+                functionName: "resource", signature: .resourceInvocation,
+                sessionFactoryFunctionName: "createSession", resourceSignature: schema
+            )
+            return try fixture.semanticIdentity(bindings: [fixture.bindings[0], binding].sorted { $0.bindingID < $1.bindingID })
+        }
+        let original = try semantic(signature)
+        let decoded = try JSONDecoder().decode(
+            MojoRuntimeWorkerBundleManifest.SemanticIdentity.self,
+            from: JSONEncoder().encode(original)
+        )
+        #expect(decoded == original)
+        #expect(try decoded.bindingTable.bindings.first(where: { $0.signature == .resourceInvocation })?.resourceSignature == signature)
+        #expect(try original.bindingTable.digest != semantic(changed).bindingTable.digest)
+        #expect(throws: MojoArtifactError.self) { try semantic(nil) }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func canonicalRecordOrderBytesAndDigestMatchGolden() throws {
         let fixture = try Fixture()
         let manifest = try fixture.manifest()

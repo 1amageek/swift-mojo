@@ -51,7 +51,8 @@ public struct FileSystemMojoRuntimeWorkerBundleVerifier:
                 functionName: binding.functionName,
                 signature: signature,
                 sessionFactoryFunctionName: binding
-                    .sessionFactoryFunctionName
+                    .sessionFactoryFunctionName,
+                resourceSignature: binding.resourceSignature
             )
         }
         let target = try manifest.targetClosure.target

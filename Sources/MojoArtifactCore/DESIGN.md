@@ -154,3 +154,24 @@ or worker protocol require rechecking `MojoBindingCore`, `MojoCompilerCore`,
 `MojoRuntime`, `MojoRuntimeWorker`, command projections, package integration
 fixtures, and the root design. Actual hardware behavior remains downstream
 evidence.
+
+### Resource binding authoring and native call boundary
+
+The resource binding is a worker operation token factory, distinct from the
+synchronous static-call function signatures. Its Swift declaration takes one
+`MojoRuntimeWorker` and returns `MojoRuntimeWorkerOperation` with `throws`.
+The binding attribute supplies external package/function/sessionFactory plus
+literal `argumentTypes`, `inputTypes`, `inputRanks`, `resultTypes`, `outputTypes`.
+The parser builds ProtocolCore's resource signature; the binding graph,
+implementation digest, worker manifest and verified projection retain it.
+No consumer-authored byte offsets or native struct layouts are accepted.
+
+Generation adapts the generic worker entry to the external Mojo function:
+session handle, typed scalar arguments, then for each input a readonly typed
+pointer plus dimensions/strides pointers, then scalar result pointers and typed
+output pointer/capacity/actual-count-pointer triples. Input rank comes from the
+binding signature. Generated code owns the generic entry's pointer tables,
+canonical scalar decoding and result encoding. User Mojo owns computation and
+must join all readers/writers before returning either success or failure.
+This authoring path and generated adapter are pending implementation; existing
+Float32 worker invocation is not evidence for this resource call boundary.

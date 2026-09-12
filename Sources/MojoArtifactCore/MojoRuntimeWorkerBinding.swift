@@ -1,16 +1,19 @@
 import Foundation
+import MojoRuntimeProtocolCore
 import MojoBindingCore
 
 package struct MojoRuntimeWorkerBinding: Codable, Equatable, Sendable {
     package let bindingID: UInt64
     package let functionName: String
     package let signature: MojoBinding.Signature
+    package let resourceSignature: MojoRuntimeResourceSignature?
     package let sessionFactoryFunctionName: String?
 
     package init(_ binding: MojoBinding) {
         self.bindingID = binding.bindingID
         self.functionName = binding.functionName
         self.signature = binding.signature
+        self.resourceSignature = binding.resourceSignature
         switch binding.implementation {
         case .sessionExternal(_, _, let factory),
              .sessionResource(_, _, _, _, _, _, let factory):
@@ -24,21 +27,24 @@ package struct MojoRuntimeWorkerBinding: Codable, Equatable, Sendable {
         bindingID: UInt64,
         functionName: String,
         signature: MojoBinding.Signature,
-        sessionFactoryFunctionName: String? = nil
+        sessionFactoryFunctionName: String? = nil,
+        resourceSignature: MojoRuntimeResourceSignature? = nil
     ) {
         self.bindingID = bindingID
         self.functionName = functionName
         self.signature = signature
+        self.resourceSignature = resourceSignature
         self.sessionFactoryFunctionName = sessionFactoryFunctionName
     }
 
     package var canonicalRecord: String {
-        [
+        let fields = [
             String(bindingID),
             functionName,
             signature.rawValue,
             sessionFactoryFunctionName ?? "-",
-        ].map { "\($0.utf8.count):\($0)" }.joined(separator: "|")
+        ] + (resourceSignature.map { [$0.encoded.base64EncodedString()] } ?? [])
+        return fields.map { "\($0.utf8.count):\($0)" }.joined(separator: "|")
     }
 }
 
@@ -94,6 +100,9 @@ package struct MojoRuntimeWorkerBindingTable: Equatable, Sendable {
         var ids = Set<UInt64>()
         var functionSignatures = Set<String>()
         for binding in sorted {
+            guard (binding.signature == .resourceInvocation) == (binding.resourceSignature != nil) else {
+                throw ValidationError.graphMismatch(binding.bindingID)
+            }
             guard ids.insert(binding.bindingID).inserted else {
                 throw ValidationError.duplicateID(binding.bindingID)
             }
@@ -112,7 +121,7 @@ package struct MojoRuntimeWorkerBindingTable: Equatable, Sendable {
                     )
                 }
             case .sessionFloat32BufferFactory,
-                 .sessionBorrowedMutableFloat32Buffers:
+                 .sessionBorrowedMutableFloat32Buffers, .resourceInvocation:
                 guard let factory = binding.sessionFactoryFunctionName,
                       MojoRuntimeLoaderPolicy.isPortableCSymbol(factory) else {
                     throw ValidationError.invalidSessionFactory(

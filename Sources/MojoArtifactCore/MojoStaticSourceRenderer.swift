@@ -188,7 +188,10 @@ package struct MojoStaticSourceRenderer: Sendable {
         lines.append("")
         lines.append("@export(\"\(identity.symbolPrefix)_has_binding\")")
         lines.append("def \(identity.symbolPrefix)_has_binding(binding_id: UInt64) abi(\"C\") -> UInt32:")
-        for binding in graph.bindings {
+        // FIXME(INCOMPLETE_IMPLEMENTATION): Resource declarations have no native
+        // invocation export yet. Static preflight must not report them callable
+        // until generated resource dispatch has runtime verification.
+        for binding in graph.bindings where binding.signature != .resourceInvocation {
             lines.append("    if binding_id == \(binding.bindingID):")
             lines.append("        return 1")
         }

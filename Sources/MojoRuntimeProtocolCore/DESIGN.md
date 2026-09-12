@@ -265,3 +265,8 @@ Prepared invocation validates input counts, types, ranks and output types before
 creating ownership tables or allocating argument bytes. The generated receiver
 must perform the same checks after wire decoding. Tests reject equal-byte-size
 but semantically different input types, mismatched ranks and output types.
+
+Resource signatures persist as their canonical byte record in a Codable single
+Data value. Decoding validates exact byte extent and all numeric identifiers
+before constructing tables, recomputes scalar schema hashes, and rejects trailing
+or truncated data. Artifact generation includes this record in binding identity.

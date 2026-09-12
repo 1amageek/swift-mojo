@@ -27,6 +27,11 @@ public struct MojoBodyMacro: BodyMacro {
             )
         }
         switch binding.signature {
+        // FIXME(INCOMPLETE_IMPLEMENTATION): Resource declarations are parsed and
+        // hashed, but public token generation is not connected yet. Reject macro
+        // expansion until the verified worker operation path is implemented.
+        case .resourceInvocation:
+            throw MojoBindingError.unsupportedSignature
         case .int32Binary:
             body.append(
                 """

@@ -8,6 +8,21 @@ import Testing
 @Suite("Mojo runtime worker renderer")
 struct MojoRuntimeWorkerRendererTests {
     @Test(.timeLimit(.minutes(1)))
+    func incompleteResourceEndpointIsNotPublishedOrAdvertisedAsCallable() throws {
+        let fixture = try Fixture(includeSession: true, includeResource: true)
+        #expect(throws: MojoRuntimeProtocolError.invalidPayload(
+            kind: .ready, reason: "resource worker dispatch is not implemented"
+        )) { try fixture.render() }
+        let binding = try #require(fixture.inputGraph.bindingGraph.bindings.first {
+            $0.signature == .resourceInvocation
+        })
+        let source = MojoStaticSourceRenderer().render(
+            inputGraph: fixture.inputGraph, identity: fixture.identity
+        ).source
+        #expect(!source.contains("if binding_id == \(binding.bindingID):"))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func rendersDeterministicallyFromOneInputGraph() throws {
         let fixture = try Fixture()
         let first = try fixture.render()
@@ -201,7 +216,7 @@ private struct Fixture {
     let generatedMojoSourceDigest: String
     let generatedMojoObjectDigest: String
 
-    init(includeSession: Bool = false) throws {
+    init(includeSession: Bool = false, includeResource: Bool = false) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "swift-mojo-worker-fixture-\(UUID().uuidString)",
@@ -219,7 +234,7 @@ private struct Fixture {
             }
         }
         let sourceURL = root.appendingPathComponent("Bindings.swift")
-        let sourceText: String
+        var sourceText: String
         if includeSession {
             sourceText = """
             @mojo(
@@ -246,6 +261,15 @@ private struct Fixture {
             sourceText = """
             @mojo(package: "Fixture", function: "sum")
             func sum(_ values: [Float]) throws -> Float
+            """
+        }
+        if includeResource {
+            sourceText += """
+
+            @mojo(package: "Fixture", function: "resource", sessionFactory: "openSession",
+                  argumentTypes: [], inputTypes: [.uint16], inputRanks: [2],
+                  resultTypes: [], outputTypes: [.float32])
+            func resource(_ worker: MojoRuntimeWorker) throws -> MojoRuntimeWorkerOperation
             """
         }
         try sourceText.write(
