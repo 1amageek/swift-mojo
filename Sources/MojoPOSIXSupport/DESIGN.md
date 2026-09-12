@@ -1,5 +1,18 @@
 # MojoPOSIXSupport
 
+## Shared-input adapter delta (target design, 2026-09-12)
+
+[WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md) is a new public native ingress
+consumer of this existing package-only adapter. This target stays private.
+Add typed duplicate/read-access/extent/import/synchronization operations and
+bounded sendmsg/recvmsg ancillary results. CMojoPOSIXSupport owns OS calls;
+ProtocolCore owns rights/frame association; Worker owns deadline and lifetime.
+Never marshal pixel/sample storage through Data. Return owned descriptor
+collections with consuming close on every malformed/partial path.
+Native Darwin/glibc ancillary tests and Linux DMA-BUF tests qualify these
+changes separately from existing regular-file staging/spawn tests.
+
+
 ## Purpose and Scope
 
 `MojoPOSIXSupport` is the package-scoped Swift adapter for the C portability

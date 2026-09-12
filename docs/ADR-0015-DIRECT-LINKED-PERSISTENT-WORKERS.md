@@ -1,5 +1,10 @@
 # ADR-0015: Direct-linked persistent accelerator workers
 
+> Target revision (2026-09-12): the [package resource design](../DESIGN.md#generic-resource-invocation-revision-2026-09-12)
+> supersedes this ADR's v1-only wire/Float32 surface and permits native descriptor
+> ingress only through WorkerPOSIX. Direct-linked isolation and verification
+> remain authoritative. Current implementation is v1; v2 requires new qualification.
+
 - Status: Accepted; W1 protocol/render, W2 bundle/verification, and W3 public
   session/lifecycle implemented; actual macOS and native Linux host execution
   receipts pending

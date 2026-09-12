@@ -1,5 +1,53 @@
 # Swift Mojo
 
+## Generic resource invocation revision (2026-09-12)
+
+This target design responds to streaming numerical workloads without adding
+application semantics to swift-mojo. It is not implemented. The authoritative
+contracts are [Worker](Sources/MojoRuntimeWorker/DESIGN.md#resource-invocation-revision-2026-09-12),
+[Protocol v2](Sources/MojoRuntimeProtocolCore/DESIGN.md#resource-invocation-protocol-v2-target-design-2026-09-12)
+and the proposed child [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md).
+WorkerPOSIX is a native resource ingress product; its narrowly scoped descriptor
+import supersedes the earlier blanket public-descriptor prohibition only there.
+
+The package owns type/layout validation, generated bindings, transfer/ownership,
+completion and failure. Consumers own algorithms, data meaning, compute
+composition, backend selection, scheduling and performance budgets.
+No camera, image, pose, MAX, CUDA or Metal types enter the generic worker API.
+Existing synchronous static-call and session-buffer contracts remain separate;
+do not route every scalar call through IPC.
+
+```text
+consumer domain operation
+ -> verified generated Swift binding
+ -> portable worker input/value + lifetime contract
+ -> generated Mojo operation
+ -> user-selected computation/runtime
+native producer -> optional WorkerPOSIX ingress -> portable worker input
+```
+
+### Change authority and rollout
+
+This revision explicitly replaces v1 worker invocation for migrated bundles.
+It is not a compatibility layer. ADR-0015 remains authoritative for direct-linked
+isolated execution, verification, sequencing and process lifetime; its v1 wire
+schema/Float32-only surface are superseded by ProtocolCore v2. Static artifact
+ABIs are not changed. Parent/child revisions are target contracts; existing
+code is v1 and cannot claim the revision's guarantees.
+
+Implement lower contracts in Worker V1-V5 order, regenerate worker bindings and
+bundles, then migrate consumers. Old bundle/schema mismatch fails before factory,
+never falls back. Each library owns its own correctness/performance acceptance;
+a consumer workaround cannot substitute for bridge qualification.
+
+A zero-input-copy claim covers only the specifically measured bridge boundary.
+GPU transfer, kernel layout conversion, model runtime allocations and network
+delivery are separate owner measurements. The shared-input bridge must meet
+a consumer-supplied positive overhead budget, zero bulk IPC input bytes and
+zero input-sized bridge materialization. There is no universal millisecond
+promise independent of hardware, load, data layout and completion semantics.
+
+
 ## Purpose and Scope
 
 This file is the system and Swift package master design for `swift-mojo`.
@@ -73,6 +121,7 @@ public Mojo, compiler, artifact, command, or runtime APIs.
 
 | Design | Relationship | Contract Used | Summary | Cautions |
 |---|---|---|---|---|
+| [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md) | proposed child module | Native readonly resource ingress | Platform-specific admission into portable worker buffers | Target design only; no current product/capability claim |
 | [`Mojo`](Sources/Mojo/DESIGN.md) | child | Public macro, immutable static-artifact attestation, session and buffer ownership | Exposes the safe Swift surface consumed by generated registries and application targets. | Only generated code may construct an attestation; it is provenance evidence, not device-execution evidence. |
 | [`MojoArtifactCore`](Sources/MojoArtifactCore/DESIGN.md) | child | Canonical graph, render, package, and verification transactions | Owns static and runtime-dependent artifact generation and the ADR-0015 W1 boundary. | It does not launch deployed workers or own application semantics. |
 | [`MojoRuntimeProtocolCore`](Sources/MojoRuntimeProtocolCore/DESIGN.md) | child | Package-internal worker protocol semantics and endpoint generation | Owns protocol-v1 constants, payload layouts, validation, C rendering, and Swift codec/types. | It has no public product, transport I/O, or mutable runtime state. |

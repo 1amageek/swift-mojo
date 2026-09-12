@@ -1,5 +1,20 @@
 # CMojoPOSIXSupport
 
+## Shared-input native primitives (target design, 2026-09-12)
+
+Implement the fixed-width C operations required by
+[WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md) and
+[POSIXSupport](../MojoPOSIXSupport/DESIGN.md#shared-input-adapter-delta-target-design-2026-09-12):
+readonly descriptor duplication/admission, bounded SCM_RIGHTS send/receive,
+readonly region mapping and Linux DMA-BUF read synchronization. Keep errno
+and partial progress explicit; consume descriptor slots before close attempts.
+The existing C ABI remains private. No camera format, GPU runtime or model
+selection belongs here. Unsupported Darwin/Linux storage kinds fail explicitly.
+Tests prove no descriptor leaks for truncated ancillary data, multiple rights
+sets, failed map/sync and interrupted/partial transfer; actual platform behavior
+is required, not only generated declarations.
+
+
 ## Purpose and Scope
 
 `CMojoPOSIXSupport` is the internal C target that normalizes the small POSIX ABI

@@ -1,5 +1,179 @@
 # MojoRuntimeWorker
 
+## Resource Invocation Revision (2026-09-12)
+
+### Authority, scope and current findings
+
+This is the target design, not an implemented API or hardware qualification.
+It supersedes the Float32-only invocation and invocation-input lifetime rules
+for the next worker protocol. Static synchronous calls in Mojo are unchanged.
+This module owns public data/lifetime/performance contracts; ProtocolCore owns
+wire representation; [WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md) owns native import.
+
+| Current implementation | Consequence | Required delta |
+|---|---|---|
+| Session.invoke accepts/returns [Float] | Producer materialization is required | Typed immutable views and bounded values |
+| Transport.execute borrows the Array for socket writes | No second Swift tensor there, but payload is transferred | Separate control from shared input |
+| AttemptActor.finishExchange clears pendingInput before terminalize | Valid for copied input, unsafe if applied to shared input | Retain source independently through reader completion |
+| Terminalizer.cleanup drops its structured lifetime outcome | External source release cannot use cleanup failure alone | Return reaped/group-confirmed outcome |
+| One in-flight request and resident session | Bounded work and ordering | Preserve; no hidden queue |
+| InputResources stages verified files per attempt | Appropriate persistent-resource admission | Keep separate from invocation buffers |
+| Renderer.mainSource allocates receive/send buffers at maximum wire payload once | Shared inputs must not preserve input-sized receive staging by accident | Bound v2 receive storage by control/explicit-copy capacity, separately from mapped bytes |
+
+### Proposed public API contracts
+
+These names describe proposed APIs, not existing declarations. Generated signatures
+must compile against the pinned Swift/Mojo toolchains before implementation promotion.
+
+| Surface | Meaning |
+|---|---|
+| Session.invoke(operation, arguments, inputs, deadline) | One verified operation; absolute monotonic deadline includes admission, I/O, execution and result acceptance |
+| MojoRuntimeWorkerOperation | Opaque token derived from the verified binding and argument/result schemas |
+| MojoInvocationArguments | Generated fixed-width scalar/record values; bounded canonical encoding, not Codable/native Swift memory layout |
+| MojoReadOnlyBuffer | Immutable region backed by a retained producer read lease |
+| MojoBufferView | Buffer plus element type, byte offset, dimensions and byte strides |
+| MojoInvocationResult | Bounded generated values and owned host output buffers with exact types/counts |
+| MojoTransferRequirements | Explicit shared-input requirement or explicit copied-input selection; no silent fallback |
+| MojoInvocationMetrics | Stage durations, control/payload/copy bytes, allocation counts and selected route |
+
+Initial value types are fixed-width signed/unsigned 8/16/32/64-bit integers and
+IEEE Float16/32/64. Bools/enums have generated explicit encodings. Each binding
+declares accepted types, rank and argument/output capacities. Unsupported types
+fail before dispatch. This revision does not add shared writable outputs,
+arbitrary object graphs, remote networking or cross-process device pointers.
+Bounded host input remains usable through explicit copying. Migrated workers
+replace the Float32-only API; no compatibility overload or protocol downgrade.
+
+View validation checks rank/count limits, dimension/stride count agreement,
+endianness, element alignment, positive strides for nonempty dimensions and
+overflow-safe extent:
+offset + sum((dimension[i]-1)*stride[i]) + elementByteWidth <= regionByteCount.
+Empty dimensions are accepted only when declared by the binding; no last-element
+formula is evaluated for them. Rank-zero means one scalar. Readonly overlapping
+views are allowed. Unsupported layout fails rather than being silently repacked.
+These checks establish memory safety, not application semantics.
+
+The bridge assigns no meaning to calibration, sample rate, image channels,
+tensor operators, model weights, thresholds or output coordinates.
+
+The portable immutable buffer contract is the proposed public MojoBufferSource
+protocol (byteCount plus scoped readonly bytes); the admitted
+readonly buffer is its concrete owner implementation. External conformers
+provide scoped host read access and stable size/lifetime, not unchecked native
+handles. Shared eligibility is granted only by the qualified native importer
+before dispatch. A protocol conformance alone
+cannot assert native sharing, synchronization or device access capability.
+
+### Ownership and execution
+
+```text
+producer grants immutable lease
+ -> attempt retains lease before transferring a handle
+ -> worker imports readonly input
+ -> Mojo executes and synchronizes ALL input readers/output writers
+ -> worker closes invocation mappings and handles
+ -> Swift validates terminal response
+ -> source lease released outside locks
+```
+
+Storage lifetime and content stability are separate: the producer adapter
+guarantees no mutation, reuse, unmap or destruction until the last read lease
+ends. A duplicated descriptor alone does not guarantee stable contents.
+Retain the original producer owner; do not duplicate its checkout accounting.
+
+Generated ABI borrows validated base/extent/layout only during invocation.
+Input pointers and handles cannot escape into persistent session state.
+Success AND operation failure imply all asynchronous readers/writers have
+finished; GPU enqueue or a model execution API return alone is insufficient.
+If synchronization cannot be established, no terminal response may authorize
+input reuse: terminate the worker instead. Start with one terminal response,
+not separate early-release ACKs or a new completion-event API.
+
+| Resource | Owner | Release |
+|---|---|---|
+| Input lease | Producer, retained independently by attempt | Before dispatch, accepted terminal result, or confirmed worker lifetime end |
+| Sender duplicated handle | Transport | Transfer success/failure; does not release producer lease |
+| Receiver mapping/handle | Worker invocation | All readers complete, then unmap/close |
+| Persistent compute/device buffers | User Mojo session | Graceful destruction or confirmed process death |
+| Result storage | Swift result | Ordinary owned-value lifetime |
+| Unconfirmed reader lifetime | Cleanup record | Actual termination proof, never elapsed timeout |
+
+Reuse the attempt actor, cancellation gate and terminalizer. Finishing local I/O
+or clearing pending protocol state cannot release the shared source.
+Cancellation/deadline stops admission, wakes and joins local I/O, terminates the
+process group, confirms disappearance, reaps the exact child, then releases input.
+Preserve primary and ordered cleanup errors.
+
+If termination cannot be proven, an internal cleanup record retains the input
+beyond facade/error destruction. Return an explicit unconfirmed-cleanup error
+and reject new attempts on that worker owner. Worker value copies share this
+lifetime guard. The record self-retains until bounded observations eventually
+prove termination; caller cancellation cannot cancel this retention obligation.
+Reserve capacity before dispatch: one failed attempt with manifest-bounded input
+count/bytes per worker owner, no new buffer acquisition or retries in the cleanup
+record. Callers creating multiple workers own their aggregate worker bound.
+This exception must be observable as retained bytes and closed admission.
+Tests must drop every caller reference while cleanup is indeterminate, then
+prove no source reuse and exactly-once release after confirmed termination.
+
+Verified native workers are trusted code, not a sandbox. Shared-input readers
+may not escape the owned process group or invocation. Persistent access needs a
+separate owned-resource operation and is not authorized by this borrowed API.
+The qualified binding/runtime must also prove that process teardown ends any
+device DMA reads of imported storage. Process disappearance alone is not generic
+GPU completion evidence. An adapter lacking that guarantee cannot admit direct
+device reads of shared storage; it must use an explicitly declared worker-owned
+staging transfer whose source reads obey the invocation/process lifetime.
+
+### Performance invariants and acceptance
+
+| Invariant | Evidence required |
+|---|---|
+| Shared input sends zero input payload bytes | Separate control, rights and payload counters |
+| No input-sized bridge allocation, copy, conversion or hashing | Instrument Swift AND generated endpoint; input-size sweep |
+| Metadata cost depends on argument count/rank | Same no-op worker over increasing input sizes |
+| Sessions/compute intermediates remain resident | Warm-call allocation/session counters |
+| No waiting input queue | Concurrent invocation fails busy before transfer |
+| Outputs allocated only within admitted bounds | Oversize rejected before allocation; caller-retained outputs counted separately |
+| Mapping per invocation in this revision | Measure map/unmap and page faults; no speculative mapping cache |
+| Host sharing is separate from GPU transfer | Never infer device zero-copy from host transport counters |
+
+Consumer supplies a positive bridge-overhead budget and workload bounds for
+qualification, distinct from a cancellation timeout. Compare the SAME warmed
+operation directly inside the worker and through the public client. Use
+correlated per-call intervals, not subtraction/addition of independent p95s.
+Report p50/p95/p99, samples, byte counts, page-fault conditions, system load and
+toolchain. Qualify both native hosts with non-model readonly identity/checksum
+and strided numerical fixtures. If import costs dominate the supplied budget,
+optimize this owner before asking consumers to bypass it. No transport is called
+fast solely because it sends zero payload bytes.
+
+### Implementation and proof ownership
+
+| Sprint | Owner and completion evidence |
+|---|---|
+| V1 | ProtocolCore: all types/layouts, C/Swift differential wire fixtures, malformed/overflow rejection, schema identity |
+| V2 | WorkerPOSIX/POSIXSupport: actual storage identity, readonly access, descriptor truncation/partial-transfer/cleanup |
+| V3 | Worker: success/failure, cancellation at every stage, asynchronous reader completion, crash, concurrent shutdown, unconfirmed lifetime |
+| V4 | ArtifactCore/Runtime: generate/verify v2 schema and ABI; altered or v1 workers rejected before factory |
+| V5 | Public-client integration: native macOS/Linux generic numerical parity, copied path, shared byte/allocation/latency gates |
+| V6 | Consumers: their own input/output semantics and complete application latency |
+
+V1-V5 must pass together before consumer promotion. Partial callable branches
+require INCOMPLETE_IMPLEMENTATION markers and explicit failure. No backend
+fallback may convert an unqualified path into success.
+
+Existing test owners are Tests/MojoRuntimeProtocolCoreTests,
+Tests/MojoPOSIXSupportTests, Tests/MojoRuntimeWorkerTests,
+Tests/MojoArtifactCoreTests and Tests/MojoRuntimeTests; real public-client
+fixtures belong to Acceptance/RuntimeWorker. Tests added for native ingress
+belong to the proposed MojoRuntimeWorkerPOSIXTests target. Extend these owners,
+not an application-only shadow transport suite.
+
+
+> Target revision: [Resource invocation](#resource-invocation-revision-2026-09-12).
+> The revision is designed, not implemented; baseline descriptions below remain current code facts.
+
 ## Purpose and Scope
 
 `MojoRuntimeWorker` is the public SwiftPM product that owns W3, the

@@ -115,3 +115,110 @@ Swift-encoded frames to the C decoder.
 Any change requires rechecking ADR-0015, `MojoArtifactCore` worker generation,
 `MojoRuntime` projection, `MojoRuntimeWorker` client fixtures, Apple/NVIDIA worker
 bundles, and downstream typed transport integration.
+
+## Resource Invocation Protocol v2 (target design, 2026-09-12)
+
+This section owns the new wire semantics and supersedes v1 for migrated worker
+bundles. Implementation remains v1 until qualification. Public ownership and
+failure semantics belong to [Worker](../MojoRuntimeWorker/DESIGN.md#resource-invocation-revision-2026-09-12).
+
+Keep the 32-byte header and request-ID sequencing; set version to 2. Retain
+ready/create/session/worker shutdown messages. Replace invokeFloat32 with
+invoke and its typed invocationResult. Do not negotiate down to v1 or accept a
+mixed closed message table.
+
+An invocation payload contains binding ID, generated argument-schema ID,
+argument-byte count, buffer count and result capacities, followed by canonical
+argument bytes and buffer descriptors. Each descriptor encodes storage kind,
+handle ordinal for shared storage (or payload offset for explicit copied
+storage), region byte count, byte offset, element-type ID, rank, dimensions and
+byte strides. All variable counts have explicit manifest-bound maxima.
+Wire integers are little endian fixed-width; pointer-width/Swift Int is not wire
+format. Enum IDs, widths, field ordering and reserved-zero values are generated
+from the protocol-core schema in V1; the same schema produces ABI validation,
+Swift/C codecs, manifest records and golden fixtures. No hand-written consumer
+serialization is permitted. Shared descriptors carry zero buffer payload bytes.
+
+The v2 canonical invocation prefix is, in order: bindingID UInt64,
+argumentSchemaSHA256 32 raw bytes, argumentByteCount UInt32, inputCount UInt16,
+outputCount UInt16, followed by input descriptors, output capacities, argument
+bytes and any explicitly copied input bytes. An input descriptor has storageKind
+UInt16 (1 copied, 2 readonly shared file, 3 Linux DMA-BUF), elementType UInt16,
+rank UInt16, reserved UInt16=0, handleOrdinal UInt32 (UInt32.max for copied),
+reserved UInt32=0, regionByteCount UInt64, viewByteOffset UInt64,
+payloadOffset UInt64 (0 for shared), then rank pairs of dimension UInt64 and
+byteStride UInt64. Element IDs 1...11 are, respectively, Int8, UInt8, Int16,
+UInt16, Int32, UInt32, Int64, UInt64, Float16, Float32, Float64.
+Offsets for copied buffers are relative to the copied-input area only; reject
+overlap with metadata and overrun. An output capacity is elementType UInt16,
+reserved UInt16=0, maximumElementCount UInt64; result shape/meaning is in the
+generated binding schema, not an unvalidated caller field.
+
+The result prefix is status Int32, outputSchemaSHA256 32 raw bytes,
+valueByteCount UInt32, outputCount UInt16, reserved UInt16=0, followed by
+actual output element counts UInt64 in schema order, value bytes and output
+buffer bytes in that order. The admitted binding determines each output type;
+all count-to-byte arithmetic is checked before receiving into final storage.
+Nonzero operation status has zero value bytes/output count. Lifecycle/protocol
+failures use the existing typed failure frame, never a usable result.
+Generated fixed records concatenate declared-width fields without ABI padding;
+fixed arrays carry their schema length, while variable counts have explicit
+generated bounds. Byte ordering for copied numeric buffers is canonical little
+endian. Shared buffers require matching native little-endian hosts; there is no
+implicit byte swap. All enum gaps and reserved fields are rejected.
+
+The endpoint validates all descriptors before mapping or invoking. Validate
+exact field lengths, rank/type, capacity/extent arithmetic, handle count,
+ordinal use, source size and access constraints through the platform importer.
+Two views may reference one handle; unused or missing handles are rejected.
+Every invocation result carries exact output schema, status, actual counts and
+bounded output bytes. A failure response never contains usable partial output.
+A valid terminal operation response also attests that input readers have
+finished and invocation imports have been closed; that meaning is in the
+generated ABI, not an application-provided Boolean.
+
+### Stream and ancillary association
+
+```text
+one reserved invocation
+ -> sendmsg(first control-frame bytes + ordered SCM_RIGHTS)
+ -> remaining control bytes via bounded partial writes
+ -> recvmsg on every receiving read, track absolute stream position
+ -> validate one rights set at invocation start
+ -> decode bounded invocation -> import -> invoke -> completion -> cleanup
+```
+
+Use the existing socketpair, not a second independently ordered socket.
+A sender retries EINTR/EAGAIN under the same absolute deadline; after any
+positive sendmsg byte count it never sends the same rights again. Receiver
+uses recvmsg throughout framing so ancillary data cannot be silently discarded.
+Receive the first byte of each frame with a separate one-byte recvmsg call;
+only that call may carry rights. This makes the ancillary position observable
+without inferring an offset inside a larger stream read. Associate it with
+exactly one invocation. Ancillary data on a header/body position other than
+the admitted invocation start is a terminal protocol failure. The sender cannot
+pipeline another invocation. Read syscall sizes respect the current frame boundary.
+
+MSG_CTRUNC, multiple rights sets, unexpected control types, wrong descriptor
+count, invalid mapping, premature EOF or trailing bytes close every descriptor
+already received and terminate the attempt. CLOEXEC is set atomically where
+supported, otherwise before exposing the received handle; the child does not
+spawn while an unsealed received descriptor exists. The no-fork/import
+critical region belongs to the platform endpoint.
+
+Inline value/result bytes are bounded ordinary IPC; bulk shared input is not
+counted as wire payload but is checked against a separate mapped-byte ceiling.
+The protocol digest covers value schema, buffer descriptors, handle semantics,
+completion semantics and all maxima. Ready proves the new digest before any
+shared buffer can be sent.
+
+### Verification impact
+
+Differential C/Swift tests cover ordinary and zero-length inputs, strided views,
+all scalar encodings and every arithmetic boundary. Native socketpair tests
+cover one-byte fragmentation, EAGAIN after partial sendmsg, truncation,
+unrelated descriptors, EOF at every boundary and cancellation at transfer.
+Descriptor counts before/after each failing exchange must match.
+Recheck [ArtifactCore](../MojoArtifactCore/DESIGN.md),
+[Runtime](../MojoRuntime/DESIGN.md), Worker and
+[POSIXSupport](../MojoPOSIXSupport/DESIGN.md) together.
