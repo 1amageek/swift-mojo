@@ -8,6 +8,12 @@ forbidden_pattern='(^|[^[:alnum:]_])(Kuyu|Manas|MLX|Jetson|NVIDIA|CUDA|AGX|Orin|
 # Only compiled implementation owns runtime policy. Tests and design references
 # intentionally name backends to verify or explain this boundary.
 search_paths=("$repository_root/Sources" "$repository_root/Plugins")
+for path in "${search_paths[@]}"; do
+  if [[ ! -d "$path" ]]; then
+    printf '%s\n' "Generic-boundary source directory is missing: $path" >&2
+    exit 1
+  fi
+done
 set +e
 matches="$(grep -RnEi --include='*.swift' --include='*.c' --include='*.h' --include='*.mojo' \
   "$forbidden_pattern" "${search_paths[@]}")"
