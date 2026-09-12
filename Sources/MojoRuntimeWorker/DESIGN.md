@@ -21,7 +21,7 @@ wire representation; [WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md) owns nat
 | Terminalizer.cleanup returns reaped/group-confirmed facts and ordered failures | Input release can distinguish confirmed death from a failed cleanup | Connect retained reader ownership to these facts |
 | One in-flight request and resident session | Bounded work and ordering | Preserve; no hidden queue |
 | InputResources stages verified files per attempt | Appropriate persistent-resource admission | Keep separate from invocation buffers |
-| Renderer.mainSource allocates receive/send buffers at maximum wire payload once | Shared inputs must not preserve input-sized receive staging by accident | Bound v2 receive storage by control/explicit-copy capacity, separately from mapped bytes |
+| Renderer.mainSource allocates receive/send buffers at maximum wire payload once | Shared inputs must not preserve input-sized receive staging by accident | Bound resource receive storage by control/explicit-copy capacity, separately from mapped bytes |
 
 ### Proposed public API contracts
 
@@ -158,7 +158,7 @@ fast solely because it sends zero payload bytes.
 | V1 | ProtocolCore: all types/layouts, C/Swift differential wire fixtures, malformed/overflow rejection, schema identity |
 | V2 | WorkerPOSIX/POSIXSupport: actual storage identity, readonly access, descriptor truncation/partial-transfer/cleanup |
 | V3 | Worker: success/failure, cancellation at every stage, asynchronous reader completion, crash, concurrent shutdown, unconfirmed lifetime |
-| V4 | ArtifactCore/Runtime: generate/verify v2 schema and ABI; altered or v1 workers rejected before factory |
+| V4 | ArtifactCore/Runtime: generate/verify resource schema and ABI; altered or v1 workers rejected before factory |
 | V5 | Public-client integration: native macOS/Linux generic numerical parity, copied path, shared byte/allocation/latency gates |
 | V6 | Consumers: their own input/output semantics and complete application latency |
 
@@ -182,7 +182,8 @@ not an application-only shadow transport suite.
 `MojoRuntimeWorker` is the public SwiftPM product that owns W3, the
 generic client and lifecycle boundary for ADR-0015 direct-linked workers. Its
 parent is [`DESIGN.md`](../../DESIGN.md); its children are
-[Input](Input/DESIGN.md) and [Lifecycle](Lifecycle/DESIGN.md).
+[Input](Input/DESIGN.md), [Invocation](Invocation/DESIGN.md) and
+[Lifecycle](Lifecycle/DESIGN.md).
 
 It consumes the trusted immutable worker projection produced by the read-only
 [`MojoRuntime`](../MojoRuntime/DESIGN.md) verifier. It does not author or verify

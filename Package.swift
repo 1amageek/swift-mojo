@@ -116,7 +116,7 @@ let package = Package(
                 "MojoPOSIXSupport",
                 "MojoRuntimeProtocolCore",
             ],
-            exclude: ["DESIGN.md", "Input/DESIGN.md"]
+            exclude: ["DESIGN.md", "Input/DESIGN.md", "Lifecycle/DESIGN.md", "Invocation/DESIGN.md"]
         ),
         .target(
             name: "MojoRuntimeWorkerPOSIX",
@@ -240,6 +240,7 @@ let package = Package(
                 "MojoRuntime",
                 "MojoRuntimeProtocolCore",
                 "MojoRuntimeWorker",
+                "MojoRuntimeWorkerPOSIX",
                 "MojoPOSIXSupport",
             ]
         ),

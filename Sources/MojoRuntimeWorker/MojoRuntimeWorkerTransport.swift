@@ -41,6 +41,139 @@ package struct MojoRuntimeWorkerExchangeResponse: Sendable {
 }
 
 package enum MojoRuntimeWorkerTransport {
+    package static func resources(
+        _ command: MojoRuntimeResourceExchange
+    ) throws -> MojoRuntimeResourceExchangeResult {
+        let clock = ContinuousClock()
+        let invocation = command.invocation
+        let metadata = invocation.metadata
+        let header = try MojoRuntimeFrameHeader(
+            kind: .invokeFloat32, requestID: command.requestID,
+            payloadByteCount: UInt64(invocation.control.count) + metadata.copiedBodyByteCount
+        )
+        var control = header.encodedData()
+        control.append(invocation.control)
+        try control.withUnsafeBytes { bytes in
+            try write(rawBuffer: bytes, process: command.process, gate: command.gate,
+                      lease: command.lease, deadline: command.deadline, clock: clock,
+                      rights: invocation.sharedDescriptors)
+        }
+        var copiedOffset: UInt64 = 0
+        for region in invocation.copiedRegions {
+            let paddingCount = Int(region.payloadOffset - copiedOffset)
+            if paddingCount > 0 {
+                let padding = Data(count: paddingCount)
+                try write(data: padding, process: command.process, gate: command.gate,
+                          lease: command.lease, deadline: command.deadline, clock: clock)
+            }
+            guard case .host(let source) = region.owner.storage else {
+                throw MojoRuntimeWorkerError.protocolFailure
+            }
+            try source.withUnsafeBytes { bytes in
+                guard bytes.count == region.owner.byteCount else {
+                    throw MojoRuntimeWorkerError.protocolFailure
+                }
+                try write(rawBuffer: bytes, process: command.process, gate: command.gate,
+                          lease: command.lease, deadline: command.deadline, clock: clock)
+            }
+            copiedOffset = region.payloadOffset + UInt64(region.owner.byteCount)
+        }
+        let headerData = try readData(
+            byteCount: MojoRuntimeProtocol.headerByteCount,
+            process: command.process, gate: command.gate, lease: command.lease,
+            deadline: command.deadline, clock: clock
+        )
+        let responseHeader = try MojoRuntimeFrameHeader.decode(
+            headerData,
+            limits: MojoRuntimeProtocolLimits(
+                maximumFramePayloadBytes: MojoRuntimeProtocol.hardMaximumFramePayloadBytes
+            )
+        )
+        guard responseHeader.requestID == command.requestID else {
+            throw MojoRuntimeWorkerError.responseMismatch
+        }
+        if responseHeader.kind == .failure {
+            guard responseHeader.payloadByteCount >= 8,
+                  responseHeader.payloadByteCount <= UInt64(8 + MojoRuntimeFailurePayload.maximumDiagnosticByteCount) else {
+                throw MojoRuntimeWorkerError.payloadLimitExceeded
+            }
+            let data = try readData(
+                byteCount: Int(responseHeader.payloadByteCount), process: command.process,
+                gate: command.gate, lease: command.lease, deadline: command.deadline, clock: clock
+            )
+            var reader = MojoRuntimeByteReader(data: data)
+            let rawCode = try reader.readUInt16()
+            guard let code = MojoRuntimeWorkerRemoteFailureCode(rawValue: rawCode),
+                  try reader.readUInt16() == 0 else {
+                throw MojoRuntimeWorkerError.protocolFailure
+            }
+            let count = try reader.readUInt32()
+            guard Int(count) == reader.remainingCount else {
+                throw MojoRuntimeWorkerError.protocolFailure
+            }
+            let bytes = try reader.readBytes(count: Int(count))
+            guard let diagnostic = String(bytes: bytes, encoding: .utf8) else {
+                throw MojoRuntimeWorkerError.protocolFailure
+            }
+            throw MojoRuntimeWorkerError.remoteFailure(code: code, diagnostic: diagnostic)
+        }
+        guard responseHeader.kind == .invocationResult,
+              responseHeader.payloadByteCount >= UInt64(MojoRuntimeResourceProtocol.resultPrefixByteCount),
+              responseHeader.payloadByteCount <= command.limits.maximumResultBytes else {
+            throw MojoRuntimeWorkerError.responseMismatch
+        }
+        var resultControl = try readData(
+            byteCount: MojoRuntimeResourceProtocol.resultPrefixByteCount,
+            process: command.process, gate: command.gate, lease: command.lease,
+            deadline: command.deadline, clock: clock
+        )
+        var reader = MojoRuntimeByteReader(data: resultControl)
+        _ = try reader.readInt32()
+        _ = try reader.readBytes(count: 32)
+        let valuesCount = try reader.readUInt32()
+        let outputCount = try reader.readUInt16()
+        guard try reader.readUInt16() == 0,
+              valuesCount <= command.limits.maximumResultValueBytes,
+              outputCount <= command.limits.maximumOutputs else {
+            throw MojoRuntimeWorkerError.payloadLimitExceeded
+        }
+        let remainingControl = UInt64(valuesCount) + UInt64(outputCount) * 8
+        let controlCount = UInt64(resultControl.count) + remainingControl
+        guard controlCount <= command.limits.maximumControlBytes,
+              controlCount <= responseHeader.payloadByteCount else {
+            throw MojoRuntimeWorkerError.payloadLimitExceeded
+        }
+        resultControl.append(try readData(
+            byteCount: Int(remainingControl), process: command.process,
+            gate: command.gate, lease: command.lease, deadline: command.deadline, clock: clock
+        ))
+        let result = try MojoRuntimeResourceResult.decodeControl(
+            resultControl, expectedSchema: command.expectedResultSchema,
+            capacities: metadata.outputs, limits: command.limits
+        )
+        guard controlCount + result.bodyByteCount == responseHeader.payloadByteCount else {
+            throw MojoRuntimeWorkerError.responseMismatch
+        }
+        var outputs: [Data] = []
+        outputs.reserveCapacity(result.elementCounts.count)
+        for index in result.elementCounts.indices {
+            let count = result.elementCounts[index] * metadata.outputs[index].element.byteWidth
+            outputs.append(try readData(
+                byteCount: Int(count), process: command.process,
+                gate: command.gate, lease: command.lease, deadline: command.deadline, clock: clock
+            ))
+        }
+        guard clock.now < command.deadline else {
+            throw MojoRuntimeWorkerError.invocationTimedOut
+        }
+        return MojoRuntimeResourceExchangeResult(
+            metadata: result, outputBuffers: outputs,
+            controlBytesSent: UInt64(control.count),
+            inputPayloadBytesSent: copiedOffset,
+            sharedHandlesSent: invocation.sharedDescriptors.count
+        )
+    }
+
     package static func detached(
         _ command: MojoRuntimeWorkerExchangeCommand
     ) -> Task<MojoRuntimeWorkerExchangeResponse, Error> {
@@ -179,10 +312,12 @@ package enum MojoRuntimeWorkerTransport {
         gate: MojoRuntimeWorkerCancellationGate,
         lease: MojoRuntimeWorkerCancellationGate.Lease,
         deadline: ContinuousClock.Instant,
-        clock: ContinuousClock
+        clock: ContinuousClock,
+        rights: [Int32] = []
     ) throws {
         guard rawBuffer.count > 0 else { return }
         var offset = 0
+        var rightsCommitted = rights.isEmpty
         while offset < rawBuffer.count {
             try requireLive(
                 gate: gate,
@@ -211,6 +346,11 @@ package enum MojoRuntimeWorkerTransport {
                     start: baseAddress.advanced(by: offset),
                     count: bytes.count - offset
                 )
+                if !rightsCommitted {
+                    return try MojoPOSIXRightsSupport.send(
+                        descriptor: process.protocolDescriptor, bytes: remaining, rights: rights
+                    )
+                }
                 return try MojoPOSIXWorkerSupport.write(
                     descriptor: process.protocolDescriptor,
                     from: remaining
@@ -218,6 +358,7 @@ package enum MojoRuntimeWorkerTransport {
             }
             switch result {
             case .bytes(let count):
+                rightsCommitted = true
                 offset += count
             case .interrupted, .wouldBlock:
                 continue
@@ -293,10 +434,10 @@ package enum MojoRuntimeWorkerTransport {
                     start: baseAddress.advanced(by: offset),
                     count: bytes.count - offset
                 )
-                return try MojoPOSIXWorkerSupport.read(
-                    descriptor: process.protocolDescriptor,
-                    into: remaining
-                )
+                var rights: [Int32] = []
+                return try MojoPOSIXRightsSupport.receive(
+                    descriptor: process.protocolDescriptor, bytes: remaining, rights: &rights
+                ).result
             }
             switch result {
             case .bytes(let count):
