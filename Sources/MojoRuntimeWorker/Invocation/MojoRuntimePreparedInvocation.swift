@@ -16,15 +16,18 @@ package struct MojoRuntimePreparedInvocation: Sendable {
     package let retainedByteCount: UInt64
 
     package init(
-        bindingID: UInt64, argumentSchema: [UInt8], arguments: Data,
+        bindingID: UInt64, argumentSchema: [UInt8], arguments: MojoInvocationArguments,
         inputs: [MojoBufferView], outputs: [MojoRuntimeOutputCapacity],
         limits: MojoRuntimeResourceLimits
     ) throws {
         guard inputs.count <= Int(limits.maximumInputs),
               outputs.count <= Int(limits.maximumOutputs),
-              arguments.count <= Int(limits.maximumArgumentBytes) else {
+              arguments.byteCount <= Int(limits.maximumArgumentBytes) else {
             throw MojoRuntimeBufferError.countLimitExceeded
         }
+        let argumentBytes = try arguments.encoded(
+            expectedSchema: argumentSchema, maximumBytes: limits.maximumArgumentBytes
+        )
         var owners: [MojoReadOnlyBuffer] = []
         var indices: [ObjectIdentifier: Int] = [:]
         var alignments: [UInt64] = []
@@ -86,7 +89,7 @@ package struct MojoRuntimePreparedInvocation: Sendable {
             ))
         }
         let metadata = try MojoRuntimeResourceInvocation(
-            bindingID: bindingID, argumentSchema: argumentSchema, arguments: arguments,
+            bindingID: bindingID, argumentSchema: argumentSchema, arguments: argumentBytes,
             inputs: views, outputs: outputs, limits: limits
         )
         self.metadata = metadata

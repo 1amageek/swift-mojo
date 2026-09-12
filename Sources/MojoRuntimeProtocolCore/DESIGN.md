@@ -239,3 +239,14 @@ Descriptor counts before/after each failing exchange must match.
 Recheck [ArtifactCore](../MojoArtifactCore/DESIGN.md),
 [Runtime](../MojoRuntime/DESIGN.md), Worker and
 [POSIXSupport](../MojoPOSIXSupport/DESIGN.md) together.
+
+### Scalar value schema
+
+`MojoRuntimeValueSchema.digest` is shared by binding generation and invocation
+admission. Its SHA-256 input is ASCII `swift-mojo-values`, UInt16 element count,
+then UInt16 numeric element identifiers, with little-endian integers. The count
+must fit UInt16. Values do not affect identity; order and signedness do.
+[Invocation](../MojoRuntimeWorker/Invocation/DESIGN.md#scalar-argument-contract)
+owns public scalar values and bounded encoding. Golden argument tests independently
+check all numeric widths, IEEE payload bits and the canonical digest. Changing
+this schema requires regenerating both endpoints and rechecking argument admission.

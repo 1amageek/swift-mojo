@@ -77,3 +77,17 @@ ResourceTransportTests uses an independent native-socket peer to map shared
 aliases, compute strided numerical results and reject malformed responses.
 This proves transport behavior, not generated Mojo execution or public session
 selection; those remain parent integration gates.
+
+### Scalar argument contract
+
+`MojoInvocationArguments` owns an immutable ordered list of fixed-width numeric
+values. Each value encodes little-endian bytes with no native struct padding;
+floating-point values preserve their IEEE bit patterns. The type sequence, not
+the values, defines the argument schema. [ProtocolCore](../../MojoRuntimeProtocolCore/DESIGN.md#scalar-value-schema)
+owns its canonical digest. Binding identity owns parameter names and meaning.
+The list is bounded to UInt16 count before schema construction. Invocation
+admission checks the binding's schema and byte budget before allocating encoded
+argument storage. The generated binding will supply that expected schema; callers
+cannot authorize a different schema by supplying a matching-looking payload.
+Tests cover all numeric types, signed boundaries, NaN/signed-zero bit patterns,
+order-sensitive schema identity and rejection before encoding.

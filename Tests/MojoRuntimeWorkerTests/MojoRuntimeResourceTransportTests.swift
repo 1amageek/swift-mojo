@@ -102,8 +102,8 @@ struct MojoRuntimeResourceTransportTests {
             maximumCopiedBytes: 2_097_152, maximumMappedBytes: 4096, maximumResultBytes: 4096
         )
         let prepared = try MojoRuntimePreparedInvocation(
-            bindingID: 7, argumentSchema: Array(repeating: 0x12, count: 32),
-            arguments: Data([9]), inputs: views,
+            bindingID: 7, argumentSchema: MojoRuntimeValueSchema.digest([.uint8]),
+            arguments: MojoInvocationArguments([.uint8(9)]), inputs: views,
             outputs: [MojoRuntimeOutputCapacity(element: .uint64, maximumElementCount: 1)],
             limits: limits
         )
@@ -149,7 +149,7 @@ struct MojoRuntimeResourceTransportTests {
     // An independent peer decodes the bytes and maps actual received rights. It
     // intentionally does not reuse the production encoder or prepared metadata.
     private static let peer = #"""
-    import array, mmap, os, socket, struct, sys
+    import array, hashlib, mmap, os, socket, struct, sys
     sock = socket.socket(fileno=3)
     sock.setblocking(True)
     sock.settimeout(5)
@@ -173,7 +173,7 @@ struct MojoRuntimeResourceTransportTests {
     assert (magic, reserved, kind, request, tail) == (b'SMW1', 0, 4, 3, 0)
     payload = read(payload_size)
     binding, schema, arg_count, input_count, output_count = struct.unpack_from('<Q32sIHH', payload)
-    assert binding == 7 and schema == bytes([0x12])*32 and output_count == 1
+    assert binding == 7 and schema == hashlib.sha256(b'swift-mojo-values' + struct.pack('<HH', 1, 2)).digest() and output_count == 1
     offset = 48
     views = []
     for _ in range(input_count):
