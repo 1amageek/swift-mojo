@@ -137,13 +137,24 @@ jobs:
               --build-system swiftbuild --build-tests \
               --scratch-path "$SWIFT_MOJO_CI_SCRATCH"
 
-      - name: Run bounded correctness suite
+      - name: Run bounded runtime tests
         run: |
           scripts/swift-test-hang-guard.sh \
             --repeats 1 --timeout 120 -- \
             env -u SWIFT_MOJO_EXECUTABLE TOOLCHAINS="$SWIFT_MOJO_CI_TOOLCHAIN" \
               /usr/bin/xcrun swift test \
               --build-system swiftbuild --skip-build --no-parallel \
+              --filter 'MojoRuntimeWorkerTests|MojoRuntimeTests|MojoRuntimeWorkerPOSIXTests' \
+              --scratch-path "$SWIFT_MOJO_CI_SCRATCH"
+
+      - name: Run bounded remaining tests
+        run: |
+          scripts/swift-test-hang-guard.sh \
+            --repeats 1 --timeout 120 -- \
+            env -u SWIFT_MOJO_EXECUTABLE TOOLCHAINS="$SWIFT_MOJO_CI_TOOLCHAIN" \
+              /usr/bin/xcrun swift test \
+              --build-system swiftbuild --skip-build --no-parallel \
+              --skip 'MojoRuntimeWorkerTests|MojoRuntimeTests|MojoRuntimeWorkerPOSIXTests' \
               --scratch-path "$SWIFT_MOJO_CI_SCRATCH"
 
       - name: Verify external package boundaries

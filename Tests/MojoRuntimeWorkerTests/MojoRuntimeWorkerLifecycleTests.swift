@@ -433,7 +433,7 @@ struct MojoRuntimeWorkerLifecycleTests {
 
     @Test(.timeLimit(.minutes(1)))
     func concurrentCallsAreRejectedWithoutASecondWireMutation() async throws {
-        let fixture = try AttemptFixture.make(behavior: .delayedResult)
+        let fixture = try AttemptFixture.make(behavior: .controlledResult)
         defer { fixture.removeSource() }
         _ = try await fixture.createSession()
 
@@ -445,7 +445,9 @@ struct MojoRuntimeWorkerLifecycleTests {
                 timeout: .seconds(3)
             )
         }
+        defer { first.cancel() }
         try await waitForInFlight(fixture.actor)
+        try await waitForTrace(fixture, containing: "invoke:")
 
         do {
             _ = try await fixture.actor.invoke(
@@ -475,6 +477,7 @@ struct MojoRuntimeWorkerLifecycleTests {
         #expect(!busyTrace.contains("destroy"))
         #expect(!busyTrace.contains("worker_shutdown"))
 
+        try Data().write(to: fixture.traceURL.appendingPathExtension("continue"))
         let firstOutput = try await first.value
         #expect(firstOutput == [11])
         try await fixture.actor.explicitShutdown()
@@ -773,7 +776,7 @@ struct MojoRuntimeWorkerLifecycleTests {
 
 private enum LifecycleFixtureBehavior: String {
     case normal
-    case delayedResult
+    case controlledResult
     case hangOnInvoke
     case partialResult
     case crashOnInvoke
@@ -1131,8 +1134,12 @@ private struct AttemptFixture: Sendable {
                 )
                 if DIAGNOSTIC_BYTES:
                     write_diagnostics(DIAGNOSTIC_BYTES)
-                if BEHAVIOR == "delayedResult":
-                    time.sleep(0.25)
+                if BEHAVIOR == "controlledResult":
+                    deadline = time.monotonic() + 5
+                    while not os.path.exists(TRACE_PATH + ".continue"):
+                        if time.monotonic() >= deadline:
+                            sys.exit(96)
+                        time.sleep(0.001)
                 elif BEHAVIOR == "hangOnInvoke":
                     while True:
                         time.sleep(1)

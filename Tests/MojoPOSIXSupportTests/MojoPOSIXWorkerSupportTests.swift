@@ -319,8 +319,15 @@ struct MojoPOSIXWorkerSupportTests {
       processID: worker.processID,
       signal: MojoPOSIXSupport.killSignal
     )
+    // Retain the child's identity until every group member has stopped.
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(3))
+    while clock.now < deadline,
+          MojoPOSIXSupport.processGroupState(worker.processID) != .gone {
+      Thread.sleep(forTimeInterval: 0.001)
+    }
+    #expect(MojoPOSIXSupport.processGroupState(worker.processID) == .gone)
     _ = try waitForReap(worker.processID, timeout: .seconds(3))
-    #expect(!MojoPOSIXSupport.processGroupIsAlive(worker.processID))
   }
 
   @Test(.timeLimit(.minutes(1)))
