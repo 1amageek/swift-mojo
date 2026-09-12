@@ -3,13 +3,13 @@
 set -euo pipefail
 
 repository_root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-forbidden_pattern='\b(Kuyu|Manas|MLX|Jetson|NVIDIA|CUDA|AGX|Orin|Tegra|Metal|HIP)\b|sm_87|libcuda|\.metal'
+forbidden_pattern='(^|[^[:alnum:]_])(Kuyu|Manas|MLX|Jetson|NVIDIA|CUDA|AGX|Orin|Tegra|Metal|HIP)([^[:alnum:]_]|$)|sm_87|libcuda|\.metal'
 
 # Only compiled implementation owns runtime policy. Tests and design references
 # intentionally name backends to verify or explain this boundary.
 search_paths=("$repository_root/Sources" "$repository_root/Plugins")
 set +e
-matches="$(rg -n -i --glob '*.swift' --glob '*.c' --glob '*.h' --glob '*.mojo' \
+matches="$(grep -RnEi --include='*.swift' --include='*.c' --include='*.h' --include='*.mojo' \
   "$forbidden_pattern" "${search_paths[@]}")"
 status=$?
 set -e
