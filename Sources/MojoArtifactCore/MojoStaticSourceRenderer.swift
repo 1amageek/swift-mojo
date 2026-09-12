@@ -1,4 +1,5 @@
 import MojoBindingCore
+import MojoRuntimeProtocolCore
 
 package struct MojoStaticSourceRenderer: Sendable {
     package static let generationVersion = 2
@@ -51,6 +52,9 @@ package struct MojoStaticSourceRenderer: Sendable {
         }
         if signatures.contains(.sessionBorrowedMutableFloat32Buffers) {
             suffixes.insert("call_session_f32_buffer_f32_buffer_i32_v1")
+        }
+        for binding in inputGraph.bindingGraph.bindings where binding.signature == .resourceInvocation {
+            suffixes.insert("invoke_resource_\(binding.bindingID)")
         }
         return Set(suffixes.map { "\(prefix)_\($0)" })
     }
@@ -188,9 +192,7 @@ package struct MojoStaticSourceRenderer: Sendable {
         lines.append("")
         lines.append("@export(\"\(identity.symbolPrefix)_has_binding\")")
         lines.append("def \(identity.symbolPrefix)_has_binding(binding_id: UInt64) abi(\"C\") -> UInt32:")
-        // FIXME(INCOMPLETE_IMPLEMENTATION): Resource declarations have no native
-        // invocation export yet. Static preflight must not report them callable
-        // until generated resource dispatch has runtime verification.
+        // Resource entries belong to the worker ABI, not static-call preflight.
         for binding in graph.bindings where binding.signature != .resourceInvocation {
             lines.append("    if binding_id == \(binding.bindingID):")
             lines.append("        return 1")
@@ -528,6 +530,15 @@ package struct MojoStaticSourceRenderer: Sendable {
             lines.append("    return -1")
         }
 
+        for binding in graph.bindings where binding.signature == .resourceInvocation {
+            lines.append(contentsOf: resourceEntry(binding: binding, prefix: identity.symbolPrefix))
+            if let source = binding.sourceReference {
+                entries.append(MojoSourceMap.Entry(
+                    generatedLine: lines.count, bindingID: binding.bindingID, source: source
+                ))
+            }
+        }
+
         return MojoRenderedSource(
             source: lines.joined(separator: "\n") + "\n",
             sourceMap: MojoSourceMap(
@@ -547,13 +558,15 @@ package struct MojoStaticSourceRenderer: Sendable {
     ) -> String {
         header(
             identity: identity,
-            signatures: Set(inputGraph.bindingGraph.bindings.map(\.signature))
+            signatures: Set(inputGraph.bindingGraph.bindings.map(\.signature)),
+            resourceBindings: inputGraph.bindingGraph.bindings.filter { $0.signature == .resourceInvocation }
         )
     }
 
     private func header(
         identity: MojoArtifactIdentity,
-        signatures: Set<MojoBinding.Signature>
+        signatures: Set<MojoBinding.Signature>,
+        resourceBindings: [MojoBinding] = []
     ) -> String {
         let prefix = identity.symbolPrefix
         var lines = [
@@ -672,6 +685,9 @@ package struct MojoStaticSourceRenderer: Sendable {
                 ");",
             ])
         }
+        for binding in resourceBindings {
+            lines.append(contentsOf: resourceHeader(binding: binding, prefix: prefix))
+        }
         lines.append(contentsOf: [
             "",
             "#ifdef __cplusplus",
@@ -681,6 +697,108 @@ package struct MojoStaticSourceRenderer: Sendable {
             "#endif",
         ])
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func resourceEntry(binding: MojoBinding, prefix: String) -> [String] {
+        guard let signature = binding.resourceSignature else {
+            preconditionFailure("Resource bindings require a validated signature")
+        }
+        var parameters = [
+            "session: OpaquePointer[MutUntrackedOrigin]",
+            "arguments: Pointer[UInt8, ImmUntrackedOrigin]", "argument_bytes: UInt64",
+            "results: Pointer[UInt8, MutUntrackedOrigin]", "result_bytes: UInt64",
+        ]
+        for (index, input) in signature.inputs.enumerated() {
+            parameters += [
+                "input_\(index): Pointer[\(mojoType(input.element)), ImmUntrackedOrigin]",
+                "dimensions_\(index): Pointer[UInt64, ImmUntrackedOrigin]",
+                "strides_\(index): Pointer[UInt64, ImmUntrackedOrigin]",
+            ]
+        }
+        for (index, output) in signature.outputs.enumerated() {
+            parameters += [
+                "output_\(index): Pointer[\(mojoType(output)), MutUntrackedOrigin]",
+                "capacity_\(index): UInt64",
+                "count_\(index): Pointer[UInt64, MutUntrackedOrigin]",
+            ]
+        }
+        var lines = ["", "", "# Caller validates layouts and retains every borrow until all readers have joined.",
+                     "@export(\"\(prefix)_invoke_resource_\(binding.bindingID)\")",
+                     "def \(prefix)_invoke_resource_\(binding.bindingID)("]
+        lines += parameters.map { "    \($0)," }
+        lines += [") abi(\"C\") -> Int32:",
+                  "    if argument_bytes != \(signature.argumentByteCount) or result_bytes != \(signature.resultByteCount):",
+                  "        return -1"]
+        var call = ["session"]
+        var offset: UInt64 = 0
+        for (index, type) in signature.arguments.enumerated() {
+            let bits = "UInt\(type.byteWidth * 8)"
+            lines.append("    var argument_bits_\(index) = \(bits)(0)")
+            for byte in 0..<type.byteWidth {
+                lines.append("    argument_bits_\(index) |= \(bits)(arguments[unsafe_offset=\(offset + byte)]) << \(byte * 8)")
+            }
+            call.append("\(mojoType(type))(from_bits=argument_bits_\(index))")
+            offset += type.byteWidth
+        }
+        for index in signature.inputs.indices {
+            call += ["input_\(index)", "dimensions_\(index)", "strides_\(index)"]
+        }
+        for (index, type) in signature.results.enumerated() {
+            lines.append("    var result_\(index) = \(mojoType(type))(0)")
+            call.append("Pointer(to=result_\(index)).unsafe_origin_cast[MutUntrackedOrigin]()")
+        }
+        for index in signature.outputs.indices {
+            lines.append("    count_\(index)[] = 0")
+            call += ["output_\(index)", "capacity_\(index)", "count_\(index)"]
+        }
+        lines += ["    var status = __swift_mojo_external_\(binding.bindingID)(\(call.joined(separator: ", ")))",
+                  "    if status != 0:", "        return status"]
+        for index in signature.outputs.indices {
+            lines += ["    if count_\(index)[] > capacity_\(index):", "        return -1"]
+        }
+        offset = 0
+        for (index, type) in signature.results.enumerated() {
+            lines.append("    var result_bits_\(index) = result_\(index).to_bits()")
+            for byte in 0..<type.byteWidth {
+                lines.append("    results[unsafe_offset=\(offset + byte)] = UInt8((result_bits_\(index) >> \(byte * 8)) & 255)")
+            }
+            offset += type.byteWidth
+        }
+        lines.append("    return 0")
+        return lines
+    }
+
+    private func resourceHeader(binding: MojoBinding, prefix: String) -> [String] {
+        guard let signature = binding.resourceSignature else {
+            preconditionFailure("Resource bindings require a validated signature")
+        }
+        var parameters = ["void *session", "const uint8_t *arguments", "uint64_t argument_bytes",
+                          "uint8_t *results", "uint64_t result_bytes"]
+        for (index, input) in signature.inputs.enumerated() {
+            parameters += ["const \(cType(input.element)) *input_\(index)",
+                           "const uint64_t *dimensions_\(index)", "const uint64_t *strides_\(index)"]
+        }
+        for (index, output) in signature.outputs.enumerated() {
+            parameters += ["\(cType(output)) *output_\(index)", "uint64_t capacity_\(index)",
+                           "uint64_t *count_\(index)"]
+        }
+        return ["int32_t \(prefix)_invoke_resource_\(binding.bindingID)(",
+                "    " + parameters.joined(separator: ",\n    "), ");"]
+    }
+
+    private func mojoType(_ type: MojoRuntimeElementType) -> String {
+        let name = type.sourceName
+        if name.hasPrefix("uint") { return "UInt" + name.dropFirst(4) }
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
+    private func cType(_ type: MojoRuntimeElementType) -> String {
+        switch type {
+        case .float16: "_Float16"
+        case .float32: "float"
+        case .float64: "double"
+        default: "\(type.sourceName)_t"
+        }
     }
 
     package func moduleMap(identity: MojoArtifactIdentity) -> String {

@@ -166,12 +166,23 @@ The parser builds ProtocolCore's resource signature; the binding graph,
 implementation digest, worker manifest and verified projection retain it.
 No consumer-authored byte offsets or native struct layouts are accepted.
 
-Generation adapts the generic worker entry to the external Mojo function:
+Generation emits one C ABI entry per resource binding, adapting it to the external Mojo function:
 session handle, typed scalar arguments, then for each input a readonly typed
 pointer plus dimensions/strides pointers, then scalar result pointers and typed
 output pointer/capacity/actual-count-pointer triples. Input rank comes from the
-binding signature. Generated code owns the generic entry's pointer tables,
-canonical scalar decoding and result encoding. User Mojo owns computation and
+binding signature. The generated C declaration passes typed pointers directly,
+without a consumer-maintained pointer table. Argument/result byte lengths are
+checked before access. Packed scalars are decoded bytewise into aligned locals;
+result scalars are encoded only after status zero and validated output counts.
+The worker validates mappings, rank, extent and alignment before calling this
+internal ABI and retains all input/output storage through return. Generated code
+owns canonical scalar decoding and result encoding. User Mojo owns computation and
 must join all readers/writers before returning either success or failure.
-This authoring path and generated adapter are pending implementation; existing
-Float32 worker invocation is not evidence for this resource call boundary.
+The generated native adapter is implemented and qualified on Mac by
+`scripts/resource-native-adapter-test.sh`: an actual C consumer links the generated
+Mojo library, creates/destroys a session, round-trips all eleven scalar types
+including signed extrema/NaN/signed zero, reads strided UInt16 input, and verifies
+failure, invalid lengths, output-count overflow and result-byte canaries.
+The worker socket endpoint and public operation factory remain unconnected;
+this native-call evidence does not establish IPC, GPU or public API performance.
+Existing Float32 worker invocation is not evidence for that integration.
