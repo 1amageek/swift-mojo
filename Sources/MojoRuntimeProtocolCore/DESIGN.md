@@ -118,6 +118,24 @@ bundles, and downstream typed transport integration.
 
 ## Resource Invocation Protocol v2 (target design, 2026-09-12)
 
+### Implemented codec boundary
+
+MojoRuntimeResourceProtocol now owns the v2 field-layout digest and widths.
+MojoRuntimeBufferDescriptor validates typed readonly extents; ResourceInvocation
+and ResourceResult encode/decode bounded control segments without materializing
+the separate bulk body. ResourceLimits separates argument/result-value,
+control, copied, mapped and result ceilings. Result capacity admission reserves
+the result prefix, count table and maximum value bytes before accepting outputs.
+The live frame loop, generated endpoint, manifest and public session are still
+v1. These pure codecs do not enable or qualify v2 worker invocation.
+
+MojoRuntimeBufferDescriptorTests and MojoRuntimeResourceCodecTests own golden,
+truncation, overflow, alias, capacity and schema gates. The independent native C
+oracle in Tests/Fixtures/CMojoResourceProtocolReference differentially checks
+buffer extents, invocation accounting and result rejection. macOS execution
+passes 26 protocol tests with Address Sanitizer; real-worker/native Linux and
+transport benchmarks remain separate gates.
+
 This section owns the new wire semantics and supersedes v1 for migrated worker
 bundles. Implementation remains v1 until qualification. Public ownership and
 failure semantics belong to [Worker](../MojoRuntimeWorker/DESIGN.md#resource-invocation-revision-2026-09-12).

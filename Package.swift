@@ -192,7 +192,12 @@ let package = Package(
         ),
         .testTarget(
             name: "MojoRuntimeProtocolCoreTests",
-            dependencies: ["MojoRuntimeProtocolCore"]
+            dependencies: ["MojoRuntimeProtocolCore", "CMojoResourceProtocolReference"]
+        ),
+        .target(
+            name: "CMojoResourceProtocolReference",
+            path: "Tests/Fixtures/CMojoResourceProtocolReference",
+            publicHeadersPath: "include"
         ),
         .testTarget(
             name: "MojoBindingCoreTests",
