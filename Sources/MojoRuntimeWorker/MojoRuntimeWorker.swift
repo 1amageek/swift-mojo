@@ -187,7 +187,7 @@ public struct MojoRuntimeWorker: Sendable {
                     stageRoot: admitted.stage.rootURL,
                     terminationGracePeriod: timeouts.terminationGracePeriod,
                     forcedCleanup: timeouts.forcedCleanup
-            )
+            ).failures
             if failures.isEmpty {
                 throw MojoRuntimeWorkerError.wakeupCreationFailed
             }

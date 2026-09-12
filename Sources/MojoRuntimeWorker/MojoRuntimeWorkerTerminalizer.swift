@@ -73,7 +73,7 @@ package enum MojoRuntimeWorkerTerminalizer {
         terminationDeadline: ContinuousClock.Instant,
         forcedCleanupDeadline: ContinuousClock.Instant,
         processControl: MojoRuntimeWorkerProcessControl = .live
-    ) -> [MojoRuntimeWorkerCleanupFailure] {
+    ) -> MojoRuntimeWorkerProcessLifetimeOutcome {
         // Closing the protocol endpoint before escalation prevents a blocked
         // child write from surviving the owner's terminal transition. The
         // descriptor is owned by this single cleanup claim and is never
@@ -116,7 +116,11 @@ package enum MojoRuntimeWorkerTerminalizer {
             ) {
             failures.append(stageFailure)
         }
-        return failures
+        return MojoRuntimeWorkerProcessLifetimeOutcome(
+            reaped: lifetime.reaped,
+            groupTerminationConfirmed: lifetime.groupTerminationConfirmed,
+            failures: failures
+        )
     }
 
     package static func cleanupAdmissionFailure(
@@ -125,7 +129,7 @@ package enum MojoRuntimeWorkerTerminalizer {
         terminationGracePeriod: Duration,
         forcedCleanup: Duration,
         processControl: MojoRuntimeWorkerProcessControl = .live
-    ) -> [MojoRuntimeWorkerCleanupFailure] {
+    ) -> MojoRuntimeWorkerProcessLifetimeOutcome {
         let clock = ContinuousClock()
         let terminationDeadline = clock.now.advanced(
             by: terminationGracePeriod
@@ -167,7 +171,11 @@ package enum MojoRuntimeWorkerTerminalizer {
             ) {
             failures.append(stageFailure)
         }
-        return failures
+        return MojoRuntimeWorkerProcessLifetimeOutcome(
+            reaped: lifetime.reaped,
+            groupTerminationConfirmed: lifetime.groupTerminationConfirmed,
+            failures: failures
+        )
     }
 
     private struct ChildInspection {
@@ -265,6 +273,16 @@ package enum MojoRuntimeWorkerTerminalizer {
             appendUnique(.processInspectionFailed, to: &failures)
         case .gone:
             break
+        }
+
+        // Preserve PID/PGID ownership until a complete observation episode
+        // proves disappearance. A later bounded episode can then safely retry.
+        guard group.state == .gone, !group.sawIndeterminate else {
+            return MojoRuntimeWorkerProcessLifetimeOutcome(
+                reaped: false,
+                groupTerminationConfirmed: false,
+                failures: failures
+            )
         }
 
         // No process-group signal is permitted below this point. Reaping the

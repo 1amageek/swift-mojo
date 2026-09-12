@@ -545,7 +545,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
                 stageRoot: stageRoot,
                 terminationGracePeriod: terminationGracePeriod,
                 forcedCleanup: forcedCleanup
-            )
+            ).failures
         }
         guard let stageRoot else {
             return []

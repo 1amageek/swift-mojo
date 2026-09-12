@@ -18,7 +18,7 @@ wire representation; [WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md) owns nat
 | Session.invoke accepts/returns [Float] | Producer materialization is required | Typed immutable views and bounded values |
 | Transport.execute borrows the Array for socket writes | No second Swift tensor there, but payload is transferred | Separate control from shared input |
 | AttemptActor.finishExchange clears pendingInput before terminalize | Valid for copied input, unsafe if applied to shared input | Retain source independently through reader completion |
-| Terminalizer.cleanup drops its structured lifetime outcome | External source release cannot use cleanup failure alone | Return reaped/group-confirmed outcome |
+| Terminalizer.cleanup returns reaped/group-confirmed facts and ordered failures | Input release can distinguish confirmed death from a failed cleanup | Connect retained reader ownership to these facts |
 | One in-flight request and resident session | Bounded work and ordering | Preserve; no hidden queue |
 | InputResources stages verified files per attempt | Appropriate persistent-resource admission | Keep separate from invocation buffers |
 | Renderer.mainSource allocates receive/send buffers at maximum wire payload once | Shared inputs must not preserve input-sized receive staging by accident | Bound v2 receive storage by control/explicit-copy capacity, separately from mapped bytes |
@@ -590,7 +590,13 @@ identity until every possible signal has been issued, use bounded tri-state
 group inspection, and reap the exact child only after the final bounded group
 observation, when no later group signal can be issued. A live or indeterminate
 final group observation retains staging; any indeterminate observation also
-prevents later disappearance from authorizing stage removal. Diagnostics and
+prevents disappearance within that cleanup episode from authorizing stage removal.
+An unconfirmed episode must also leave the exact child unreaped: its reserved
+PID/PGID is required for safe subsequent observation. A fresh bounded episode
+can establish conclusive disappearance and then reap; it must revalidate exact
+child ownership before any signal. Outside-owner reap remains fail-closed.
+Cleanup returns reaped/group-confirmed facts alongside ordered errors, so
+an error list is never used as a proxy for reader lifetime. Diagnostics and
 wakeup descriptors are closed independently, and private staging is removed
 only after both child reap and conclusive group disappearance. The mode split
 prevents a worker that has already acknowledged graceful teardown but has not

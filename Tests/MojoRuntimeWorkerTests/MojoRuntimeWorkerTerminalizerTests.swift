@@ -259,11 +259,17 @@ struct MojoRuntimeWorkerTerminalizerTests {
             mode: .hard,
             gracefulDeadline: expiredDeadline,
             terminationDeadline: expiredDeadline,
-            forcedCleanupDeadline: expiredDeadline
-        )
+            forcedCleanupDeadline: expiredDeadline,
+            processControl: MojoRuntimeWorkerProcessControl(
+                observeChild: MojoRuntimeWorkerProcessControl.live.observeChild,
+                inspectGroup: { _ in .alive },
+                signalGroup: MojoRuntimeWorkerProcessControl.live.signalGroup,
+                reapChild: MojoRuntimeWorkerProcessControl.live.reapChild
+            )
+        ).failures
         terminalizerRan = true
 
-        #expect(failures.contains(.processReapFailed))
+        #expect(failures.contains(.processGroupTerminationFailed))
         #expect(failures.last == .privateStageRetained)
         #expect(FileManager.default.fileExists(atPath: fixture.stageRoot.path))
 
@@ -276,6 +282,52 @@ struct MojoRuntimeWorkerTerminalizerTests {
             )
         #expect(stageFailure == nil)
         #expect(!FileManager.default.fileExists(atPath: fixture.stageRoot.path))
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func freshObservationEpisodeCanRecoverRetainedChildIdentity() throws {
+        let fixture = try makeFixture(
+            script: """
+            trap '' TERM
+            printf ready >&3
+            while :; do :; done
+            """
+        )
+        defer {
+            recover(fixture, descriptorsOwned: true)
+            removeRoot(fixture.rootURL)
+        }
+        let deadline = ContinuousClock().now
+        let uncertain = MojoRuntimeWorkerTerminalizer.completeProcessLifetime(
+            processID: fixture.process.processID,
+            mode: .hard,
+            gracefulDeadline: deadline,
+            terminationDeadline: deadline,
+            forcedCleanupDeadline: deadline,
+            processControl: MojoRuntimeWorkerProcessControl(
+                observeChild: MojoRuntimeWorkerProcessControl.live.observeChild,
+                inspectGroup: { _ in .indeterminate },
+                signalGroup: MojoRuntimeWorkerProcessControl.live.signalGroup,
+                reapChild: MojoRuntimeWorkerProcessControl.live.reapChild
+            )
+        )
+        #expect(!uncertain.reaped)
+        #expect(!uncertain.groupTerminationConfirmed)
+        #expect(uncertain.failures == [.processInspectionFailed])
+        _ = try MojoPOSIXSupport.observeChild(processID: fixture.process.processID)
+
+        let retryDeadline = ContinuousClock().now.advanced(by: .seconds(1))
+        let recovered = MojoRuntimeWorkerTerminalizer.completeProcessLifetime(
+            processID: fixture.process.processID,
+            mode: .hard,
+            gracefulDeadline: retryDeadline,
+            terminationDeadline: retryDeadline,
+            forcedCleanupDeadline: retryDeadline
+        )
+        #expect(recovered.reaped)
+        #expect(recovered.groupTerminationConfirmed)
+        #expect(recovered.failures.isEmpty)
+        expectLifetimeEnded(fixture)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -435,8 +487,9 @@ struct MojoRuntimeWorkerTerminalizerTests {
             processControl: control
         )
 
-        #expect(outcome.reaped)
+        #expect(!outcome.reaped)
         #expect(!outcome.groupTerminationConfirmed)
+        #expect(!log.events().contains("reap"))
         #expect(outcome.failures.contains(.processInspectionFailed))
 
         let stageRoot = FileManager.default.temporaryDirectory
@@ -482,8 +535,9 @@ struct MojoRuntimeWorkerTerminalizerTests {
             processControl: control
         )
 
-        #expect(outcome.reaped)
+        #expect(!outcome.reaped)
         #expect(!outcome.groupTerminationConfirmed)
+        #expect(!log.events().contains("reap"))
         #expect(outcome.failures.contains(.processInspectionFailed))
 
         let stageRoot = FileManager.default.temporaryDirectory
@@ -530,8 +584,9 @@ struct MojoRuntimeWorkerTerminalizerTests {
             processControl: control
         )
 
-        #expect(outcome.reaped)
+        #expect(!outcome.reaped)
         #expect(!outcome.groupTerminationConfirmed)
+        #expect(!log.events().contains("reap"))
         #expect(outcome.failures.contains(.processInspectionFailed))
     }
 
@@ -565,7 +620,7 @@ struct MojoRuntimeWorkerTerminalizerTests {
             gracefulDeadline: gracefulDeadline,
             terminationDeadline: terminationDeadline,
             forcedCleanupDeadline: forcedCleanupDeadline
-        )
+        ).failures
     }
 
     private func makeFixture(script: String) throws -> TerminalizerFixture {

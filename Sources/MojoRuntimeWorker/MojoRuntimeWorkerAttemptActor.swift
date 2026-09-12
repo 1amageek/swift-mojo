@@ -52,7 +52,7 @@ package actor MojoRuntimeWorkerAttemptActor {
         AsyncStream<Void>.Continuation?
     private var capabilities: MojoSessionCapabilities?
     private var terminalizationTask:
-        Task<[MojoRuntimeWorkerCleanupFailure], Never>?
+        Task<MojoRuntimeWorkerProcessLifetimeOutcome, Never>?
     private var gracefulShutdownTask:
         Task<MojoRuntimeWorkerError?, Never>?
     private var terminalPrimary: MojoRuntimeWorkerError?
@@ -610,9 +610,12 @@ package actor MojoRuntimeWorkerAttemptActor {
         let stageRoot = admitted.stage.rootURL
         let gate = self.gate
         let claim = admitted.claimTerminalCleanup()
-        let task: Task<[MojoRuntimeWorkerCleanupFailure], Never> = Task.detached {
+        let task: Task<MojoRuntimeWorkerProcessLifetimeOutcome, Never> = Task.detached {
             guard claim else {
-                return [MojoRuntimeWorkerCleanupFailure]()
+                return MojoRuntimeWorkerProcessLifetimeOutcome(
+                    reaped: false, groupTerminationConfirmed: false,
+                    failures: [.processInspectionFailed]
+                )
             }
             return MojoRuntimeWorkerTerminalizer.cleanup(
                 process: process,
@@ -626,7 +629,7 @@ package actor MojoRuntimeWorkerAttemptActor {
         }
         terminalizationTask = task
         phase = .terminalizing
-        let failures = await task.value
+        let failures = await task.value.failures
         phase = .terminal
         if let primary {
             terminalError = failures.isEmpty
@@ -643,7 +646,7 @@ package actor MojoRuntimeWorkerAttemptActor {
 
     private func awaitTerminalization() async -> MojoRuntimeWorkerError? {
         guard let terminalizationTask else { return terminalError }
-        let failures = await terminalizationTask.value
+        let failures = await terminalizationTask.value.failures
         if phase != .terminal {
             phase = .terminal
             if let primary = terminalPrimary {
