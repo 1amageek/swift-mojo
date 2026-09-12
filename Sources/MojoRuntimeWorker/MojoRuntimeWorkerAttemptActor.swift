@@ -34,6 +34,7 @@ package actor MojoRuntimeWorkerAttemptActor {
         let deadline: ContinuousClock.Instant
     }
 
+    private let lifetime: MojoRuntimeWorkerLifetime
     private let admitted: MojoRuntimeWorkerAdmittedProcess
     private let gate: MojoRuntimeWorkerCancellationGate
     private let timeouts: MojoRuntimeWorkerTimeouts
@@ -63,8 +64,10 @@ package actor MojoRuntimeWorkerAttemptActor {
         gate: MojoRuntimeWorkerCancellationGate,
         factoryBinding: MojoRuntimeWorkerBinding,
         requirements: MojoSessionRequirements,
-        timeouts: MojoRuntimeWorkerTimeouts
+        timeouts: MojoRuntimeWorkerTimeouts,
+        lifetime: MojoRuntimeWorkerLifetime = MojoRuntimeWorkerLifetime()
     ) {
+        self.lifetime = lifetime
         self.admitted = admitted
         self.gate = gate
         self.timeouts = timeouts
@@ -610,6 +613,8 @@ package actor MojoRuntimeWorkerAttemptActor {
         let stageRoot = admitted.stage.rootURL
         let gate = self.gate
         let claim = admitted.claimTerminalCleanup()
+        let lifetime = self.lifetime
+        let timeouts = self.timeouts
         let task: Task<MojoRuntimeWorkerProcessLifetimeOutcome, Never> = Task.detached {
             guard claim else {
                 return MojoRuntimeWorkerProcessLifetimeOutcome(
@@ -617,7 +622,7 @@ package actor MojoRuntimeWorkerAttemptActor {
                     failures: [.processInspectionFailed]
                 )
             }
-            return MojoRuntimeWorkerTerminalizer.cleanup(
+            let outcome = MojoRuntimeWorkerTerminalizer.cleanup(
                 process: process,
                 stageRoot: stageRoot,
                 gate: gate,
@@ -626,6 +631,13 @@ package actor MojoRuntimeWorkerAttemptActor {
                 terminationDeadline: terminationDeadline,
                 forcedCleanupDeadline: forcedCleanupDeadline
             )
+            lifetime.retainAfterUnconfirmedCleanup(
+                processID: process.processID, stageRoot: stageRoot,
+                inputs: [], retainedByteCount: 0, outcome: outcome,
+                terminationGracePeriod: timeouts.terminationGracePeriod,
+                forcedCleanup: timeouts.forcedCleanup
+            )
+            return outcome
         }
         terminalizationTask = task
         phase = .terminalizing

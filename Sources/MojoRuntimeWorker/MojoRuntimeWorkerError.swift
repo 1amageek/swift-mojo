@@ -43,6 +43,7 @@ public enum MojoRuntimeWorkerCleanupFailure:
     case privateStageRemovalFailed
     case privateStageRetained
     case inputResourceCloseFailed
+    case recoveryWaitInterrupted
 }
 
 public enum MojoRuntimeWorkerTimeoutField: String, Equatable, Sendable {

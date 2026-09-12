@@ -38,6 +38,33 @@ struct MojoRuntimeWorkerLifecycleTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func workerValueCopiesShareAdmissionBeforeStaging() async throws {
+        let fixture = try ScopedAttemptFixture.make(behavior: .normal)
+        defer { fixture.removeSource() }
+        let copy = fixture.worker
+        try await fixture.withAttempt { _ in
+            #expect(copy.lifetimeStatus.isActive)
+            do {
+                let _: Void = try await copy.withAttempt(
+                    sessionFactory: fixture.factory,
+                    requirements: fixture.requirements,
+                    timeouts: fixture.timeouts
+                ) { _ in
+                    Issue.record("A copied worker must not start a second attempt")
+                }
+                Issue.record("Concurrent admission was accepted")
+            } catch {
+                #expect(error as? MojoRuntimeWorkerError == .operationInProgress)
+            }
+        }
+        #expect(!copy.lifetimeStatus.isActive)
+        #expect(!copy.lifetimeStatus.isAdmissionClosed)
+        try await fixture.withAttempt { _ in }
+        #expect(try fixture.traceLines().filter { $0.hasPrefix("create:") }.count == 2)
+        try fixture.expectObservedProcessReaped()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func scopedWorkerOrchestratorRethrowsCallerErrorExactly() async throws {
         let fixture = try ScopedAttemptFixture.make(behavior: .normal)
         defer { fixture.removeSource() }

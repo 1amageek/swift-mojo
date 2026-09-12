@@ -56,6 +56,15 @@ package struct MojoRuntimeWorkerProcessLifetimeOutcome: Sendable {
     package let reaped: Bool
     package let groupTerminationConfirmed: Bool
     package let failures: [MojoRuntimeWorkerCleanupFailure]
+
+    package init(
+        reaped: Bool, groupTerminationConfirmed: Bool,
+        failures: [MojoRuntimeWorkerCleanupFailure]
+    ) {
+        self.reaped = reaped
+        self.groupTerminationConfirmed = groupTerminationConfirmed
+        self.failures = failures
+    }
 }
 
 package enum MojoRuntimeWorkerTerminalizer {
@@ -128,6 +137,7 @@ package enum MojoRuntimeWorkerTerminalizer {
         stageRoot: URL?,
         terminationGracePeriod: Duration,
         forcedCleanup: Duration,
+        lifetime: MojoRuntimeWorkerLifetime? = nil,
         processControl: MojoRuntimeWorkerProcessControl = .live
     ) -> MojoRuntimeWorkerProcessLifetimeOutcome {
         let clock = ContinuousClock()
@@ -145,7 +155,7 @@ package enum MojoRuntimeWorkerTerminalizer {
         } catch {
             failures.append(.transportCloseFailed)
         }
-        let lifetime = completeProcessLifetime(
+        let terminalOutcome = completeProcessLifetime(
             processID: process.processID,
             mode: .hard,
             gracefulDeadline: clock.now,
@@ -154,7 +164,7 @@ package enum MojoRuntimeWorkerTerminalizer {
             diagnosticDescriptor: process.diagnosticDescriptor,
             processControl: processControl
         )
-        failures.append(contentsOf: lifetime.failures)
+        failures.append(contentsOf: terminalOutcome.failures)
         do {
             try MojoPOSIXWorkerSupport.closeDescriptor(
                 process.diagnosticDescriptor
@@ -167,15 +177,22 @@ package enum MojoRuntimeWorkerTerminalizer {
             .finalizePrivateStage(
                 at: stageRoot,
                 processLifetimeEnded:
-                    lifetime.reaped && lifetime.groupTerminationConfirmed
+                    terminalOutcome.reaped && terminalOutcome.groupTerminationConfirmed
             ) {
             failures.append(stageFailure)
         }
-        return MojoRuntimeWorkerProcessLifetimeOutcome(
-            reaped: lifetime.reaped,
-            groupTerminationConfirmed: lifetime.groupTerminationConfirmed,
+        let outcome = MojoRuntimeWorkerProcessLifetimeOutcome(
+            reaped: terminalOutcome.reaped,
+            groupTerminationConfirmed: terminalOutcome.groupTerminationConfirmed,
             failures: failures
         )
+        lifetime?.retainAfterUnconfirmedCleanup(
+            processID: process.processID, stageRoot: stageRoot,
+            inputs: [], retainedByteCount: 0, outcome: outcome,
+            terminationGracePeriod: terminationGracePeriod,
+            forcedCleanup: forcedCleanup, processControl: processControl
+        )
+        return outcome
     }
 
     private struct ChildInspection {

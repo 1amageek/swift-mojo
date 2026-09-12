@@ -169,7 +169,8 @@ package struct MojoRuntimeWorkerArtifactAdmission {
         inputResources: MojoRuntimeWorkerInputResources? = nil,
         startupDeadline: ContinuousClock.Instant,
         terminationGracePeriod: Duration,
-        forcedCleanup: Duration
+        forcedCleanup: Duration,
+        lifetime: MojoRuntimeWorkerLifetime = MojoRuntimeWorkerLifetime()
     ) throws -> MojoRuntimeWorkerAdmittedProcess {
         try Self.requireAdmissionActive(until: startupDeadline)
         let stageRoot = makeStageRoot()
@@ -316,6 +317,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
             let cleanupFailures = rollback(
                 process: process,
                 stageRoot: ownedStageRoot,
+                lifetime: lifetime,
                 terminationGracePeriod: terminationGracePeriod,
                 forcedCleanup: forcedCleanup
             )
@@ -536,6 +538,7 @@ package struct MojoRuntimeWorkerArtifactAdmission {
     private func rollback(
         process: MojoPOSIXWorkerProcess?,
         stageRoot: URL?,
+        lifetime: MojoRuntimeWorkerLifetime,
         terminationGracePeriod: Duration,
         forcedCleanup: Duration
     ) -> [MojoRuntimeWorkerCleanupFailure] {
@@ -544,7 +547,8 @@ package struct MojoRuntimeWorkerArtifactAdmission {
                 process: process,
                 stageRoot: stageRoot,
                 terminationGracePeriod: terminationGracePeriod,
-                forcedCleanup: forcedCleanup
+                forcedCleanup: forcedCleanup,
+                lifetime: lifetime
             ).failures
         }
         guard let stageRoot else {

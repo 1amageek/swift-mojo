@@ -11,6 +11,9 @@ private enum MojoRuntimeWorkerAttemptOutcome<Value> {
 
 public struct MojoRuntimeWorker: Sendable {
     package let verification: MojoRuntimeWorkerBundleVerification
+    private let lifetime = MojoRuntimeWorkerLifetime()
+
+    public var lifetimeStatus: MojoRuntimeWorkerLifetimeStatus { lifetime.status }
 
     public init(
         verification: MojoRuntimeWorkerBundleVerification
@@ -148,6 +151,8 @@ public struct MojoRuntimeWorker: Sendable {
         ) async throws -> Result
     ) async throws -> Result {
         let factoryBinding = try validatedBinding(for: sessionFactory)
+        try lifetime.begin()
+        defer { lifetime.finish() }
         let clock = ContinuousClock()
         let startupDeadline = clock.now.advanced(by: timeouts.startup)
         let admissionTask = Task.detached {
@@ -156,7 +161,8 @@ public struct MojoRuntimeWorker: Sendable {
                 inputResources: inputResources,
                 startupDeadline: startupDeadline,
                 terminationGracePeriod: timeouts.terminationGracePeriod,
-                forcedCleanup: timeouts.forcedCleanup
+                forcedCleanup: timeouts.forcedCleanup,
+                lifetime: self.lifetime
             )
         }
         let admitted: MojoRuntimeWorkerAdmittedProcess
@@ -186,7 +192,8 @@ public struct MojoRuntimeWorker: Sendable {
                     process: admitted.process,
                     stageRoot: admitted.stage.rootURL,
                     terminationGracePeriod: timeouts.terminationGracePeriod,
-                    forcedCleanup: timeouts.forcedCleanup
+                    forcedCleanup: timeouts.forcedCleanup,
+                    lifetime: lifetime
             ).failures
             if failures.isEmpty {
                 throw MojoRuntimeWorkerError.wakeupCreationFailed
@@ -202,7 +209,8 @@ public struct MojoRuntimeWorker: Sendable {
             gate: gate,
             factoryBinding: factoryBinding,
             requirements: requirements,
-            timeouts: timeouts
+            timeouts: timeouts,
+            lifetime: lifetime
         )
         let outcome: MojoRuntimeWorkerAttemptOutcome<Result>
         do {

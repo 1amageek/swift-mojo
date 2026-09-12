@@ -61,6 +61,8 @@ The bridge assigns no meaning to calibration, sample rate, image channels,
 tensor operators, model weights, thresholds or output coordinates.
 
 Input ownership is defined by the child [Input](Input/DESIGN.md).
+Admission and uncertain-cleanup retention are owned by
+[Lifecycle](Lifecycle/DESIGN.md).
 It owns host-source borrowing and admitted storage retention; native eligibility
 is supplied by WorkerPOSIX. Invocation, wire layout and reader completion remain
 module/ProtocolCore responsibilities.
@@ -179,8 +181,8 @@ not an application-only shadow transport suite.
 
 `MojoRuntimeWorker` is the public SwiftPM product that owns W3, the
 generic client and lifecycle boundary for ADR-0015 direct-linked workers. Its
-parent is [`DESIGN.md`](../../DESIGN.md); its input ownership child is
-[Input](Input/DESIGN.md).
+parent is [`DESIGN.md`](../../DESIGN.md); its children are
+[Input](Input/DESIGN.md) and [Lifecycle](Lifecycle/DESIGN.md).
 
 It consumes the trusted immutable worker projection produced by the read-only
 [`MojoRuntime`](../MojoRuntime/DESIGN.md) verifier. It does not author or verify
