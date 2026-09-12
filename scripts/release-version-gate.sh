@@ -99,6 +99,7 @@ mkdir -p \
 /usr/bin/ditto \
     "$root/Generated/MojoBuildPluginIntegrationFixture" \
     "$gate_package/Generated/MojoBuildPluginIntegrationFixture"
+/usr/bin/ditto "$root/Mojo" "$gate_package/Mojo"
 /bin/cp "$root/SwiftMojo.json" "$gate_package/SwiftMojo.json"
 cat > "$gate_package/Package.swift" <<SWIFT
 // swift-tools-version: 6.2

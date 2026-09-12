@@ -113,8 +113,8 @@ jobs:
           "$SWIFT_MOJO_CI_SWIFT" --version
           xcode_version=$(/usr/bin/xcodebuild -version)
           printf '%s\n' "$xcode_version"
-          if [[ "$xcode_version" != $'Xcode 27.0\nBuild version 27A5228h' ]]; then
-            echo "CI requires Xcode 27.0 beta 4 (27A5228h) for package graph isolation" >&2
+          if [[ "$xcode_version" != $'Xcode 27.0\nBuild version 27A5252f' ]]; then
+            echo "CI requires Xcode 27.0 build 27A5252f for package graph isolation" >&2
             exit 1
           fi
 
