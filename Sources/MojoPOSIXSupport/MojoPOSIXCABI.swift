@@ -1,4 +1,41 @@
 let SWIFT_MOJO_POSIX_SPAWN_SUCCEEDED: Int32 = 0
+
+@_extern(c, "swift_mojo_posix_shared_duplicate")
+func swift_mojo_posix_shared_duplicate(
+  _ source: Int32, _ kind: UInt16, _ byteCount: UInt64,
+  _ error: UnsafeMutablePointer<Int32>?, _ cleanupError: UnsafeMutablePointer<Int32>?
+) -> Int32
+
+@_extern(c, "swift_mojo_posix_shared_sync")
+func swift_mojo_posix_shared_sync(
+  _ descriptor: Int32, _ ending: Int32, _ error: UnsafeMutablePointer<Int32>?
+) -> Int32
+
+@_extern(c, "swift_mojo_posix_shared_map")
+func swift_mojo_posix_shared_map(
+  _ descriptor: Int32, _ byteCount: UInt64, _ error: UnsafeMutablePointer<Int32>?
+) -> UnsafeRawPointer?
+
+@_extern(c, "swift_mojo_posix_shared_unmap")
+func swift_mojo_posix_shared_unmap(
+  _ address: UnsafeRawPointer?, _ byteCount: UInt64, _ error: UnsafeMutablePointer<Int32>?
+) -> Int32
+
+@_extern(c, "swift_mojo_posix_send_rights")
+func swift_mojo_posix_send_rights(
+  _ socket: Int32, _ bytes: UnsafeRawPointer?, _ byteCount: Int64,
+  _ rights: UnsafePointer<Int32>?, _ rightCount: UInt16,
+  _ errorCode: UnsafeMutablePointer<Int32>?
+) -> Int64
+
+@_extern(c, "swift_mojo_posix_receive_rights")
+func swift_mojo_posix_receive_rights(
+  _ socket: Int32, _ bytes: UnsafeMutableRawPointer?, _ byteCount: Int64,
+  _ rights: UnsafeMutablePointer<Int32>?, _ capacity: UInt16,
+  _ rightCount: UnsafeMutablePointer<UInt16>?,
+  _ errorCode: UnsafeMutablePointer<Int32>?,
+  _ cleanupError: UnsafeMutablePointer<Int32>?
+) -> Int64
 let SWIFT_MOJO_POSIX_SPAWN_LAUNCH_FAILED: Int32 = -2
 
 let SWIFT_MOJO_POSIX_WORKER_SPAWN_SUCCEEDED: Int32 = 0

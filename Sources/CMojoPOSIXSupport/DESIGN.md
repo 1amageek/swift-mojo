@@ -2,6 +2,42 @@
 
 ## Shared-input native primitives (target design, 2026-09-12)
 
+The ancillary and readonly file primitives are now implemented in
+`CMojoPOSIXRights.c` and `CMojoPOSIXSharedInput.c`; public resource admission and
+worker protocol selection remain separate pending work. Sockets must already
+be nonblocking (checked before I/O); Darwin's `MSG_DONTWAIT` alone did not bound
+a large `sendmsg` in the native test. The existing worker socket factory sets
+both nonblocking and Darwin no-SIGPIPE options.
+
+Darwin's receive buffer always accommodates 512 descriptors, independently of
+the invocation limit. XNU's `UIPC_MAX_CMSG_FD` bounds kernel rights conversion;
+`unp_externalize` installs descriptors before `recvmsg` truncates user control
+storage. Receiving only the admitted capacity leaked undisclosed descriptors
+in the native regression. The implementation receives the kernel-bounded set,
+then closes every excess descriptor. Linux retains its kernel truncation
+behavior. Reference: [XNU Unix socket implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/uipc_usrreq.c).
+
+Readonly duplication checks access and accessible extent. DMA-BUF size discovery
+is not type qualification: the importer must complete the separate sync
+operation before admission/access. START/END preserve EINTR/EAGAIN for the
+owner's bounded retry; the native primitive never retries without a deadline.
+[Kernel DMA-BUF contract](https://docs.kernel.org/driver-api/dma-buf.html)
+requires cache-coherency bracketing and separate producer-completion ownership.
+
+`MojoPOSIXRightsTests` and `MojoPOSIXSharedInputTests` exercise real socketpairs,
+partial send, first-byte rights association, occupied-slot rejection, bounded
+excess cleanup, backing identity, readonly mapping and invalid native inputs.
+They do not yet prove a real DMA-BUF successful read or worker terminal lifetime.
+
+Qualification on 2026-09-12: Mac Swift 6.4.2-dev `d2e983b81b18217` passed
+all 21 POSIX tests under ASan and three guarded repetitions of the six new
+tests. Jetson Linux/aarch64 Swift 6.4-dev `424cae54c1a10da` passed the same six
+new tests against original C/Swift sources, using LLD with
+`-z nostart-stop-gc`. Linux ASan was not qualified: its C aggregate object failed
+to link because relocations referenced discarded sections. Native logs are
+`.build/native-resource-proof/linux.log`; Mac logs are
+`/tmp/swift-mojo-posix-final.log` and `/tmp/swift-mojo-native-hang-guard.log`.
+
 Implement the fixed-width C operations required by
 [WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md) and
 [POSIXSupport](../MojoPOSIXSupport/DESIGN.md#shared-input-adapter-delta-target-design-2026-09-12):

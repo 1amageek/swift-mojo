@@ -2,6 +2,14 @@
 
 ## Shared-input adapter delta (target design, 2026-09-12)
 
+Implemented lower boundary: `MojoPOSIXRightsSupport` reports partial byte progress
+and transferred descriptor count using caller-preallocated empty slots; failures
+consume all received slots and preserve primary/cleanup errno separately.
+`MojoPOSIXSharedInputSupport` supplies readonly duplication, scoped-owner mapping
+primitives and explicit DMA-BUF synchronization outcomes. These primitives do not
+grant public sharing eligibility or retain a producer themselves; WorkerPOSIX
+still must compose admission and ownership before this path can serve callers.
+
 [WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md) is a new public native ingress
 consumer of this existing package-only adapter. This target stays private.
 Add typed duplicate/read-access/extent/import/synchronization operations and

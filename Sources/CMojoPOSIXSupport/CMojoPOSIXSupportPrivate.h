@@ -9,6 +9,24 @@ extern "C" {
 
 int32_t swift_mojo_posix_platform_supported(void);
 
+int32_t swift_mojo_posix_shared_duplicate(
+    int32_t source, uint16_t kind, uint64_t byte_count,
+    int32_t *error_code, int32_t *cleanup_error
+);
+int32_t swift_mojo_posix_shared_sync(int32_t fd, int32_t ending, int32_t *error_code);
+const void *swift_mojo_posix_shared_map(int32_t fd, uint64_t byte_count, int32_t *error_code);
+int32_t swift_mojo_posix_shared_unmap(const void *address, uint64_t byte_count, int32_t *error_code);
+
+int64_t swift_mojo_posix_send_rights(
+    int32_t socket_fd, const void *bytes, int64_t byte_count,
+    const int32_t *rights, uint16_t right_count, int32_t *error_code
+);
+int64_t swift_mojo_posix_receive_rights(
+    int32_t socket_fd, void *bytes, int64_t byte_count,
+    int32_t *rights, uint16_t right_capacity, uint16_t *right_count,
+    int32_t *error_code, int32_t *cleanup_error
+);
+
 int32_t swift_mojo_posix_open_regular_input(
     const char *path,
     int64_t *byte_count,
