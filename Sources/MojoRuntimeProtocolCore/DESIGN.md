@@ -250,3 +250,18 @@ must fit UInt16. Values do not affect identity; order and signedness do.
 owns public scalar values and bounded encoding. Golden argument tests independently
 check all numeric widths, IEEE payload bits and the canonical digest. Changing
 this schema requires regenerating both endpoints and rechecking argument admission.
+
+### Resource binding signature
+
+`MojoRuntimeResourceSignature` is the immutable type contract for one resource
+operation: ordered scalar argument types, ordered input element types and exact
+ranks, ordered scalar result types, and ordered output element types. Binding
+identity owns names and operation meaning; resource limits separately own sizes.
+All four counts must fit UInt16. Its canonical encoding is four UInt16 counts,
+then argument type identifiers, input (type, rank) pairs, result type identifiers
+and output type identifiers, all UInt16 little endian. Argument/result schema
+hashes use `MojoRuntimeValueSchema`. The binding digest must include this encoding.
+Prepared invocation validates input counts, types, ranks and output types before
+creating ownership tables or allocating argument bytes. The generated receiver
+must perform the same checks after wire decoding. Tests reject equal-byte-size
+but semantically different input types, mismatched ranks and output types.

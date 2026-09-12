@@ -8,6 +8,7 @@ package struct MojoRuntimePreparedInvocation: Sendable {
         package let payloadOffset: UInt64
     }
 
+    package let signature: MojoRuntimeResourceSignature
     package let metadata: MojoRuntimeResourceInvocation
     package let control: Data
     package let owners: [MojoReadOnlyBuffer]
@@ -16,7 +17,7 @@ package struct MojoRuntimePreparedInvocation: Sendable {
     package let retainedByteCount: UInt64
 
     package init(
-        bindingID: UInt64, argumentSchema: [UInt8], arguments: MojoInvocationArguments,
+        bindingID: UInt64, signature: MojoRuntimeResourceSignature, arguments: MojoInvocationArguments,
         inputs: [MojoBufferView], outputs: [MojoRuntimeOutputCapacity],
         limits: MojoRuntimeResourceLimits
     ) throws {
@@ -25,8 +26,23 @@ package struct MojoRuntimePreparedInvocation: Sendable {
               arguments.byteCount <= Int(limits.maximumArgumentBytes) else {
             throw MojoRuntimeBufferError.countLimitExceeded
         }
+        guard inputs.count == signature.inputs.count,
+              outputs.count == signature.outputs.count else {
+            throw MojoRuntimeBufferError.invalidBinding
+        }
+        for index in inputs.indices {
+            guard inputs[index].elementType.wireType == signature.inputs[index].element,
+                  inputs[index].dimensions.count == Int(signature.inputs[index].rank) else {
+                throw MojoRuntimeBufferError.invalidBinding
+            }
+        }
+        for index in outputs.indices {
+            guard outputs[index].element == signature.outputs[index] else {
+                throw MojoRuntimeBufferError.invalidBinding
+            }
+        }
         let argumentBytes = try arguments.encoded(
-            expectedSchema: argumentSchema, maximumBytes: limits.maximumArgumentBytes
+            expectedSchema: signature.argumentSchema, maximumBytes: limits.maximumArgumentBytes
         )
         var owners: [MojoReadOnlyBuffer] = []
         var indices: [ObjectIdentifier: Int] = [:]
@@ -89,9 +105,10 @@ package struct MojoRuntimePreparedInvocation: Sendable {
             ))
         }
         let metadata = try MojoRuntimeResourceInvocation(
-            bindingID: bindingID, argumentSchema: argumentSchema, arguments: argumentBytes,
+            bindingID: bindingID, argumentSchema: signature.argumentSchema, arguments: argumentBytes,
             inputs: views, outputs: outputs, limits: limits
         )
+        self.signature = signature
         self.metadata = metadata
         self.control = metadata.encodedControl()
         self.owners = owners

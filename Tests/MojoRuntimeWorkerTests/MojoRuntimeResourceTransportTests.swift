@@ -29,7 +29,7 @@ struct MojoRuntimeResourceTransportTests {
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: ["schema", "identifier", "rights", "capacity"])
+    @Test(.timeLimit(.minutes(1)), arguments: ["schema", "identifier", "rights", "capacity", "values"])
     func rejectsInvalidTerminalResponses(behavior: String) throws {
         try exchange(copied: false, behavior: behavior) { command in
             do {
@@ -43,6 +43,8 @@ struct MojoRuntimeResourceTransportTests {
                     #expect(error as? MojoRuntimeWorkerError == .responseMismatch)
                 case "capacity":
                     #expect(error as? MojoRuntimeBufferError == .countLimitExceeded)
+                case "values":
+                    #expect(error as? MojoRuntimeBufferError == .invalidBinding)
                 case "rights":
                     #expect(error as? MojoPOSIXRightsError == .operationFailed(code: EPROTO, cleanupCode: 0))
                 default:
@@ -102,7 +104,12 @@ struct MojoRuntimeResourceTransportTests {
             maximumCopiedBytes: 2_097_152, maximumMappedBytes: 4096, maximumResultBytes: 4096
         )
         let prepared = try MojoRuntimePreparedInvocation(
-            bindingID: 7, argumentSchema: MojoRuntimeValueSchema.digest([.uint8]),
+            bindingID: 7, signature: MojoRuntimeResourceSignature(
+                arguments: [.uint8],
+                inputs: [.init(element: .uint16, rank: 1), .init(element: .uint16, rank: 1)]
+                    + (copied ? [.init(element: .uint8, rank: 1)] : []),
+                results: [.uint8], outputs: [.uint64]
+            ),
             arguments: MojoInvocationArguments([.uint8(9)]), inputs: views,
             outputs: [MojoRuntimeOutputCapacity(element: .uint64, maximumElementCount: 1)],
             limits: limits
@@ -140,7 +147,7 @@ struct MojoRuntimeResourceTransportTests {
         defer { gate.endExchange(for: lease) }
         try body(MojoRuntimeResourceExchange(
             requestID: 3, invocation: prepared,
-            expectedResultSchema: Array(repeating: 0x34, count: 32), limits: limits,
+            limits: limits,
             process: process, gate: gate, lease: lease,
             deadline: ContinuousClock().now + .seconds(5)
         ))
@@ -199,9 +206,9 @@ struct MojoRuntimeResourceTransportTests {
             assert storage == 1 and element == 2 and ordinal == 0xffffffff
             total += sum(payload[offset+body_offset+start:offset+body_offset+start+count*stride:stride])
     mapped.close()
-    result_schema = bytes([0x35 if behavior == 'schema' else 0x34])*32
-    result = struct.pack('<i32sIHHQ', 0, result_schema, 1, 1, 0, 2 if behavior == 'capacity' else 1)
-    result += bytes([0x2a]) + struct.pack('<Q', total)
+    result_schema = hashlib.sha256(b'swift-mojo-values' + struct.pack('<HH', 1, 3 if behavior == 'schema' else 2)).digest()
+    result = struct.pack('<i32sIHHQ', 0, result_schema, 0 if behavior == 'values' else 1, 1, 0, 2 if behavior == 'capacity' else 1)
+    result += (b'' if behavior == 'values' else bytes([0x2a])) + struct.pack('<Q', total)
     response = struct.pack('<4sHHQQQ', b'SMW1', 0, 5, request + (behavior == 'identifier'), len(result), 0)
     if behavior == 'rights':
         sock.sendmsg([response], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', rights))])

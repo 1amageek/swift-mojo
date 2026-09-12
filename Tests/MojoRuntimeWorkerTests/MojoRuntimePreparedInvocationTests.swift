@@ -86,7 +86,11 @@ struct MojoRuntimePreparedInvocationTests {
         _ inputs: [MojoBufferView], limits: MojoRuntimeResourceLimits? = nil
     ) throws -> MojoRuntimePreparedInvocation {
         try MojoRuntimePreparedInvocation(
-            bindingID: 7, argumentSchema: MojoRuntimeValueSchema.digest([.uint8, .uint8]),
+            bindingID: 7, signature: MojoRuntimeResourceSignature(
+                arguments: [.uint8, .uint8],
+                inputs: inputs.map { .init(element: $0.elementType.wireType, rank: UInt16($0.dimensions.count)) },
+                results: [], outputs: []
+            ),
             arguments: MojoInvocationArguments([.uint8(1), .uint8(2)]), inputs: inputs, outputs: [],
             limits: limits ?? self.limits()
         )

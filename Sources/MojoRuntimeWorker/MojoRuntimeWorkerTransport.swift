@@ -148,9 +148,12 @@ package enum MojoRuntimeWorkerTransport {
             gate: command.gate, lease: command.lease, deadline: command.deadline, clock: clock
         ))
         let result = try MojoRuntimeResourceResult.decodeControl(
-            resultControl, expectedSchema: command.expectedResultSchema,
+            resultControl, expectedSchema: invocation.signature.resultSchema,
             capacities: metadata.outputs, limits: command.limits
         )
+        guard result.status != 0 || result.values.count == invocation.signature.resultByteCount else {
+            throw MojoRuntimeBufferError.invalidBinding
+        }
         guard controlCount + result.bodyByteCount == responseHeader.payloadByteCount else {
             throw MojoRuntimeWorkerError.responseMismatch
         }
