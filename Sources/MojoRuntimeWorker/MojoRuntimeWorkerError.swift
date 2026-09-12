@@ -286,11 +286,8 @@ extension MojoRuntimeWorkerError {
         case .invalidMagic, .reservedFieldNonZero,
              .invalidRequestIdentifier:
             return .protocolViolation(kind: .invalidHeader)
-        case .invalidVersion, .schemaMismatch:
-            if case .schemaMismatch(let expected, let actual) = error {
-                return .schemaMismatch(expected: expected, actual: actual)
-            }
-            return .protocolViolation(kind: .unsupportedSchema)
+        case .schemaMismatch(let expected, let actual):
+            return .schemaMismatch(expected: expected, actual: actual)
         case .unknownKind:
             return .protocolViolation(kind: .malformedFrame)
         case .invalidPayloadLength, .integerOverflow,

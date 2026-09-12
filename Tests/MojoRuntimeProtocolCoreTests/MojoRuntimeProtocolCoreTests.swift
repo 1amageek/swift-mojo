@@ -23,7 +23,7 @@ struct MojoRuntimeProtocolCoreTests {
         )
         #expect(header.encodedBytes() == [
             0x53, 0x4D, 0x57, 0x31,
-            0x01, 0x00,
+            0x00, 0x00,
             0x06, 0x00,
             0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -310,10 +310,10 @@ struct MojoRuntimeProtocolCoreTests {
         #expect(throws: MojoRuntimeProtocolError.self) {
             try MojoRuntimeFrameHeader.decode(Data(badMagic), limits: limits)
         }
-        var badVersion = original
-        badVersion[4] = 2
+        var badReserved16 = original
+        badReserved16[4] = 2
         #expect(throws: MojoRuntimeProtocolError.self) {
-            try MojoRuntimeFrameHeader.decode(Data(badVersion), limits: limits)
+            try MojoRuntimeFrameHeader.decode(Data(badReserved16), limits: limits)
         }
         var badKind = original
         badKind[6] = 0xFF

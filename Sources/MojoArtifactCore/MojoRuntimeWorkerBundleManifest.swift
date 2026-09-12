@@ -84,7 +84,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
 
     package struct SemanticIdentity: Codable, Equatable, Sendable {
         package let workerABIVersion: UInt32
-        package let protocolVersion: UInt16
         package let sourceGraphDigest: String
         package let sourceGraphIdentifier: UInt64
         package let inputGraphDigest: String
@@ -94,7 +93,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
 
         private enum CodingKeys: String, CodingKey, CaseIterable {
             case workerABIVersion
-            case protocolVersion
             case sourceGraphDigest
             case sourceGraphIdentifier
             case inputGraphDigest
@@ -105,7 +103,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
 
         package init(
             workerABIVersion: UInt32,
-            protocolVersion: UInt16,
             sourceGraphDigest: String,
             sourceGraphIdentifier: UInt64,
             inputGraphDigest: String,
@@ -117,11 +114,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
                     == MojoRuntimeWorkerRenderer.workerABIVersion else {
                 throw invalidWorkerBundle(
                     "unsupported worker ABI version \(workerABIVersion)"
-                )
-            }
-            guard protocolVersion == MojoRuntimeProtocol.version else {
-                throw invalidWorkerBundle(
-                    "unsupported worker protocol version \(protocolVersion)"
                 )
             }
             try requireWorkerBundleDigests([
@@ -165,7 +157,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
                 )
             }
             self.workerABIVersion = workerABIVersion
-            self.protocolVersion = protocolVersion
             self.sourceGraphDigest = sourceGraphDigest
             self.sourceGraphIdentifier = sourceGraphIdentifier
             self.inputGraphDigest = inputGraphDigest
@@ -178,12 +169,10 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
             inputGraph: MojoInputGraph,
             generationPipelineDigest: String,
             bindingTable: MojoRuntimeWorkerBindingTable,
-            workerABIVersion: UInt32 = MojoRuntimeWorkerRenderer.workerABIVersion,
-            protocolVersion: UInt16 = MojoRuntimeProtocol.version
+            workerABIVersion: UInt32 = MojoRuntimeWorkerRenderer.workerABIVersion
         ) throws {
             try self.init(
                 workerABIVersion: workerABIVersion,
-                protocolVersion: protocolVersion,
                 sourceGraphDigest: inputGraph.bindingGraph.digest,
                 sourceGraphIdentifier: inputGraph.bindingGraph.digestIdentifier,
                 inputGraphDigest: inputGraph.digest,
@@ -200,10 +189,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
                 workerABIVersion: try container.decode(
                     UInt32.self,
                     forKey: .workerABIVersion
-                ),
-                protocolVersion: try container.decode(
-                    UInt16.self,
-                    forKey: .protocolVersion
                 ),
                 sourceGraphDigest: try container.decode(
                     String.self,
@@ -240,7 +225,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
         fileprivate var canonicalRecords: [String] {
             [
                 "worker-abi=\(workerABIVersion)",
-                "protocol-version=\(protocolVersion)",
                 "source-graph=\(sourceGraphDigest)",
                 "source-graph-identifier=\(sourceGraphIdentifier)",
                 "input-graph=\(inputGraphDigest)",
@@ -376,7 +360,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
         package static let descriptor: Int32 = 3
         package static let byteOrder = "little-endian"
 
-        package let version: UInt16
         package let descriptor: Int32
         package let headerByteCount: Int
         package let byteOrder: String
@@ -385,7 +368,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
         package let messageKinds: [MessageKind]
 
         private enum CodingKeys: String, CodingKey, CaseIterable {
-            case version
             case descriptor
             case headerByteCount
             case byteOrder
@@ -396,7 +378,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
 
         package init(maximumFramePayloadBytes: UInt64) throws {
             try self.init(
-                version: MojoRuntimeProtocol.version,
                 descriptor: Self.descriptor,
                 headerByteCount: MojoRuntimeProtocol.headerByteCount,
                 byteOrder: Self.byteOrder,
@@ -408,7 +389,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
         }
 
         package init(
-            version: UInt16,
             descriptor: Int32,
             headerByteCount: Int,
             byteOrder: String,
@@ -416,11 +396,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
             maximumInFlightRequests: Int,
             messageKinds: [MessageKind]
         ) throws {
-            guard version == MojoRuntimeProtocol.version else {
-                throw invalidWorkerBundle(
-                    "unsupported protocol version \(version)"
-                )
-            }
             guard descriptor == Self.descriptor else {
                 throw invalidWorkerBundle(
                     "worker protocol descriptor must be \(Self.descriptor)"
@@ -457,7 +432,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
                     "worker protocol message-kind table is not canonical"
                 )
             }
-            self.version = version
             self.descriptor = descriptor
             self.headerByteCount = headerByteCount
             self.byteOrder = byteOrder
@@ -470,7 +444,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
             try requireExactWorkerBundleKeys(CodingKeys.self, from: decoder)
             let container = try decoder.container(keyedBy: CodingKeys.self)
             try self.init(
-                version: try container.decode(UInt16.self, forKey: .version),
                 descriptor: try container.decode(Int32.self, forKey: .descriptor),
                 headerByteCount: try container.decode(
                     Int.self,
@@ -494,7 +467,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
 
         fileprivate var canonicalRecords: [String] {
             [
-                "version=\(version)",
                 "descriptor=\(descriptor)",
                 "header=\(headerByteCount)",
                 "byte-order=\(byteOrder)",
@@ -918,11 +890,6 @@ package struct MojoRuntimeWorkerBundleManifest: Codable, Equatable, Sendable {
         executionContractDigest: String
     ) throws {
         try requireWorkerBundleDigests([executionContractDigest])
-        guard semanticIdentity.protocolVersion == protocolRecord.version else {
-            throw invalidWorkerBundle(
-                "semantic and wire protocol versions do not match"
-            )
-        }
         let expectedTargetClosureDigest = Self.targetClosureDigest(
             semanticIdentity: semanticIdentity,
             generatedInputs: generatedInputs,

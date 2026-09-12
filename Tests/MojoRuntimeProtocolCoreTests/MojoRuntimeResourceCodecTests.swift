@@ -8,8 +8,7 @@ struct MojoRuntimeResourceCodecTests {
     private let schema = Array(UInt8(0)..<UInt8(32))
 
     @Test func fixedSchemaIdentity() {
-        #expect(MojoRuntimeResourceProtocol.version == 2)
-        #expect(MojoRuntimeResourceProtocol.schemaDigest == "261312b9cf7d85b748c2199187b7f701ab9aa9e585592bb8e0c1fc64b98e1246")
+        #expect(MojoRuntimeResourceProtocol.schemaDigest == "884d8632d926a160b91aa66c9805a910f31acd90a6d6c637f247da314b799325")
         #expect(MojoRuntimeResourceProtocol.schemaDigest != MojoRuntimeProtocol.schemaDigest)
     }
 

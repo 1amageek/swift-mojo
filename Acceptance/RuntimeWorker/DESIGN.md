@@ -210,7 +210,7 @@ the following closed records:
 
 | Record | Required evidence |
 |---|---|
-| `semanticIdentity` | worker ABI, protocol version, source/input graph digests and identifiers, generation-pipeline digest, binding-table digest, and every binding record |
+| `semanticIdentity` | worker ABI, source/input graph digests and identifiers, generation-pipeline digest, binding-table digest, and every binding record |
 | `generatedInputs` | compiler version, generated Mojo/C-worker source digests, source-map digest, and both object digests |
 | `runtimeBundle` | RuntimeBundle manifest and receipt digests, executable, every library, loader search path, system dependencies, and interpreter |
 | `targetClosure` | target triple/CPU/accelerator, artifact identity, and target-closure digest |
@@ -235,7 +235,7 @@ shutdownSession, sessionShutdown, shutdownWorker, workerShutdown, failure
 ```
 
 No kind may be omitted, duplicated, renamed, or reordered. The semantic
-identity protocol version and wire protocol version must agree. The receipt
+identity and wire fields are bound by the verified execution contract digest. The receipt
 does not add private protocol schema or raw frame data.
 
 ### Host and boundary evidence

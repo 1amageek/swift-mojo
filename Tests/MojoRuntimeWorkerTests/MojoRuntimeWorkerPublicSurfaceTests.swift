@@ -409,7 +409,6 @@ private func verification(
         generatedMojoObjectDigest: digest("4"),
         generatedCWorkerObjectDigest: digest("5"),
         compilerVersion: "Mojo 1.0.0",
-        protocolVersion: 1,
         protocolDescriptor: 3,
         protocolHeaderByteCount: 32,
         protocolByteOrder: "littleEndian",

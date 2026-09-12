@@ -18,7 +18,6 @@ public struct MojoRuntimeWorkerBundleVerification: Equatable, Sendable {
     public let generatedMojoObjectDigest: String
     public let generatedCWorkerObjectDigest: String
     public let compilerVersion: String
-    public let protocolVersion: UInt16
     public let protocolDescriptor: Int32
     public let protocolHeaderByteCount: Int
     public let protocolByteOrder: String
@@ -56,7 +55,6 @@ public struct MojoRuntimeWorkerBundleVerification: Equatable, Sendable {
         generatedMojoObjectDigest: String,
         generatedCWorkerObjectDigest: String,
         compilerVersion: String,
-        protocolVersion: UInt16,
         protocolDescriptor: Int32,
         protocolHeaderByteCount: Int,
         protocolByteOrder: String,
@@ -92,7 +90,6 @@ public struct MojoRuntimeWorkerBundleVerification: Equatable, Sendable {
         self.generatedMojoObjectDigest = generatedMojoObjectDigest
         self.generatedCWorkerObjectDigest = generatedCWorkerObjectDigest
         self.compilerVersion = compilerVersion
-        self.protocolVersion = protocolVersion
         self.protocolDescriptor = protocolDescriptor
         self.protocolHeaderByteCount = protocolHeaderByteCount
         self.protocolByteOrder = protocolByteOrder
@@ -135,7 +132,6 @@ public struct MojoRuntimeWorkerBundleVerification: Equatable, Sendable {
             generatedMojoObjectDigest: generatedMojoObjectDigest,
             generatedCWorkerObjectDigest: generatedCWorkerObjectDigest,
             compilerVersion: compilerVersion,
-            protocolVersion: protocolVersion,
             protocolDescriptor: protocolDescriptor,
             protocolHeaderByteCount: protocolHeaderByteCount,
             protocolByteOrder: protocolByteOrder,

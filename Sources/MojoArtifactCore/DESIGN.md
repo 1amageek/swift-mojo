@@ -2,15 +2,15 @@
 
 ## Resource-binding generation delta (target design, 2026-09-12)
 
-[ProtocolCore v2](../MojoRuntimeProtocolCore/DESIGN.md#resource-invocation-protocol-v2-target-design-2026-09-12)
+[ProtocolCore](../MojoRuntimeProtocolCore/DESIGN.md#resource-invocation-protocol-target-design-2026-09-12)
 owns the shared-input wire schema. Extend the existing binding IR/scanner,
 generated Mojo/C ABI and worker manifest together with generic fixed-width
 argument/result schemas and readonly buffer layout/capability requirements.
 Both generated sides derive identifiers and bounds from one graph; never let
 consumer code hand-maintain a second wire or ABI layout.
-Bump the worker bundle schema and generated worker ABI versions alongside
-protocol v2; include their identities in semanticIdentity and
-executionContractDigest. Static/callable artifacts remain outside this change.
+Replace the current worker contract directly. The existing
+executionContractDigest incorporates the protocol schema and generated artifacts;
+no numeric protocol revision or duplicate identity field is needed. Static/callable artifacts remain outside this change.
 The generated endpoint validates views, scopes import lifetime and waits for
 the operation's defined read completion before sending terminal results.
 Runtime validates the resulting closed manifest. Tests must reject independent

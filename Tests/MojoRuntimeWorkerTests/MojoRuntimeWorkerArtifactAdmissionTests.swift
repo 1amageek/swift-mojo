@@ -1033,7 +1033,6 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             generatedMojoObjectDigest: base.generatedMojoObjectDigest,
             generatedCWorkerObjectDigest: base.generatedCWorkerObjectDigest,
             compilerVersion: base.compilerVersion,
-            protocolVersion: base.protocolVersion,
             protocolDescriptor: base.protocolDescriptor,
             protocolHeaderByteCount: base.protocolHeaderByteCount,
             protocolByteOrder: base.protocolByteOrder,

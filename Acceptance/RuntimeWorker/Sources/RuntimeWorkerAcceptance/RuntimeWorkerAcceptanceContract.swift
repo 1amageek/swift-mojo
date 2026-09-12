@@ -367,7 +367,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
 
         public struct SemanticIdentity: Codable, Equatable, Sendable {
             public let workerABIVersion: UInt32
-            public let protocolVersion: UInt16
             public let sourceGraphDigest: String
             public let sourceGraphIdentifier: UInt64
             public let inputGraphDigest: String
@@ -378,7 +377,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
 
             public init(
                 workerABIVersion: UInt32,
-                protocolVersion: UInt16,
                 sourceGraphDigest: String,
                 sourceGraphIdentifier: UInt64,
                 inputGraphDigest: String,
@@ -387,9 +385,9 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
                 bindingTableDigest: String,
                 bindings: [Binding]
             ) throws {
-                guard workerABIVersion > 0, protocolVersion > 0 else {
+                guard workerABIVersion > 0 else {
                     throw RuntimeWorkerAcceptanceError.invalidContract(
-                        "worker ABI and protocol versions must be positive"
+                        "worker ABI version must be positive"
                     )
                 }
                 try requireDigests([
@@ -437,7 +435,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
                     )
                 }
                 self.workerABIVersion = workerABIVersion
-                self.protocolVersion = protocolVersion
                 self.sourceGraphDigest = sourceGraphDigest
                 self.sourceGraphIdentifier = sourceGraphIdentifier
                 self.inputGraphDigest = inputGraphDigest
@@ -449,7 +446,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
 
             private enum CodingKeys: String, CodingKey, CaseIterable {
                 case workerABIVersion
-                case protocolVersion
                 case sourceGraphDigest
                 case sourceGraphIdentifier
                 case inputGraphDigest
@@ -466,10 +462,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
                     workerABIVersion: container.decode(
                         UInt32.self,
                         forKey: .workerABIVersion
-                    ),
-                    protocolVersion: container.decode(
-                        UInt16.self,
-                        forKey: .protocolVersion
                     ),
                     sourceGraphDigest: container.decode(
                         String.self,
@@ -912,11 +904,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
                 )
             }
             try requireDigests([bundleDigest, executionContractDigest])
-            guard semanticIdentity.protocolVersion > 0 else {
-                throw RuntimeWorkerAcceptanceError.invalidContract(
-                    "artifact semantic protocol version must be positive"
-                )
-            }
             self.schemaVersion = schemaVersion
             self.bundleDigest = bundleDigest
             self.executionContractDigest = executionContractDigest
@@ -950,7 +937,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
                 executionContractDigest: projection.executionContractDigest,
                 semanticIdentity: SemanticIdentity(
                     workerABIVersion: projection.workerABIVersion,
-                    protocolVersion: projection.protocolVersion,
                     sourceGraphDigest: projection.sourceGraphDigest,
                     sourceGraphIdentifier: projection.sourceGraphIdentifier,
                     inputGraphDigest: projection.inputGraphDigest,
@@ -1109,7 +1095,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
             }
         }()
 
-        public let version: UInt16
         public let descriptor: Int32
         public let headerByteCount: Int
         public let byteOrder: String
@@ -1118,7 +1103,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
         public let messageKinds: [MessageKind]
 
         public init(
-            version: UInt16,
             descriptor: Int32,
             headerByteCount: Int,
             byteOrder: String,
@@ -1126,8 +1110,7 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
             maximumInFlightRequests: Int,
             messageKinds: [MessageKind]
         ) throws {
-            guard version == 1,
-                  descriptor == 3,
+            guard descriptor == 3,
                   headerByteCount == 32,
                   byteOrder == "little-endian",
                   maximumFramePayloadBytes > 0,
@@ -1135,10 +1118,9 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
                   maximumInFlightRequests == 1,
                   messageKinds == Self.expectedMessageKinds else {
                 throw RuntimeWorkerAcceptanceError.invalidContract(
-                    "protocol record is not canonical schema-1 v1"
+                    "protocol record is not canonical"
                 )
             }
-            self.version = version
             self.descriptor = descriptor
             self.headerByteCount = headerByteCount
             self.byteOrder = byteOrder
@@ -1152,7 +1134,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
                 try MessageKind(rawValue: kind.rawValue, name: kind.name)
             }
             try self.init(
-                version: projection.protocolVersion,
                 descriptor: projection.protocolDescriptor,
                 headerByteCount: projection.protocolHeaderByteCount,
                 byteOrder: projection.protocolByteOrder,
@@ -1163,7 +1144,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
         }
 
         private enum CodingKeys: String, CodingKey, CaseIterable {
-            case version
             case descriptor
             case headerByteCount
             case byteOrder
@@ -1176,7 +1156,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
             try requireExactKeys(CodingKeys.self, from: decoder)
             let container = try decoder.container(keyedBy: CodingKeys.self)
             try self.init(
-                version: container.decode(UInt16.self, forKey: .version),
                 descriptor: container.decode(Int32.self, forKey: .descriptor),
                 headerByteCount: container.decode(
                     Int.self,
@@ -1585,12 +1564,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
         try requireDigests([acceptanceSourceDigest])
         try claims.validate()
         try host.validate(as: artifact.targetClosure)
-        guard artifact.semanticIdentity.protocolVersion == protocolRecord.version
-        else {
-            throw RuntimeWorkerAcceptanceError.invalidContract(
-                "semantic and wire protocol versions differ"
-            )
-        }
         switch status {
         case .passed:
             guard failure == nil else {
@@ -1719,12 +1692,6 @@ public struct RuntimeWorkerAcceptanceContract: Equatable, Sendable {
         try requireDigests([acceptanceSourceDigest])
         try claims.validate()
         try host.validate(as: artifact.targetClosure)
-        guard artifact.semanticIdentity.protocolVersion == protocolRecord.version
-        else {
-            throw RuntimeWorkerAcceptanceError.invalidContract(
-                "semantic and wire protocol versions differ"
-            )
-        }
         switch status {
         case .passed:
             guard failure == nil,

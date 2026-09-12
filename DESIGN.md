@@ -1,12 +1,22 @@
 # Swift Mojo
 
+## In-development protocol replacement
+
+The user requested a single current worker contract on 2026-09-12. Replace the
+Float32 worker format directly with resource invocation. Do not maintain v1/v2
+routes, version selection, compatibility overloads or numeric protocol migration.
+Generated contract digests identify matching clients/workers. Existing references
+to a versioned resource migration below and in linked implementation plans are
+superseded by this decision; final acceptance requires their removal. This does
+not change the independent synchronous static-call product.
+
 ## Generic resource invocation revision (2026-09-12)
 
 This target design responds to streaming numerical workloads without adding
 application semantics to swift-mojo. Protocol codecs and native input ownership
-are implemented; v2 worker invocation and performance qualification are pending. The authoritative
+are implemented; resource worker invocation and performance qualification are pending. The authoritative
 contracts are [Worker](Sources/MojoRuntimeWorker/DESIGN.md#resource-invocation-revision-2026-09-12),
-[Protocol v2](Sources/MojoRuntimeProtocolCore/DESIGN.md#resource-invocation-protocol-v2-target-design-2026-09-12)
+[Resource protocol](Sources/MojoRuntimeProtocolCore/DESIGN.md#resource-invocation-protocol-target-design-2026-09-12)
 and the child [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md).
 WorkerPOSIX is a native resource ingress product; its narrowly scoped descriptor
 import supersedes the earlier blanket public-descriptor prohibition only there.
@@ -32,7 +42,7 @@ native producer -> optional WorkerPOSIX ingress -> portable worker input
 This revision explicitly replaces v1 worker invocation for migrated bundles.
 It is not a compatibility layer. ADR-0015 remains authoritative for direct-linked
 isolated execution, verification, sequencing and process lifetime; its v1 wire
-schema/Float32-only surface are superseded by ProtocolCore v2. Static artifact
+schema/Float32-only surface are superseded by ProtocolCore. Static artifact
 ABIs are not changed. Parent/child revisions are target contracts; existing
 code is v1 and cannot claim the revision's guarantees.
 
@@ -122,7 +132,7 @@ public Mojo, compiler, artifact, command, or runtime APIs.
 
 | Design | Relationship | Contract Used | Summary | Cautions |
 |---|---|---|---|---|
-| [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md) | child module | Native readonly resource ingress | Platform-specific admission into portable worker buffers | Input ownership implemented; v2 worker consumption pending |
+| [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md) | child module | Native readonly resource ingress | Platform-specific admission into portable worker buffers | Input ownership implemented; resource worker consumption pending |
 | [`Mojo`](Sources/Mojo/DESIGN.md) | child | Public macro, immutable static-artifact attestation, session and buffer ownership | Exposes the safe Swift surface consumed by generated registries and application targets. | Only generated code may construct an attestation; it is provenance evidence, not device-execution evidence. |
 | [`MojoArtifactCore`](Sources/MojoArtifactCore/DESIGN.md) | child | Canonical graph, render, package, and verification transactions | Owns static and runtime-dependent artifact generation and the ADR-0015 W1 boundary. | It does not launch deployed workers or own application semantics. |
 | [`MojoRuntimeProtocolCore`](Sources/MojoRuntimeProtocolCore/DESIGN.md) | child | Package-internal worker protocol semantics and endpoint generation | Owns protocol-v1 constants, payload layouts, validation, C rendering, and Swift codec/types. | It has no public product, transport I/O, or mutable runtime state. |

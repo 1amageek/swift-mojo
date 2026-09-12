@@ -39,7 +39,7 @@ package struct MojoRuntimeFrameHeader: Equatable, Sendable {
             reservingCapacity: MojoRuntimeProtocol.headerByteCount
         )
         writer.append(contentsOf: MojoRuntimeProtocol.magicBytes)
-        writer.appendUInt16(MojoRuntimeProtocol.version)
+        writer.appendUInt16(0)
         writer.appendUInt16(kind.rawValue)
         writer.appendUInt64(requestID)
         writer.appendUInt64(payloadByteCount)
@@ -70,12 +70,9 @@ package struct MojoRuntimeFrameHeader: Equatable, Sendable {
         guard magic == MojoRuntimeProtocol.magicBytes else {
             throw MojoRuntimeProtocolError.invalidMagic(actual: magic)
         }
-        let version = try reader.readUInt16()
-        guard version == MojoRuntimeProtocol.version else {
-            throw MojoRuntimeProtocolError.invalidVersion(
-                expected: MojoRuntimeProtocol.version,
-                actual: version
-            )
+        let reserved16 = try reader.readUInt16()
+        guard reserved16 == 0 else {
+            throw MojoRuntimeProtocolError.reservedFieldNonZero(UInt64(reserved16))
         }
         let rawKind = try reader.readUInt16()
         guard let kind = MojoRuntimeFrameKind(rawValue: rawKind) else {

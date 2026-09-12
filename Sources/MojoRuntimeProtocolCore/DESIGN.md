@@ -31,7 +31,7 @@ no launcher.
 | [`MojoArtifactCore`](../MojoArtifactCore/DESIGN.md) | used by | Canonical constants, schemas, validation, and C renderer | Generates the worker C endpoint and manifest from one authority. | ArtifactCore owns files and transactions, not this module. |
 | [`MojoRuntime`](../MojoRuntime/DESIGN.md) | used by | Immutable protocol schema projection | Reports the verified protocol identity to consumers. | It does not instantiate a codec or transport. |
 | [`MojoRuntimeWorker`](../MojoRuntimeWorker/DESIGN.md) | used by | Swift codec/types and validation | Owns W3 bounded fd-3 transport and lifecycle using this closed schema. | Raw protocol values are not re-exported publicly. |
-| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements | Protocol-v1 wire contract | Defines header fields, frame kinds, lifecycle ordering, and evidence. | Any wire change requires a new protocol version. |
+| [ADR-0015](../../docs/ADR-0015-DIRECT-LINKED-PERSISTENT-WORKERS.md) | implements | Protocol-v1 wire contract | Defines header fields, frame kinds, lifecycle ordering, and evidence. | Wire changes update the contract digest and regenerate both endpoints. |
 
 ## Architecture
 
@@ -116,18 +116,17 @@ Any change requires rechecking ADR-0015, `MojoArtifactCore` worker generation,
 `MojoRuntime` projection, `MojoRuntimeWorker` client fixtures, Apple/NVIDIA worker
 bundles, and downstream typed transport integration.
 
-## Resource Invocation Protocol v2 (target design, 2026-09-12)
+## Resource Invocation Protocol (target design, 2026-09-12)
 
 ### Implemented codec boundary
 
-MojoRuntimeResourceProtocol now owns the v2 field-layout digest and widths.
+MojoRuntimeResourceProtocol now owns the resource field-layout digest and widths.
 MojoRuntimeBufferDescriptor validates typed readonly extents; ResourceInvocation
 and ResourceResult encode/decode bounded control segments without materializing
 the separate bulk body. ResourceLimits separates argument/result-value,
 control, copied, mapped and result ceilings. Result capacity admission reserves
 the result prefix, count table and maximum value bytes before accepting outputs.
-The live frame loop, generated endpoint, manifest and public session are still
-v1. These pure codecs do not enable or qualify v2 worker invocation.
+The live frame loop, generated endpoint and public session still use Float32 invocation. These pure codecs do not enable or qualify resource worker invocation.
 
 MojoRuntimeBufferDescriptorTests and MojoRuntimeResourceCodecTests own golden,
 truncation, overflow, alias, capacity and schema gates. The independent native C
@@ -136,13 +135,13 @@ buffer extents, invocation accounting and result rejection. macOS execution
 passes 26 protocol tests with Address Sanitizer; real-worker/native Linux and
 transport benchmarks remain separate gates.
 
-This section owns the new wire semantics and supersedes v1 for migrated worker
-bundles. Implementation remains v1 until qualification. Public ownership and
+This section owns the new wire semantics and replaces the Float32 worker contract directly. Resource execution remains
+unqualified until the public session and generated endpoint use it. Public ownership and
 failure semantics belong to [Worker](../MojoRuntimeWorker/DESIGN.md#resource-invocation-revision-2026-09-12).
 
-Keep the 32-byte header and request-ID sequencing; set version to 2. Retain
+Keep the 32-byte header and request-ID sequencing; both reserved fields must be zero. Retain
 ready/create/session/worker shutdown messages. Replace invokeFloat32 with
-invoke and its typed invocationResult. Do not negotiate down to v1 or accept a
+invoke and its typed invocationResult. Do not retain a Float32 compatibility route or accept a
 mixed closed message table.
 
 An invocation payload contains binding ID, generated argument-schema ID,

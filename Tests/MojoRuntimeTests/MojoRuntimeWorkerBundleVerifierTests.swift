@@ -98,9 +98,6 @@ struct MojoRuntimeWorkerBundleVerifierTests {
         )
         #expect(verification.compilerVersion == "Mojo 1.0.0")
         #expect(
-            verification.protocolVersion == manifest.protocolRecord.version
-        )
-        #expect(
             verification.protocolDescriptor
                 == manifest.protocolRecord.descriptor
         )
@@ -265,7 +262,6 @@ struct MojoRuntimeWorkerBundleVerifierTests {
                     _ = verification.generatedMojoObjectDigest
                     _ = verification.generatedCWorkerObjectDigest
                     _ = verification.compilerVersion
-                    _ = verification.protocolVersion
                     _ = verification.protocolDescriptor
                     _ = verification.protocolHeaderByteCount
                     _ = verification.protocolByteOrder
@@ -335,7 +331,6 @@ struct MojoRuntimeWorkerBundleVerifierTests {
                         generatedMojoObjectDigest: "mojo-object",
                         generatedCWorkerObjectDigest: "c-object",
                         compilerVersion: "Mojo 1.0.0",
-                        protocolVersion: 1,
                         protocolDescriptor: 3,
                         protocolHeaderByteCount: 32,
                         protocolByteOrder: "little-endian",
@@ -440,7 +435,6 @@ private func workerManifestFixture() throws
     let semanticIdentity = try MojoRuntimeWorkerBundleManifest
         .SemanticIdentity(
             workerABIVersion: MojoRuntimeWorkerRenderer.workerABIVersion,
-            protocolVersion: 1,
             sourceGraphDigest: sourceGraphDigest,
             sourceGraphIdentifier: sourceGraphIdentifier,
             inputGraphDigest: inputGraphDigest,

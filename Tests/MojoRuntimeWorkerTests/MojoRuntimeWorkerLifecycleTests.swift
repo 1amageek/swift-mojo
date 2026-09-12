@@ -1054,7 +1054,7 @@ private struct AttemptFixture: Sendable {
                 time.sleep(0.0005)
 
         def frame(kind, request_id, payload=b""):
-            return HEADER.pack(b"SMW1", 1, kind, request_id, len(payload), 0) + payload
+            return HEADER.pack(b"SMW1", 0, kind, request_id, len(payload), 0) + payload
 
         def send(kind, request_id, payload=b""):
             write_fragmented(frame(kind, request_id, payload))
@@ -1089,8 +1089,8 @@ private struct AttemptFixture: Sendable {
                 header = read_exact(HEADER.size)
             except EOFError:
                 sys.exit(0)
-            magic, version, kind, request_id, payload_length, reserved = HEADER.unpack(header)
-            if magic != b"SMW1" or version != 1 or reserved != 0:
+            magic, reserved16, kind, request_id, payload_length, reserved = HEADER.unpack(header)
+            if magic != b"SMW1" or reserved16 != 0 or reserved != 0:
                 sys.exit(90)
             payload = read_exact(payload_length)
             if request_id <= last_request_id:

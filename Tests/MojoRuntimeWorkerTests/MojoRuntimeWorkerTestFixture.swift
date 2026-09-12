@@ -48,7 +48,6 @@ enum MojoRuntimeWorkerTestFixture {
             generatedMojoObjectDigest: digest("4"),
             generatedCWorkerObjectDigest: digest("5"),
             compilerVersion: "Mojo 1.0.0",
-            protocolVersion: MojoRuntimeProtocol.version,
             protocolDescriptor: 3,
             protocolHeaderByteCount: MojoRuntimeProtocol.headerByteCount,
             protocolByteOrder: "littleEndian",
@@ -109,7 +108,6 @@ enum MojoRuntimeWorkerTestFixture {
             generatedCWorkerObjectDigest:
                 verification.generatedCWorkerObjectDigest,
             compilerVersion: verification.compilerVersion,
-            protocolVersion: verification.protocolVersion,
             protocolDescriptor: verification.protocolDescriptor,
             protocolHeaderByteCount:
                 verification.protocolHeaderByteCount,

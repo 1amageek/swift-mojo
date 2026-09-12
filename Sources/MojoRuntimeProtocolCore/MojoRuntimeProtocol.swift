@@ -2,10 +2,6 @@ import Crypto
 import Foundation
 
 package enum MojoRuntimeProtocol {
-    package static let version: UInt16 = 1
-    package static let schemaVersion: UInt16 = 1
-    package static let codecVersion: UInt16 = 1
-    package static let rendererVersion: UInt16 = 1
     package static let headerByteCount = 32
     package static let magicBytes: [UInt8] = [0x53, 0x4D, 0x57, 0x31]
     package static let maximumInFlightRequests = 1
@@ -26,10 +22,8 @@ package enum MojoRuntimeProtocol {
 
     package static let schemaDigest: String = {
         let records = [
-            "schema=\(schemaVersion)",
-            "version=\(version)",
-            "codec=\(codecVersion)",
-            "renderer=\(rendererVersion)",
+            "reserved16=0;reserved64=0",
+            "resource-schema=\(MojoRuntimeResourceProtocol.schemaDigest)",
             "header=\(headerByteCount)",
             "magic=SMW1",
             "max-in-flight=\(maximumInFlightRequests)",

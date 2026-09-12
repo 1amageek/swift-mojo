@@ -23,7 +23,7 @@ struct MojoRuntimeWorkerBundleManifestTests {
         )
         #expect(
             manifest.digest
-                == "9ef8f5add47f4642d153e31419e8a900b0daf77da1b2be88119307dc463b14f1"
+                == "f774bd0022285246b1d9225ba103ff8bed2b0f1430a8b537b64585a6c8ed72bb"
         )
         #expect(expectedDigest == manifest.digest)
 
@@ -116,7 +116,6 @@ struct MojoRuntimeWorkerBundleManifestTests {
 
         #expect(throws: MojoArtifactError.self) {
             try MojoRuntimeWorkerBundleManifest.ProtocolRecord(
-                version: MojoRuntimeProtocol.version,
                 descriptor:
                     MojoRuntimeWorkerBundleManifest.ProtocolRecord.descriptor,
                 headerByteCount: MojoRuntimeProtocol.headerByteCount,
@@ -130,7 +129,6 @@ struct MojoRuntimeWorkerBundleManifestTests {
         }
         #expect(throws: MojoArtifactError.self) {
             try MojoRuntimeWorkerBundleManifest.ProtocolRecord(
-                version: MojoRuntimeProtocol.version,
                 descriptor:
                     MojoRuntimeWorkerBundleManifest.ProtocolRecord.descriptor,
                 headerByteCount: MojoRuntimeProtocol.headerByteCount,
@@ -231,7 +229,6 @@ private struct Fixture {
     where S.Element == MojoRuntimeWorkerBundleManifest.Binding {
         try MojoRuntimeWorkerBundleManifest.SemanticIdentity(
             workerABIVersion: MojoRuntimeWorkerRenderer.workerABIVersion,
-            protocolVersion: MojoRuntimeProtocol.version,
             sourceGraphDigest: sourceGraphDigest,
             sourceGraphIdentifier: sourceGraphIdentifier,
             inputGraphDigest: inputGraphDigest,
@@ -301,7 +298,6 @@ private struct Fixture {
         let semantic = manifest.semanticIdentity
         records.append(contentsOf: [
             "semantic-worker-abi=\(semantic.workerABIVersion)",
-            "semantic-protocol-version=\(semantic.protocolVersion)",
             "semantic-source-graph=\(semantic.sourceGraphDigest)",
             "semantic-source-graph-identifier=\(semantic.sourceGraphIdentifier)",
             "semantic-input-graph=\(semantic.inputGraphDigest)",
@@ -333,7 +329,6 @@ private struct Fixture {
 
         let protocolRecord = manifest.protocolRecord
         records.append(contentsOf: [
-            "protocol-version=\(protocolRecord.version)",
             "protocol-descriptor=\(protocolRecord.descriptor)",
             "protocol-header=\(protocolRecord.headerByteCount)",
             "protocol-byte-order=\(protocolRecord.byteOrder)",

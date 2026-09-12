@@ -4,7 +4,6 @@ package enum MojoRuntimeProtocolError: Error, Equatable, Sendable,
     CustomStringConvertible
 {
     case invalidMagic(actual: [UInt8])
-    case invalidVersion(expected: UInt16, actual: UInt16)
     case unknownKind(UInt16)
     case reservedFieldNonZero(UInt64)
     case invalidRequestIdentifier(kind: UInt16, requestID: UInt64)
@@ -36,8 +35,6 @@ package enum MojoRuntimeProtocolError: Error, Equatable, Sendable,
         switch self {
         case .invalidMagic(let actual):
             "Protocol magic is invalid: \(actual)"
-        case .invalidVersion(let expected, let actual):
-            "Protocol version is \(actual), expected \(expected)"
         case .unknownKind(let rawValue):
             "Protocol message kind \(rawValue) is not part of the closed table"
         case .reservedFieldNonZero(let value):

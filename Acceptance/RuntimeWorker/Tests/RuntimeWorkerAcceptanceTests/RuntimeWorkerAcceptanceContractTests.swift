@@ -208,7 +208,6 @@ struct RuntimeWorkerAcceptanceContractTests {
             "10:failure",
         ]
 
-        #expect(record.version == 1)
         #expect(record.descriptor == 3)
         #expect(record.headerByteCount == 32)
         #expect(record.byteOrder == "little-endian")
@@ -677,7 +676,6 @@ struct RuntimeWorkerAcceptanceContractTests {
         #expect(throws: RuntimeWorkerAcceptanceError.self) {
             _ = try RuntimeWorkerAcceptanceContract.Artifact.SemanticIdentity(
                 workerABIVersion: 1,
-                protocolVersion: 1,
                 sourceGraphDigest: ReceiptFixture.digest(2),
                 sourceGraphIdentifier: 1,
                 inputGraphDigest: ReceiptFixture.digest(3),
@@ -699,7 +697,6 @@ struct RuntimeWorkerAcceptanceContractTests {
             )
             _ = try RuntimeWorkerAcceptanceContract.Artifact.SemanticIdentity(
                 workerABIVersion: 1,
-                protocolVersion: 1,
                 sourceGraphDigest: ReceiptFixture.digest(2),
                 sourceGraphIdentifier: 1,
                 inputGraphDigest: ReceiptFixture.digest(3),
@@ -790,7 +787,6 @@ private enum ReceiptFixture {
         )
         let semantic = try RuntimeWorkerAcceptanceContract.Artifact.SemanticIdentity(
             workerABIVersion: 1,
-            protocolVersion: 1,
             sourceGraphDigest: digest(2),
             sourceGraphIdentifier: 1,
             inputGraphDigest: digest(3),
@@ -851,7 +847,6 @@ private enum ReceiptFixture {
             (10, "failure"),
         ]
         return try RuntimeWorkerAcceptanceContract.ProtocolRecord(
-            version: 1,
             descriptor: 3,
             headerByteCount: 32,
             byteOrder: "little-endian",

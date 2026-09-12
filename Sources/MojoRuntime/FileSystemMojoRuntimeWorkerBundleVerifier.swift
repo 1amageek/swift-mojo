@@ -81,7 +81,6 @@ public struct FileSystemMojoRuntimeWorkerBundleVerifier:
             generatedCWorkerObjectDigest: manifest.generatedInputs
                 .generatedCWorkerObjectDigest,
             compilerVersion: manifest.generatedInputs.compilerVersion,
-            protocolVersion: manifest.protocolRecord.version,
             protocolDescriptor: manifest.protocolRecord.descriptor,
             protocolHeaderByteCount: manifest.protocolRecord.headerByteCount,
             protocolByteOrder: manifest.protocolRecord.byteOrder,

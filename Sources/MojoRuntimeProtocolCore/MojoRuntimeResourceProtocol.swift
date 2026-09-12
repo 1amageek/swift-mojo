@@ -1,10 +1,9 @@
 import Crypto
 import Foundation
 
-/// Authority for the resource codec. The live worker remains v1 until endpoint
-/// and manifest migration; defining this schema never admits a v2 worker.
+/// Canonical resource layout. Worker admission requires the generated contract
+/// digest; numeric protocol negotiation is not supported.
 package enum MojoRuntimeResourceProtocol {
-    package static let version: UInt16 = 2
     package static let invocationPrefixByteCount = 48
     package static let bufferPrefixByteCount = 40
     package static let dimensionByteCount = 16
@@ -13,7 +12,7 @@ package enum MojoRuntimeResourceProtocol {
 
     package static let schemaDigest: String = {
         let records = [
-            "version=2;header=32;magic=SMW1;endianness=little;in-flight=1",
+            "header=32;magic=SMW1;reserved16=0;endianness=little;in-flight=1",
             "kinds=1:ready,2:createSession,3:sessionCreated,4:invoke,5:invocationResult,6:shutdownSession,7:sessionShutdown,8:shutdownWorker,9:workerShutdown,10:failure",
             "invoke=binding:u64,schema:sha256,args:u32,inputs:u16,outputs:u16,descriptors,capacities,arguments,copied-body",
             "buffer=storage:u16,element:u16,rank:u16,zero:u16,ordinal:u32,zero:u32,region:u64,offset:u64,payload-offset:u64,(dimension:u64,stride:u64)*rank",

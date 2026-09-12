@@ -41,12 +41,6 @@ enum RuntimeWorkerAcceptanceProjectionOracle {
             count: &fieldCount
         )
         try equal(
-            projection.protocolVersion,
-            semantic.protocolVersion,
-            "artifact.semanticIdentity.protocolVersion",
-            count: &fieldCount
-        )
-        try equal(
             projection.sourceGraphDigest,
             semantic.sourceGraphDigest,
             "artifact.semanticIdentity.sourceGraphDigest",
@@ -277,12 +271,6 @@ enum RuntimeWorkerAcceptanceProjectionOracle {
             count: &fieldCount
         )
 
-        try equal(
-            projection.protocolVersion,
-            protocolRecord.version,
-            "protocol.version",
-            count: &fieldCount
-        )
         try equal(
             projection.protocolDescriptor,
             protocolRecord.descriptor,

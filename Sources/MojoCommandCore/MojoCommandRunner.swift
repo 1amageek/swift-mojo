@@ -943,7 +943,6 @@ package struct MojoCommandRunner: Sendable {
                 },
                 bundlePath: outputURL.path,
                 executable: manifest.runtimeBundle.executable.relativePath,
-                protocolVersion: Int(manifest.protocolRecord.version),
                 executionContractDigest: manifest.executionContractDigest,
                 maximumFramePayloadBytes: manifest.protocolRecord
                     .maximumFramePayloadBytes
@@ -979,7 +978,6 @@ package struct MojoCommandRunner: Sendable {
                 },
                 bundlePath: bundleURL.path,
                 executable: manifest.runtimeBundle.executable.relativePath,
-                protocolVersion: Int(manifest.protocolRecord.version),
                 executionContractDigest: manifest.executionContractDigest,
                 maximumFramePayloadBytes: manifest.protocolRecord
                     .maximumFramePayloadBytes

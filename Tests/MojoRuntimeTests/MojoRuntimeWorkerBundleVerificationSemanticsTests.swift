@@ -56,7 +56,6 @@ private enum WorkerVerificationSemanticField: String, CaseIterable {
     case generatedMojoObjectDigest
     case generatedCWorkerObjectDigest
     case compilerVersion
-    case protocolVersion
     case protocolDescriptor
     case protocolHeaderByteCount
     case protocolByteOrder
@@ -122,8 +121,6 @@ extension MojoRuntimeWorkerBundleVerification {
                 : generatedCWorkerObjectDigest,
             compilerVersion: field == .compilerVersion
                 ? compilerVersion + "-changed" : compilerVersion,
-            protocolVersion: field == .protocolVersion
-                ? protocolVersion + 1 : protocolVersion,
             protocolDescriptor: field == .protocolDescriptor
                 ? protocolDescriptor + 1 : protocolDescriptor,
             protocolHeaderByteCount: field == .protocolHeaderByteCount
@@ -216,7 +213,6 @@ private func workerVerificationFixture(
         generatedMojoObjectDigest: digest("a"),
         generatedCWorkerObjectDigest: digest("b"),
         compilerVersion: "Mojo 1.0.0",
-        protocolVersion: 1,
         protocolDescriptor: 3,
         protocolHeaderByteCount: 32,
         protocolByteOrder: "little-endian",
