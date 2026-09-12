@@ -270,3 +270,17 @@ Resource signatures persist as their canonical byte record in a Codable single
 Data value. Decoding validates exact byte extent and all numeric identifiers
 before constructing tables, recomputes scalar schema hashes, and rejects trailing
 or truncated data. Artifact generation includes this record in binding identity.
+
+### Native descriptor admission
+
+The generated C worker uses ProtocolCore's descriptor decoder before mapping or
+constructing typed pointers. It consumes a bounded wire slice and caller-owned
+layout arrays sized to the verified rank. It validates reserved fields, exact
+binding type/rank, storage/ordinal rules, region and payload alignment, empty
+policy, and overflow-safe addressed extent using the same rules as Swift.
+Failure grants no mapping authority; output fields are unspecified on failure.
+The decoder allocates nothing and borrows no pointer beyond the call. Whole
+invocation admission additionally owns dense ordinal/alias, aggregate resource,
+rights count, schema and copied-body checks; descriptor success alone does not
+permit execution. Differential native tests compare Swift and C acceptance and
+all decoded layout fields, including truncated prefixes and overflow cases.
