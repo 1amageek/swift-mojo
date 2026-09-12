@@ -75,6 +75,7 @@ jobs:
             --quiet-shell-followup
 
       - name: Install selected Swift toolchain
+        working-directory: ${{ runner.temp }}
         run: |
           "$HOME/.swiftly/bin/swiftly" install \
             "${{ matrix.selector }}" \
@@ -134,7 +135,7 @@ jobs:
       - name: Rehearse exact-version consumer in an isolated Git remote
         if: matrix.channel == 'stable-6.3.3'
         run: |
-          scripts/release-pretag-semver-gate.sh \
+          TOOLCHAINS="$SWIFT_MOJO_CI_TOOLCHAIN" scripts/release-pretag-semver-gate.sh \
             "$GITHUB_WORKSPACE" \
             999.0.0 \
             999.0.0 \
@@ -150,10 +151,10 @@ jobs:
               -derivedDataPath "$SWIFT_MOJO_CI_DERIVED_DATA" \
               CODE_SIGNING_ALLOWED=NO \
               SWIFT_EXEC="$SWIFT_MOJO_CI_SWIFTC" \
-              SWIFT_INCLUDE_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
-              LIBRARY_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
-              LD_RUNPATH_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
-              OTHER_SWIFT_FLAGS="-plugin-path $SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT"
+              SWIFT_INCLUDE_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT \$(inherited)" \
+              LIBRARY_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT \$(inherited)" \
+              LD_RUNPATH_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT \$(inherited)" \
+              OTHER_SWIFT_FLAGS="\$(inherited) -plugin-path $SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT"
 
       - name: Verify host executables are isolated from test bundles
         run: |
@@ -174,7 +175,7 @@ jobs:
               -derivedDataPath "$SWIFT_MOJO_CI_DERIVED_DATA" \
               CODE_SIGNING_ALLOWED=NO \
               SWIFT_EXEC="$SWIFT_MOJO_CI_SWIFTC" \
-              SWIFT_INCLUDE_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
-              LIBRARY_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
-              LD_RUNPATH_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT" \
-              OTHER_SWIFT_FLAGS="-plugin-path $SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT"
+              SWIFT_INCLUDE_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT \$(inherited)" \
+              LIBRARY_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT \$(inherited)" \
+              LD_RUNPATH_SEARCH_PATHS="$SWIFT_MOJO_CI_TESTING_ROOT \$(inherited)" \
+              OTHER_SWIFT_FLAGS="\$(inherited) -plugin-path $SWIFT_MOJO_CI_TESTING_PLUGIN_ROOT"
