@@ -583,8 +583,8 @@ private struct WorkerBundleFixture {
         )
         func scale(
             _ session: MojoSessionOwner,
-            _ input: [Float],
-            into output: inout [Float]
+            _ input: borrowing Span<Float>,
+            into output: inout MutableSpan<Float>
         ) throws
         """.write(to: sourceURL, atomically: true, encoding: .utf8)
         inputGraph = MojoInputGraph(

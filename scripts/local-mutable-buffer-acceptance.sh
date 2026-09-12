@@ -73,28 +73,43 @@ cat > "$acceptance_root/Sources/Application/Application.swift" <<'SWIFT'
 import Mojo
 
 @mojo(package: "MathModel", function: "scale")
-func scale(_ input: [Float], into output: inout [Float]) throws
+func scale(_ input: borrowing Span<Float>, into output: inout MutableSpan<Float>) throws
 
 @mojo(package: "MathModel", function: "execute")
-func execute(_ input: [Double], into output: inout [Double]) throws
+func execute(_ input: borrowing Span<Double>, into output: inout MutableSpan<Double>) throws
 
 @main
 enum Application {
     static func main() throws {
         var output = [Float](repeating: 0, count: 3)
-        try scale([1, 2, 3], into: &output)
+        try [Float]([1, 2, 3]).withUnsafeBufferPointer { source in
+            try output.withUnsafeMutableBufferPointer { destination in
+                var view = destination.mutableSpan
+                try scale(source.span, into: &view)
+            }
+        }
         print(output.map { String($0) }.joined(separator: ","))
 
         var shortOutput = [Float](repeating: 0, count: 2)
         do {
-            try scale([1, 2, 3], into: &shortOutput)
+            try [Float]([1, 2, 3]).withUnsafeBufferPointer { source in
+                try shortOutput.withUnsafeMutableBufferPointer { destination in
+                    var view = destination.mutableSpan
+                    try scale(source.span, into: &view)
+                }
+            }
             fatalError("Nonzero Mojo status unexpectedly succeeded")
         } catch MojoInvocationError.invocationFailed(_, let status) {
             print("status-\(status)")
         }
 
         do {
-            try scale([], into: &output)
+            try [Float]([]).withUnsafeBufferPointer { source in
+                try output.withUnsafeMutableBufferPointer { destination in
+                    var view = destination.mutableSpan
+                    try scale(source.span, into: &view)
+                }
+            }
             fatalError("Empty input unexpectedly succeeded")
         } catch MojoInvocationError.emptyBorrowedBuffer {
             print("empty-input")
@@ -102,26 +117,46 @@ enum Application {
 
         var emptyOutput: [Float] = []
         do {
-            try scale([1], into: &emptyOutput)
+            try [Float]([1]).withUnsafeBufferPointer { source in
+                try emptyOutput.withUnsafeMutableBufferPointer { destination in
+                    var view = destination.mutableSpan
+                    try scale(source.span, into: &view)
+                }
+            }
             fatalError("Empty output unexpectedly succeeded")
         } catch MojoInvocationError.emptyMutableBuffer {
             print("empty-output")
         }
 
         var doubleOutput = [Double](repeating: 0, count: 3)
-        try execute([1.25, -2.5, 3.75], into: &doubleOutput)
+        try [Double]([1.25, -2.5, 3.75]).withUnsafeBufferPointer { source in
+            try doubleOutput.withUnsafeMutableBufferPointer { destination in
+                var view = destination.mutableSpan
+                try execute(source.span, into: &view)
+            }
+        }
         print(doubleOutput.map { String($0) }.joined(separator: ","))
 
         var shortDoubleOutput = [Double](repeating: 0, count: 2)
         do {
-            try execute([1, 2, 3], into: &shortDoubleOutput)
+            try [Double]([1, 2, 3]).withUnsafeBufferPointer { source in
+                try shortDoubleOutput.withUnsafeMutableBufferPointer { destination in
+                    var view = destination.mutableSpan
+                    try execute(source.span, into: &view)
+                }
+            }
             fatalError("Nonzero Float64 Mojo status unexpectedly succeeded")
         } catch MojoInvocationError.invocationFailed(_, let status) {
             print("f64-status-\(status)")
         }
 
         do {
-            try execute([], into: &doubleOutput)
+            try [Double]([]).withUnsafeBufferPointer { source in
+                try doubleOutput.withUnsafeMutableBufferPointer { destination in
+                    var view = destination.mutableSpan
+                    try execute(source.span, into: &view)
+                }
+            }
             fatalError("Empty Float64 input unexpectedly succeeded")
         } catch MojoInvocationError.emptyBorrowedBuffer {
             print("f64-empty-input")
@@ -129,7 +164,12 @@ enum Application {
 
         var emptyDoubleOutput: [Double] = []
         do {
-            try execute([1], into: &emptyDoubleOutput)
+            try [Double]([1]).withUnsafeBufferPointer { source in
+                try emptyDoubleOutput.withUnsafeMutableBufferPointer { destination in
+                    var view = destination.mutableSpan
+                    try execute(source.span, into: &view)
+                }
+            }
             fatalError("Empty Float64 output unexpectedly succeeded")
         } catch MojoInvocationError.emptyMutableBuffer {
             print("f64-empty-output")

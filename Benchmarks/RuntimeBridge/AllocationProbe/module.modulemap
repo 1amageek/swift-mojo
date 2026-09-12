@@ -1,0 +1,4 @@
+module MojoAllocationProbe {
+    header "probe.h"
+    export *
+}

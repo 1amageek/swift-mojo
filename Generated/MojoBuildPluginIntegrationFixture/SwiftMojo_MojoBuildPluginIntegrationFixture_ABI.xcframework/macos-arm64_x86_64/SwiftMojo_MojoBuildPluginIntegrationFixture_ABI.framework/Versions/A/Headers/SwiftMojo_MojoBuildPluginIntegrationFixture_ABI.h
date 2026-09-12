@@ -15,6 +15,18 @@ int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4
     int32_t lhs,
     int32_t rhs
 );
+float swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_call_f32_buffer_f32(
+    uint64_t binding_id,
+    const float *values,
+    uint64_t count
+);
+int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_call_f64_buffer_f64_buffer_i32(
+    uint64_t binding_id,
+    const double *input,
+    uint64_t input_count,
+    double *output,
+    uint64_t output_count
+);
 int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_create_session_v1(
     uint64_t binding_id,
     uint32_t request_schema,

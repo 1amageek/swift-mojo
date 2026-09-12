@@ -378,7 +378,7 @@ struct MojoArtifactPreparerTests {
     )
     try """
     @mojo(package: "MathModel", function: "sum")
-    func sum(_ values: [Float]) throws -> Float
+    func sum(_ values: borrowing Span<Float>) throws -> Float
     """.write(to: source, atomically: true, encoding: .utf8)
     let target = try MojoTargetConfiguration(
       triple: "arm64-apple-macosx14.0",
@@ -464,7 +464,7 @@ struct MojoArtifactPreparerTests {
     #expect(moduleMap.contains("framework module \(identity.moduleName)"))
     #expect(moduleMap.contains("umbrella header \"\(identity.moduleName).h\""))
     #expect(registry.contains("import Mojo"))
-    #expect(registry.contains("values: borrowing [Float]"))
+    #expect(registry.contains("values: borrowing Span<Float>"))
     #expect(registry.contains("values.withUnsafeBufferPointer"))
     #expect(registry.contains("private static let artifactPreflight"))
     #expect(registry.contains("MojoStaticArtifactPreflight"))
@@ -954,7 +954,7 @@ struct MojoArtifactPreparerTests {
       )
       #expect(
         MojoGenerationPipeline.digest
-          == "8a9a2f40879eafb0c3b97d6578564b84181ff97ea4a849b2c4cae8fe24d918e4"
+          == "e6057691ff3ef745f0af7bcdd40aa79c6fb0c88e519949c6ce214d6049426446"
       )
     }
   }

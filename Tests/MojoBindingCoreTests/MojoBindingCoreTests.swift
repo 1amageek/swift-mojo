@@ -6,6 +6,33 @@ import Testing
 @Suite("Inline Mojo binding model")
 struct MojoBindingCoreTests {
     @Test(.timeLimit(.minutes(1)))
+    func scopedSpanSignaturesReplaceArrayBindings() throws {
+        let source = """
+        @mojo(package: "Numeric", function: "sum")
+        func sum(_ values: borrowing Span<Float>) throws -> Float
+        @mojo(package: "Numeric", function: "scale")
+        func scale(_ input: borrowing Span<Float>, into output: inout MutableSpan<Float>) throws
+        @mojo(package: "Numeric", function: "scale64")
+        func scale64(_ input: borrowing Span<Double>, into output: inout MutableSpan<Double>) throws
+        @mojo(package: "Numeric", function: "create", shutdown: "destroy")
+        func open(_ requirements: MojoSessionRequirements) throws -> MojoSessionOwner
+        @mojo(package: "Numeric", function: "run", sessionFactory: "open")
+        func run(_ session: MojoSessionOwner, _ input: borrowing Span<Float>, into output: inout MutableSpan<Float>) throws
+        """
+        let bindings = try graph(source: source).bindings
+        #expect(Set(bindings.map(\.signature)) == [.borrowedFloat32Buffer,
+            .borrowedMutableFloat32Buffers, .borrowedMutableFloat64Buffers,
+            .runtimeSessionFactory, .sessionBorrowedMutableFloat32Buffers])
+        for invalid in [
+            source.replacingOccurrences(of: "borrowing Span<Float>", with: "[Float]"),
+            source.replacingOccurrences(of: "inout MutableSpan<Float>", with: "inout [Float]"),
+            source.replacingOccurrences(of: "inout MutableSpan<Float>", with: "borrowing Span<Float>")
+        ] {
+            #expect(throws: MojoBindingError.unsupportedSignature) { try graph(source: invalid) }
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func resourceTypesAreParsedPersistedAndBoundToGraphIdentity() throws {
         let original = try graph(source: resourceSource)
         let operation = try #require(original.bindings.first { $0.signature == .resourceInvocation })
@@ -146,7 +173,7 @@ struct MojoBindingCoreTests {
         let external = try graph(
             source: """
             @mojo(package: "MathModel", function: "sum")
-            func sum(_ values: [Float]) throws -> Float
+            func sum(_ values: borrowing Span<Float>) throws -> Float
             """
         )
 
@@ -164,8 +191,8 @@ struct MojoBindingCoreTests {
             source: """
             @mojo(package: "MathModel", function: "scale")
             func scale(
-                _ input: [Float],
-                into output: inout [Float]
+                _ input: borrowing Span<Float>,
+                into output: inout MutableSpan<Float>
             ) throws
             """
         )
@@ -187,8 +214,8 @@ struct MojoBindingCoreTests {
             source: """
             @mojo(package: "Dynamics", function: "execute")
             func execute(
-                _ input: [Double],
-                into output: inout [Double]
+                _ input: borrowing Span<Double>,
+                into output: inout MutableSpan<Double>
             ) throws
             """
         )
@@ -210,7 +237,7 @@ struct MojoBindingCoreTests {
             _ = try graph(
                 source: """
                 @mojo(package: "MathModel", function: "scale")
-                func scale(_ input: [Float], into output: [Float]) throws
+                func scale(_ input: borrowing Span<Float>, into output: borrowing Span<Float>) throws
                 """
             )
         }
@@ -218,7 +245,7 @@ struct MojoBindingCoreTests {
             _ = try graph(
                 source: """
                 @mojo(package: "Dynamics", function: "execute")
-                func execute(_ input: [Double], into output: [Double]) throws
+                func execute(_ input: borrowing Span<Double>, into output: borrowing Span<Double>) throws
                 """
             )
         }
@@ -226,7 +253,7 @@ struct MojoBindingCoreTests {
             _ = try graph(
                 source: """
                 @mojo(package: "Dynamics", function: "execute")
-                func execute(_ input: [Double], into output: inout [Double])
+                func execute(_ input: borrowing Span<Double>, into output: inout MutableSpan<Double>)
                 """
             )
         }
@@ -234,7 +261,7 @@ struct MojoBindingCoreTests {
             _ = try graph(
                 source: """
                 @mojo(package: "MathModel", function: "scale")
-                func scale(_ input: [Float], into output: inout [Float])
+                func scale(_ input: borrowing Span<Float>, into output: inout MutableSpan<Float>)
                 """
             )
         }
@@ -248,7 +275,7 @@ struct MojoBindingCoreTests {
             func reduce(_ lhs: Int32, _ rhs: Int32) -> Int32
 
             @mojo(package: "MathModel", function: "sum")
-            func reduce(_ values: [Float]) throws -> Float
+            func reduce(_ values: borrowing Span<Float>) throws -> Float
             """
         )
 
@@ -266,7 +293,7 @@ struct MojoBindingCoreTests {
             _ = try graph(
                 source: """
                 @mojo
-                func sum(_ values: [Float]) throws -> Float {
+                func sum(_ values: borrowing Span<Float>) throws -> Float {
                     return values.reduce(0, +)
                 }
                 """
@@ -284,8 +311,8 @@ struct MojoBindingCoreTests {
                 source: """
                 @mojo
                 func scale(
-                    _ input: [Float],
-                    into output: inout [Float]
+                    _ input: borrowing Span<Float>,
+                    into output: inout MutableSpan<Float>
                 ) throws {
                     output = input
                 }
@@ -314,8 +341,8 @@ struct MojoBindingCoreTests {
             )
             func scale(
                 _ session: MojoSessionOwner,
-                _ input: [Float],
-                into output: inout [Float]
+                _ input: borrowing Span<Float>,
+                into output: inout MutableSpan<Float>
             ) throws
             """
         )
@@ -374,8 +401,8 @@ struct MojoBindingCoreTests {
                 )
                 func scale(
                     _ session: MojoSessionOwner,
-                    _ input: [Float],
-                    into output: inout [Float]
+                    _ input: borrowing Span<Float>,
+                    into output: inout MutableSpan<Float>
                 ) throws
                 """
             )
@@ -405,8 +432,8 @@ struct MojoBindingCoreTests {
                 )
                 func scale(
                     _ session: MojoSessionOwner,
-                    _ input: [Float],
-                    into output: inout [Float]
+                    _ input: borrowing Span<Float>,
+                    into output: inout MutableSpan<Float>
                 ) throws
                 """
             )
@@ -419,7 +446,7 @@ struct MojoBindingCoreTests {
             _ = try graph(
                 source: """
                 @mojo(package: "MathModel", function: "sum")
-                func sum(_ values: [Float]) -> Float
+                func sum(_ values: borrowing Span<Float>) -> Float
                 """
             )
         }
@@ -431,7 +458,7 @@ struct MojoBindingCoreTests {
             _ = try graph(
                 source: """
                 @mojo(package: "MathModel", function: "sum")
-                func sum(_ values: [Float]) throws(BufferError) -> Float
+                func sum(_ values: borrowing Span<Float>) throws(BufferError) -> Float
                 """
             )
         }

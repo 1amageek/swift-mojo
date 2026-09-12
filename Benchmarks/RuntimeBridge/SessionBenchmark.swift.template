@@ -1,0 +1,80 @@
+import Foundation
+@_spi(SwiftMojoGenerated) import Mojo
+import SwiftMojo_MojoBuildPluginIntegrationFixture_ABI
+
+// The runner resolves these identifiers from the prepared fixture manifest.
+// Both paths execute the same linked Mojo function on the same existing buffers.
+@inline(never)
+private func wrapper(_ session: MojoSessionOwner, _ input: borrowing Span<Float>, _ output: inout MutableSpan<Float>) throws {
+    try integrationScale(session, input, into: &output)
+}
+
+@main
+struct SessionBenchmark {
+    static func main() throws {
+        let session = try integrationOpenSession(.init(device: .cpu,
+            requiredCapabilities: [.synchronousInvocation, .hostAccessibleMemory, .float32]))
+        defer { do { try session.shutdown() } catch { fatalError("Shutdown failed: \(error)") } }
+        let identity = try integrationStaticArtifactAttestation()
+        print("target=\(identity.targetTriple) compiler=\(identity.compilerVersion)")
+        print("elements,bytes,calls_per_sample,samples,wrapper_p50_ns,wrapper_p95_ns,direct_p50_ns,direct_p95_ns,overhead_p50_ns")
+        for count in [1, 16, 256, 4096, 65536, 1048576] {
+            try benchmark(session, count: count)
+        }
+    }
+
+    private static func benchmark(_ session: MojoSessionOwner, count: Int) throws {
+        // Each allocation is initialized once and retained for all samples.
+        // No array conversion or resize occurs inside either measured path.
+        let input = UnsafeMutableBufferPointer<Float>.allocate(capacity: count)
+        let output = UnsafeMutableBufferPointer<Float>.allocate(capacity: count)
+        input.initialize(repeating: 2)
+        output.initialize(repeating: 0)
+        defer { input.deinitialize(); input.deallocate(); output.deinitialize(); output.deallocate() }
+        let source = UnsafeBufferPointer(input)
+        let calls = max(2, min(1000, 1048576 / count))
+        let samples = 80
+        for _ in 0..<20 {
+            var view = output.mutableSpan
+            try wrapper(session, source.span, &view)
+        }
+        var wrapped: [Double] = []
+        var direct: [Double] = []
+        wrapped.reserveCapacity(samples)
+        direct.reserveCapacity(samples)
+        for sample in 0..<samples {
+            // Alternate order to limit cache and thermal ordering bias.
+            for useWrapper in sample.isMultiple(of: 2) ? [true, false] : [false, true] {
+                let elapsed: Double
+                if useWrapper {
+                    let start = DispatchTime.now().uptimeNanoseconds
+                    for _ in 0..<calls {
+                        var view = output.mutableSpan
+                        try wrapper(session, source.span, &view)
+                    }
+                    elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / Double(calls)
+                    wrapped.append(elapsed)
+                } else {
+                    // The raw baseline excludes owner admission by holding one
+                    // valid session borrow around, but outside, the timed loop.
+                    elapsed = try session.withOpaqueHandle(expectedSessionDomainID: __SESSION_DOMAIN__) { handle in
+                        let start = DispatchTime.now().uptimeNanoseconds
+                        for _ in 0..<calls {
+                            let status = __DIRECT_SYMBOL__(__BINDING_ID__, handle,
+                                source.baseAddress!, UInt64(count), output.baseAddress!, UInt64(count))
+                            guard status == 0 else { throw MojoInvocationError.invocationFailed(bindingID: __BINDING_ID__, status: status) }
+                        }
+                        return Double(DispatchTime.now().uptimeNanoseconds - start) / Double(calls)
+                    }
+                    direct.append(elapsed)
+                }
+                // Full numeric validation is outside the measurement window.
+                precondition(input.allSatisfy { $0 == 2 } && output.allSatisfy { $0 == 4 })
+            }
+        }
+        wrapped.sort(); direct.sort()
+        let median = samples / 2
+        let high = Int(Double(samples - 1) * 0.95)
+        print("\(count),\(count * 4),\(calls),\(samples),\(wrapped[median]),\(wrapped[high]),\(direct[median]),\(direct[high]),\(wrapped[median] - direct[median])")
+    }
+}

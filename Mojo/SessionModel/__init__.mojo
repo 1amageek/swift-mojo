@@ -64,3 +64,26 @@ def scale(
             input[unsafe_offset=index] * session[].factor
         )
     return 0
+
+
+def sum_values(
+    input: Pointer[Float32, ImmUntrackedOrigin],
+    count: UInt64,
+) -> Float32:
+    var result = Float32(0)
+    for index in range(Int(count)):
+        result += input[unsafe_offset=index]
+    return result
+
+
+def scale_double(
+    input: Pointer[Float64, ImmUntrackedOrigin],
+    input_count: UInt64,
+    output: Pointer[Float64, MutUntrackedOrigin],
+    output_count: UInt64,
+) -> Int32:
+    if output_count < input_count:
+        return 4
+    for index in range(Int(input_count)):
+        output[unsafe_offset=index] = input[unsafe_offset=index] * 2
+    return 0

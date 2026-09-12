@@ -24,15 +24,74 @@ func buildPluginVerifiesLinksAndRunsPreparedMojoArtifact() throws {
     )
   )
   var output = [Float](repeating: 0, count: 3)
-  try integrationScale(session, [1, 2, 3], into: &output)
+  let input: [Float] = [1, 2, 3]
+  do {
+    try input.withUnsafeBufferPointer { source in
+      try output.withUnsafeMutableBufferPointer { destination in
+        var span = destination.mutableSpan
+        try integrationScale(session, source.span, into: &span)
+      }
+    }
+  }
   #expect(output == [2, 4, 6])
 
   try session.shutdown()
   #expect(session.isShutdown)
-  #expect(throws: MojoSessionError.shutdown) {
-    try integrationScale(session, [1], into: &output)
-  }
+  do {
+    try input.withUnsafeBufferPointer { source in
+      try output.withUnsafeMutableBufferPointer { destination in
+        var span = destination.mutableSpan
+        try integrationScale(session, source.span, into: &span)
+      }
+    }
+    Issue.record("Closed session accepted a span")
+  } catch { #expect(error as? MojoSessionError == .shutdown) }
   try session.shutdown()
+}
+
+@Test(.timeLimit(.minutes(1)))
+func publicBindingBorrowsExistingMemory() throws {
+  let session = try integrationOpenSession(.init(device: .cpu,
+    requiredCapabilities: [.synchronousInvocation, .hostAccessibleMemory, .float32]))
+  defer { do { try session.shutdown() } catch { Issue.record("Shutdown failed: \(error)") } }
+  let input = UnsafeMutableBufferPointer<Float>.allocate(capacity: 3)
+  let output = UnsafeMutableBufferPointer<Float>.allocate(capacity: 3)
+  input.initialize(repeating: 2)
+  output.initialize(repeating: 0)
+  defer {
+    input.deinitialize(); input.deallocate()
+    output.deinitialize(); output.deallocate()
+  }
+  do {
+    var span = output.mutableSpan
+    try integrationScale(session, input.span, into: &span)
+  }
+  #expect(output.allSatisfy { $0 == 4 })
+  #expect(input.allSatisfy { $0 == 2 })
+}
+
+@Test(.timeLimit(.minutes(1)), arguments: [0, 1, 3])
+func publicBindingChecksBorrowOverlap(offset: Int) throws {
+  let session = try integrationOpenSession(.init(device: .cpu,
+    requiredCapabilities: [.synchronousInvocation, .hostAccessibleMemory, .float32]))
+  defer { do { try session.shutdown() } catch { Issue.record("Shutdown failed: \(error)") } }
+  let storage = UnsafeMutableBufferPointer<Float>.allocate(capacity: 6)
+  storage.initialize(repeating: 2)
+  defer { storage.deinitialize(); storage.deallocate() }
+  // Deliberately construct aliasing views to exercise the foreign-call gate.
+  // All offsets stay inside the initialized allocation; no view escapes it.
+  let input = UnsafeBufferPointer(start: storage.baseAddress!, count: 3)
+  let output = UnsafeMutableBufferPointer(start: storage.baseAddress!.advanced(by: offset), count: 3)
+  do {
+    var span = output.mutableSpan
+    try integrationScale(session, input.span, into: &span)
+    #expect(offset == 3)
+  } catch {
+    #expect(offset < 3)
+    #expect(error as? MojoInvocationError == .overlappingBuffers)
+  }
+  if offset < 3 { #expect(storage.allSatisfy { $0 == 2 }) }
+  else { #expect(output.allSatisfy { $0 == 4 }) }
 }
 
 private func verifyAttestationAgainstPreparedManifest(
@@ -100,4 +159,35 @@ private func verifyAttestationAgainstPreparedManifest(
   #expect(attestation.targetTriple.lowercased().hasPrefix("arm64-"))
   #expect(attestation.targetTriple.lowercased().contains("-apple-macos"))
 #endif
+}
+
+@Test(.timeLimit(.minutes(1)))
+func publicNumericSpanBindingsExecuteMojo() throws {
+  let source: [Float] = [1, 2, 3]
+  let sum = try source.withUnsafeBufferPointer { try integrationSum($0.span) }
+  #expect(sum == 6)
+  let doubles = [1.25, -3.5, 1e100]
+  var output = [Double](repeating: 0, count: doubles.count)
+  try doubles.withUnsafeBufferPointer { input in
+    try output.withUnsafeMutableBufferPointer { destination in
+      var span = destination.mutableSpan
+      try integrationScaleDouble(input.span, into: &span)
+    }
+  }
+  #expect(output == [2.5, -7, 2e100])
+  var shortOutput = [Double](repeating: 99, count: 1)
+  var failureStatus: Int32?
+  do {
+    try doubles.withUnsafeBufferPointer { input in
+      try shortOutput.withUnsafeMutableBufferPointer { destination in
+        var span = destination.mutableSpan
+        try integrationScaleDouble(input.span, into: &span)
+      }
+    }
+  } catch let error as MojoInvocationError {
+    guard case .invocationFailed(_, let status) = error else { throw error }
+    failureStatus = status
+  }
+  #expect(failureStatus == 4)
+  #expect(shortOutput == [99])
 }

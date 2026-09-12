@@ -1,5 +1,64 @@
 # Mojo
 
+## Direct-call completion work (2026-09-12)
+
+The current task completes generic Swift/Mojo calls before resuming consumer
+integration. The public borrowed host-memory boundary will use standard-library
+`borrowing Span<Element>` and `inout MutableSpan<Element>` instead of mandatory
+Array inputs/outputs. Arrays and caller-owned contiguous memory supply these
+views; the bridge must not materialize their payloads. The initially admitted
+scalar types and generated signature grammar must be explicitly enumerated and
+validated by BindingCore before implementation is considered complete.
+
+```text
+caller storage -> scoped Span / MutableSpan -> generated C ABI -> Mojo function
+session/resource owner -> admitted opaque handles -----------^
+                     return only after all foreign readers/writers complete
+```
+
+Mutable-output bindings require disjoint input/output byte ranges. The generated
+registry rejects complete or partial overlap before the Mojo call; adjacent
+ranges are allowed. Extent and address addition use checked arithmetic. In-place
+algorithms require an explicitly mutable-only contract, not an immutable alias.
+`MojoBuildPluginIntegrationTests.publicBindingChecksBorrowOverlap` owns the real
+Mojo/public-call success and rejection evidence for this boundary.
+
+Span is host-accessible storage, not a device pointer wrapper. Device resources
+retain their session, memory-location metadata and destructor through the
+existing owners. Generated resource calls must borrow all participating
+resources under one session admission; nesting individual borrows currently
+fails with `busy` and is not a valid multi-resource implementation. Domain,
+shutdown, aliasing and exactly-once destruction remain explicit contracts.
+No MAX model, image format, frame identity, retry or deadline policy belongs
+here. Do not introduce a second resource owner or asynchronous completion API
+merely to replace the existing synchronous foreign-call boundary.
+
+The current completion target is synchronous: every generated call returns only
+after its authored Mojo operation has stopped using borrowed storage, including
+GPU readers/writers. Shutdown during a borrow must fail explicitly rather than
+freeing active resources. Consumer cancellation may stop later calls, but cannot
+revoke an active synchronous borrow. Arbitrary foreign implementations must
+honor this boundary; types alone cannot prove their device completion behavior.
+
+The admitted static host signatures are Int32 binary addition, readonly
+`Span<Float>` reduction, Float32/Float64 input-to-mutable-output calls, and
+session-bound Float32 input/output calls. Existing session and Float32 resource
+factories remain available; their host transfers now take Span/MutableSpan.
+Other type/signature combinations fail binding validation. General multi-resource
+operation generation remains open; the existing worker resource-token declaration
+is not evidence of a completed direct resource API.
+
+Actual macro-to-Mojo execution was verified on Mac Swift 6.4.2-dev
+`d2e983b81b18217` and native Jetson Swift 6.4-dev `424cae54c1a10da`.
+[Native acceptance](../../Tests/Fixtures/DirectSpan/NativeAcceptance.swift) checks
+Float32 reduction, Float64 output, session mutation, alias rejection, and shutdown.
+The standalone local-session acceptance additionally checks owned resource
+creation, exact-count transfer, all failure statuses, and failure-time completion;
+its same public consumer passed on native Jetson. Swift-side Address Sanitizer
+passed on Mac; this does not instrument the Mojo implementation.
+[Benchmarks](../../Benchmarks/RuntimeBridge/README.md) own timing and observed
+allocation evidence. No GPU or Lume performance claim follows from these tests.
+
 ## Purpose and Scope
 
 `Mojo` is the public Swift module of the `swift-mojo` package. Its parent is the
@@ -105,3 +164,9 @@ and rerun package and build-plugin integration tests.
 Changes to attestation fields or validation order require review of the package
 master design, generated Registry writer, build verifier, macro tests, public
 value tests, and the real static-link integration fixture.
+
+Host transfer methods on `MojoFloat32Buffer` use the same scoped `Span<Float>`
+and `MutableSpan<Float>` contract as direct function bindings. Transfer bytes
+are deliberately copied by the selected foreign implementation; the Swift
+boundary does not materialize an array. Count validation precedes resource
+admission, and the foreign transfer completes before either view expires.

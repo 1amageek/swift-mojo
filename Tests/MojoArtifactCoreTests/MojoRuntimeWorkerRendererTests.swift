@@ -253,14 +253,14 @@ private struct Fixture {
             )
             func scale(
                 _ session: MojoSessionOwner,
-                _ input: [Float],
-                into output: inout [Float]
+                _ input: borrowing Span<Float>,
+                into output: inout MutableSpan<Float>
             ) throws
             """
         } else {
             sourceText = """
             @mojo(package: "Fixture", function: "sum")
-            func sum(_ values: [Float]) throws -> Float
+            func sum(_ values: borrowing Span<Float>) throws -> Float
             """
         }
         if includeResource {

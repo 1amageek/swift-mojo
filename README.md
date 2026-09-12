@@ -149,15 +149,16 @@ The consumer uses a normal Swift package dependency. It does not run `prepare`, 
 
 ## Borrow a contiguous Float buffer
 
-The first non-scalar vertical slice keeps the public API in Swift while borrowing an `Array<Float>` only for the duration of a synchronous Mojo call:
+The first non-scalar vertical slice keeps the public API in Swift while borrowing a `Span<Float>` only for the duration of a synchronous Mojo call:
 
 ```swift
 import Mojo
 
 @mojo(package: "MathModel", function: "sum")
-public func sum(_ values: [Float]) throws -> Float
+public func sum(_ values: borrowing Span<Float>) throws -> Float
 
-let total = try sum([1, 2, 3, 4]) // 10.0
+let input: [Float] = [1, 2, 3, 4]
+let total = try input.withUnsafeBufferPointer { try sum($0.span) } // 10.0
 ```
 
 ```mojo
@@ -174,7 +175,7 @@ def sum(
     return result
 ```
 
-The generated bridge borrows the array storage and lowers the call to `const float * + uint64_t count -> float`. It does not allocate an intermediate array or use an out-result buffer. ABI, input-graph, and complete binding membership are checked once through a thread-safe immutable validation cache; repeated calls retain only an inlinable binding-family guard, the scoped borrow, and one C ABI call. The pointer cannot escape the call, Mojo does not free it, and an empty input is rejected as `MojoInvocationError.emptyBorrowedBuffer`. No raw pointer appears in the package's public function declaration. Allocation and copy behavior still require benchmark evidence before this path is described as verified zero-copy.
+The generated bridge borrows the view storage and lowers the call to `const float * + uint64_t count -> float`. It does not allocate an intermediate array or use an out-result buffer. ABI, input-graph, and complete binding membership are checked once through a thread-safe immutable validation cache; repeated calls retain only an inlinable binding-family guard, the scoped borrow, and one C ABI call. The pointer cannot escape the call, Mojo does not free it, and an empty input is rejected as `MojoInvocationError.emptyBorrowedBuffer`. No raw pointer appears in the package's public function declaration. Allocation and copy behavior still require benchmark evidence before this path is described as verified zero-copy.
 
 ## Mutate a caller-owned Float buffer
 
@@ -184,10 +185,16 @@ The next vertical slice lets Mojo write into Swift-owned storage without transfe
 import Mojo
 
 @mojo(package: "MathModel", function: "scale")
-public func scale(_ input: [Float], into output: inout [Float]) throws
+public func scale(_ input: borrowing Span<Float>, into output: inout MutableSpan<Float>) throws
 
 var output = [Float](repeating: 0, count: 3)
-try scale([1, 2, 3], into: &output) // [2, 4, 6]
+let input: [Float] = [1, 2, 3]
+try input.withUnsafeBufferPointer { source in
+    try output.withUnsafeMutableBufferPointer { destination in
+        var view = destination.mutableSpan
+        try scale(source.span, into: &view)
+    }
+} // [2, 4, 6]
 ```
 
 ```mojo
@@ -207,7 +214,7 @@ def scale(
     return 0
 ```
 
-The generated Swift Registry nests `withUnsafeBufferPointer` and `withUnsafeMutableBufferPointer`, so both pointers exist only for one synchronous dispatcher call. The C boundary is `const float * + input count + float * + output count -> int32_t status`. Status `0` is success; every nonzero status becomes `MojoInvocationError.invocationFailed` and cannot be mistaken for a successful mutation. Empty input and output buffers are rejected independently before entering Mojo. Swift remains the owner of both arrays, and Mojo must not retain or free either pointer.
+The generated Swift Registry nests `withUnsafeBufferPointer` and `withUnsafeMutableBufferPointer`, so both pointers exist only for one synchronous dispatcher call. The C boundary is `const float * + input count + float * + output count -> int32_t status`. Status `0` is success; every nonzero status becomes `MojoInvocationError.invocationFailed` and cannot be mistaken for a successful mutation. Empty input and output buffers are rejected independently before entering Mojo. The caller retains the storage owners of both views, and Mojo must not retain or free either pointer.
 
 ## Keep Mojo-owned state across calls
 
@@ -247,8 +254,8 @@ public func makeBuffer(
 )
 public func run(
     _ session: MojoSessionOwner,
-    _ input: [Float],
-    into output: inout [Float]
+    _ input: borrowing Span<Float>,
+    into output: inout MutableSpan<Float>
 ) throws
 
 let session = try openSession(
@@ -262,16 +269,25 @@ let session = try openSession(
     )
 )
 var output = [Float](repeating: 0, count: 3)
-try run(session, [1, 2, 3], into: &output)
+let input: [Float] = [1, 2, 3]
+try input.withUnsafeBufferPointer { source in
+    try output.withUnsafeMutableBufferPointer { destination in
+        var view = destination.mutableSpan
+        try run(session, source.span, into: &view)
+    }
+}
 let buffer = try makeBuffer(session, elementCount: 4096, memoryKind: .host)
-try buffer.copy(from: [Float](repeating: 1, count: 4096))
+try [Float](repeating: 1, count: 4096).withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
 var copied = [Float](repeating: 0, count: 4096)
-try buffer.copy(into: &copied)
+try copied.withUnsafeMutableBufferPointer { destination in
+    var view = destination.mutableSpan
+    try buffer.copy(into: &view)
+}
 try buffer.shutdown()
 try session.shutdown()
 ```
 
-The generated C ABI creates an opaque session and session-owned buffer handles, passes them only inside scoped synchronous invocations, and routes destruction to each factory's paired shutdown function. Each buffer factory also declares `copyFromHost`, `copyToHost`, and `synchronize` operations. Generated Mojo calls `synchronize` after every successful transfer and before returning, so a Swift array pointer never escapes its borrow scope even when the device copy itself is enqueued asynchronously. Swift never exposes raw pointers to application code. The owner enforces exact element counts, factory-domain isolation, one active invocation at a time, typed use-after-shutdown/busy/active-resource failures, idempotent explicit shutdown, and exactly-once child-before-parent deallocation with a `deinit` fallback.
+The generated C ABI creates an opaque session and session-owned buffer handles, passes them only inside scoped synchronous invocations, and routes destruction to each factory's paired shutdown function. Each buffer factory also declares `copyFromHost`, `copyToHost`, and `synchronize` operations. Generated Mojo calls `synchronize` after every transfer attempt, including failures, and before returning, so a host view pointer never escapes its borrow scope even when the device copy itself is enqueued asynchronously. The declared `@mojo` API does not expose foreign raw handles. The owner enforces exact element counts, factory-domain isolation, one active invocation at a time, typed use-after-shutdown/busy/active-resource failures, idempotent explicit shutdown, and exactly-once child-before-parent deallocation with a `deinit` fallback.
 
 This is a generic ownership bridge, not a domain API. A consuming package still defines its Mojo session layout, data formats, resources, and operations. Current static artifacts must be link-closed against target system libraries; `prepare` rejects unresolved `AsyncRT_*`, `KGEN_CompilerRT_*`, and `MGP_RT_*` dependencies instead of allowing a later consumer link failure. A dynamically linked accelerator or async runtime must be introduced through an explicit versioned adapter rather than an implicit dependency.
 
@@ -712,8 +728,8 @@ The DSL will grow incrementally, while production-scale full Mojo implementation
 | Signature | Scalar addition, immutable/mutable host `Float` borrows, runtime-session factory/use, and session-owned Float32-buffer factory with synchronous host transfer |
 | Inline DSL | Exactly one direct `return lhs + rhs`; operand order may be reversed |
 | External implementation | `@mojo(package:function:)` plus `Mojo/<Package>/__init__.mojo` |
-| Borrowed buffer | Non-empty contiguous `[Float]`; pointer is immutable and scoped to one synchronous call |
-| Mutable output | Non-empty caller-owned `inout [Float]`; mutable pointer is scoped to the same synchronous call and nonzero Mojo status throws |
+| Borrowed buffer | Non-empty `borrowing Span<Float>`; pointer is immutable and scoped to one synchronous call |
+| Mutable output | Non-empty caller-owned `inout MutableSpan<Float>`; mutable pointer is scoped to the same synchronous call and nonzero Mojo status throws |
 | Runtime session | Opaque Mojo-created handle with capability validation, factory-domain isolation, one synchronous lease, and exactly-once shutdown |
 | Owned Float32 buffer | Session-owned opaque handle with host/device/pinned-host memory kind, capability/size/count validation, synchronous host copies, parent-shutdown exclusion, and paired idempotent destruction |
 | Artifact | Adapter-specific XCFramework/artifact bundle, canonical generated Mojo, schema-5 manifest/source map, and declared compiler slices; Apple same-platform architectures share a universal static binary |

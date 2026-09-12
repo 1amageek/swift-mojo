@@ -16,8 +16,8 @@ public func createSession(
 )
 public func scale(
     _ session: MojoSessionOwner,
-    _ input: [Float],
-    into output: inout [Float]
+    _ input: borrowing Span<Float>,
+    into output: inout MutableSpan<Float>
 ) throws
 
 @mojo(
@@ -27,6 +27,6 @@ public func scale(
 )
 public func stall(
     _ session: MojoSessionOwner,
-    _ input: [Float],
-    into output: inout [Float]
+    _ input: borrowing Span<Float>,
+    into output: inout MutableSpan<Float>
 ) throws

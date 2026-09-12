@@ -4,6 +4,6 @@ public protocol MojoFloat32Buffer: MojoSessionResource {
     var device: MojoDeviceKind { get }
     var memoryKind: MojoBufferMemoryKind { get }
 
-    func copy(from source: borrowing [Float]) throws
-    func copy(into destination: inout [Float]) throws
+    func copy(from source: borrowing Span<Float>) throws
+    func copy(into destination: inout MutableSpan<Float>) throws
 }

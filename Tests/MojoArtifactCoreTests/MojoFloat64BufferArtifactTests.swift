@@ -51,7 +51,7 @@ struct MojoFloat64BufferArtifactTests {
         )
         try """
         @mojo(package: "Dynamics", function: "execute")
-        func execute(_ input: [Double], into output: inout [Double]) throws
+        func execute(_ input: borrowing Span<Double>, into output: inout MutableSpan<Double>) throws
         """.write(to: source, atomically: true, encoding: .utf8)
 
         let target = try MojoTargetConfiguration(
@@ -115,8 +115,8 @@ struct MojoFloat64BufferArtifactTests {
         )
         #expect(header.contains("const double *input"))
         #expect(header.contains("double *output"))
-        #expect(registry.contains("input: borrowing [Double]"))
-        #expect(registry.contains("output: inout [Double]"))
+        #expect(registry.contains("input: borrowing Span<Double>"))
+        #expect(registry.contains("output: inout MutableSpan<Double>"))
         #expect(registry.contains("input.withUnsafeBufferPointer"))
         #expect(registry.contains("output.withUnsafeMutableBufferPointer"))
         #expect(registry.contains("MojoInvocationError.emptyBorrowedBuffer"))

@@ -166,13 +166,16 @@ struct MojoFloat32BufferOwnerTests {
         let source: [Float] = [1, 2, 3, 4, 5, 6, 7, 8]
         var destination = [Float](repeating: 0, count: source.count)
 
-        try buffer.copy(from: source)
-        try buffer.copy(into: &destination)
+        try source.withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
+        try destination.withUnsafeMutableBufferPointer {
+                var span = $0.mutableSpan
+                try buffer.copy(into: &span)
+            }
 
         #expect(destination == source)
         try buffer.shutdown()
         #expect(throws: MojoSessionError.resourceShutdown) {
-            try buffer.copy(from: source)
+            try source.withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
         }
         try session.shutdown()
     }
@@ -190,7 +193,7 @@ struct MojoFloat32BufferOwnerTests {
                 actual: 7
             )
         ) {
-            try buffer.copy(from: destination)
+            try destination.withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
         }
         #expect(
             throws: MojoBufferError.elementCountMismatch(
@@ -198,7 +201,10 @@ struct MojoFloat32BufferOwnerTests {
                 actual: 7
             )
         ) {
-            try buffer.copy(into: &destination)
+            try destination.withUnsafeMutableBufferPointer {
+                var span = $0.mutableSpan
+                try buffer.copy(into: &span)
+            }
         }
 
         try buffer.shutdown()

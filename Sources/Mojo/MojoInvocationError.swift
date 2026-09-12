@@ -4,6 +4,8 @@ public enum MojoInvocationError: Error, Equatable, Sendable,
     case incompatibleStaticABI(expected: UInt32, actual: UInt32)
     case inputGraphMismatch(expected: UInt64, actual: UInt64)
     case emptyBorrowedBuffer
+    case overlappingBuffers
+    case invalidBufferExtent
     case emptyMutableBuffer
     case invalidSessionDeviceKind(bindingID: UInt64, rawValue: UInt32)
     case invalidSessionResponseSchema(
@@ -31,6 +33,10 @@ public enum MojoInvocationError: Error, Equatable, Sendable,
             "The linked Mojo input graph is \(actual), expected \(expected)"
         case .emptyBorrowedBuffer:
             "The Mojo call requires a non-empty Float buffer"
+        case .overlappingBuffers:
+            "The Mojo input and output buffers overlap"
+        case .invalidBufferExtent:
+            "The Mojo buffer byte range cannot be represented"
         case .emptyMutableBuffer:
             "The Mojo call requires a non-empty mutable Float buffer"
         case .invalidSessionDeviceKind(let bindingID, let rawValue):

@@ -7,7 +7,7 @@ package struct MojoStaticSourceRenderer: Sendable {
     package static let borrowedMutableFloat32BuffersGenerationVersion = 1
     package static let borrowedMutableFloat64BuffersGenerationVersion = 1
     package static let runtimeSessionGenerationVersion = 1
-    package static let sessionResourceGenerationVersion = 3
+    package static let sessionResourceGenerationVersion = 4
 
     package init() {}
 
@@ -462,11 +462,13 @@ package struct MojoStaticSourceRenderer: Sendable {
                 lines.append(
                     "        var status = __swift_mojo_resource_copy_from_host_\(binding.bindingID)(session, buffer, source, element_count)"
                 )
+                lines.append("        # Failed transfers may have queued readers; always join before returning.")
+                lines.append(
+                    "        var completion_status = __swift_mojo_resource_synchronize_\(binding.bindingID)(session)"
+                )
                 lines.append("        if status != 0:")
                 lines.append("            return status")
-                lines.append(
-                    "        return __swift_mojo_resource_synchronize_\(binding.bindingID)(session)"
-                )
+                lines.append("        return completion_status")
             }
             lines.append("    return -1")
             lines.append("")
@@ -485,11 +487,13 @@ package struct MojoStaticSourceRenderer: Sendable {
                 lines.append(
                     "        var status = __swift_mojo_resource_copy_to_host_\(binding.bindingID)(session, buffer, destination, element_count)"
                 )
+                lines.append("        # Failed transfers may have queued readers; always join before returning.")
+                lines.append(
+                    "        var completion_status = __swift_mojo_resource_synchronize_\(binding.bindingID)(session)"
+                )
                 lines.append("        if status != 0:")
                 lines.append("            return status")
-                lines.append(
-                    "        return __swift_mojo_resource_synchronize_\(binding.bindingID)(session)"
-                )
+                lines.append("        return completion_status")
             }
             lines.append("    return -1")
         }

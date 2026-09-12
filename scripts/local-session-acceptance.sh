@@ -147,8 +147,8 @@ func makeBuffer(
 )
 func scale(
     _ session: MojoSessionOwner,
-    _ input: [Float],
-    into output: inout [Float]
+    _ input: borrowing Span<Float>,
+    into output: inout MutableSpan<Float>
 ) throws
 
 @main
@@ -168,7 +168,12 @@ enum Application {
         )
 
         var output = [Float](repeating: 0, count: 3)
-        try scale(session, [1, 2, 3], into: &output)
+        try [Float]([1, 2, 3]).withUnsafeBufferPointer { source in
+            try output.withUnsafeMutableBufferPointer { destination in
+                var view = destination.mutableSpan
+                try scale(session, source.span, into: &view)
+            }
+        }
         print(output.map { String($0) }.joined(separator: ","))
 
         let buffer = try makeBuffer(
@@ -179,16 +184,19 @@ enum Application {
         print(
             "buffer-\(buffer.elementCount)-\(buffer.byteCount)-\(buffer.memoryKind.rawValue)"
         )
-        try buffer.copy(from: [4, 3, 2, 1])
+        try [Float]([4, 3, 2, 1]).withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
         var bufferValues = [Float](repeating: 0, count: 4)
-        try buffer.copy(into: &bufferValues)
+        try bufferValues.withUnsafeMutableBufferPointer { destination in
+            var view = destination.mutableSpan
+            try buffer.copy(into: &view)
+        }
         print(
             "buffer-values-" + bufferValues
                 .map { String($0) }
                 .joined(separator: ",")
         )
         do {
-            try buffer.copy(from: [1])
+            try [Float]([1]).withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
             fatalError("Mismatched host buffer unexpectedly copied")
         } catch MojoBufferError.elementCountMismatch(
             let expected,
@@ -197,21 +205,24 @@ enum Application {
             print("buffer-count-\(expected)-\(actual)")
         }
         do {
-            try buffer.copy(from: [-1, 0, 0, 0])
+            try [Float]([-1, 0, 0, 0]).withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
             fatalError("Nonzero transfer status unexpectedly succeeded")
         } catch MojoInvocationError.invocationFailed(_, let status) {
             print("copy-status-\(status)")
         }
-        try buffer.copy(from: [-2, 0, 0, 0])
+        try [Float]([-2, 0, 0, 0]).withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
         var failedRead = [Float](repeating: 9, count: 4)
         do {
-            try buffer.copy(into: &failedRead)
+            try failedRead.withUnsafeMutableBufferPointer { destination in
+            var view = destination.mutableSpan
+            try buffer.copy(into: &view)
+        }
             fatalError("Nonzero copy-to-host status unexpectedly succeeded")
         } catch MojoInvocationError.invocationFailed(_, let status) {
             print("copy-back-status-\(status)")
         }
         do {
-            try buffer.copy(from: [-3, 0, 0, 0])
+            try [Float]([-3, 0, 0, 0]).withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
             fatalError("Nonzero synchronization status unexpectedly succeeded")
         } catch MojoInvocationError.invocationFailed(_, let status) {
             print("sync-status-\(status)")
@@ -255,7 +266,7 @@ enum Application {
         try buffer.shutdown()
         print(buffer.isShutdown ? "buffer-shutdown" : "buffer-active")
         do {
-            try buffer.copy(from: [1, 2, 3, 4])
+            try [Float]([1, 2, 3, 4]).withUnsafeBufferPointer { try buffer.copy(from: $0.span) }
             fatalError("Shutdown buffer unexpectedly accepted a copy")
         } catch MojoSessionError.resourceShutdown {
             print("copy-after-buffer-shutdown")
@@ -263,7 +274,12 @@ enum Application {
 
         var shortOutput = [Float](repeating: 0, count: 2)
         do {
-            try scale(session, [1, 2, 3], into: &shortOutput)
+            try [Float]([1, 2, 3]).withUnsafeBufferPointer { source in
+                try shortOutput.withUnsafeMutableBufferPointer { destination in
+                    var view = destination.mutableSpan
+                    try scale(session, source.span, into: &view)
+                }
+            }
             fatalError("Nonzero session status unexpectedly succeeded")
         } catch MojoInvocationError.invocationFailed(_, let status) {
             print("status-\(status)")
@@ -274,7 +290,12 @@ enum Application {
         try buffer.shutdown()
         print("buffer-idempotent-after-session")
         do {
-            try scale(session, [1], into: &output)
+            try [Float]([1]).withUnsafeBufferPointer { source in
+                try output.withUnsafeMutableBufferPointer { destination in
+                    var view = destination.mutableSpan
+                    try scale(session, source.span, into: &view)
+                }
+            }
             fatalError("Use after shutdown unexpectedly succeeded")
         } catch MojoSessionError.shutdown {
             print("use-after-shutdown")
@@ -402,9 +423,12 @@ def copy_from_host(
     source: Pointer[Float32, ImmUntrackedOrigin],
     element_count: UInt64,
 ) -> Int32:
-    if source[0] == -1:
-        return 34
     var session_state = session.unsafe_bitcast[Session]()
+    if session_state[].sync_status != 0:
+        return 38
+    if source[0] == -1:
+        session_state[].sync_status = 37
+        return 34
     if source[0] == -3:
         session_state[].sync_status = 36
     var destination = buffer.unsafe_bitcast[Float32]()
@@ -420,6 +444,8 @@ def copy_to_host(
 ) -> Int32:
     var source = buffer.unsafe_bitcast[Float32]()
     if source[0] == -2:
+        var session_state = session.unsafe_bitcast[Session]()
+        session_state[].sync_status = 39
         return 35
     for index in range(Int(element_count)):
         destination[unsafe_offset=index] = source[unsafe_offset=index]

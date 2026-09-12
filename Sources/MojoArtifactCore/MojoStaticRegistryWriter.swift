@@ -1,7 +1,7 @@
 import MojoBindingCore
 
 package struct MojoStaticRegistryWriter: Sendable {
-    package static let generationVersion = 5
+    package static let generationVersion = 6
     package static let borrowedFloat32BufferGenerationVersion = 1
     package static let borrowedMutableFloat32BuffersGenerationVersion = 1
     package static let borrowedMutableFloat64BuffersGenerationVersion = 1
@@ -83,6 +83,36 @@ package struct MojoStaticRegistryWriter: Sendable {
         )
         """
         var methods: [String] = []
+        if signatures.contains(.borrowedMutableFloat32Buffers)
+            || signatures.contains(.borrowedMutableFloat64Buffers)
+            || signatures.contains(.sessionBorrowedMutableFloat32Buffers) {
+            methods.append(
+                """
+                    @inline(__always)
+                    private static func requireDisjointBuffers<Element>(
+                        _ input: UnsafeBufferPointer<Element>,
+                        _ output: UnsafeMutableBufferPointer<Element>
+                    ) throws {
+                        guard let inputBase = input.baseAddress, let outputBase = output.baseAddress else {
+                            throw MojoInvocationError.invalidBufferExtent
+                        }
+                        let inputBytes = UInt(input.count).multipliedReportingOverflow(by: UInt(MemoryLayout<Element>.stride))
+                        let outputBytes = UInt(output.count).multipliedReportingOverflow(by: UInt(MemoryLayout<Element>.stride))
+                        let inputStart = UInt(bitPattern: inputBase), outputStart = UInt(bitPattern: outputBase)
+                        let inputEnd = inputStart.addingReportingOverflow(inputBytes.partialValue)
+                        let outputEnd = outputStart.addingReportingOverflow(outputBytes.partialValue)
+                        guard !inputBytes.overflow, !outputBytes.overflow,
+                              !inputEnd.overflow, !outputEnd.overflow else {
+                            throw MojoInvocationError.invalidBufferExtent
+                        }
+                        guard inputStart >= outputEnd.partialValue || outputStart >= inputEnd.partialValue else {
+                            throw MojoInvocationError.overlappingBuffers
+                        }
+                    }
+                """
+            )
+        }
+
         let attestationSource = try Self.attestationSource(manifest: manifest)
         methods.append(attestationSource.method)
         if signatures.contains(.int32Binary) {
@@ -116,7 +146,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                     @inline(__always)
                     static func invokeFloatBuffer(
                         bindingID: UInt64,
-                        values: borrowing [Float]
+                        values: borrowing Span<Float>
                     ) throws -> Float {
                         try artifactPreflight.requireValid()
                         switch bindingID {
@@ -148,8 +178,8 @@ package struct MojoStaticRegistryWriter: Sendable {
                     @inline(__always)
                     static func invokeFloatBufferMutation(
                         bindingID: UInt64,
-                        input: borrowing [Float],
-                        output: inout [Float]
+                        input: borrowing Span<Float>,
+                        output: inout MutableSpan<Float>
                     ) throws {
                         try artifactPreflight.requireValid()
                         switch bindingID {
@@ -170,6 +200,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                                       !outputBuffer.isEmpty else {
                                     throw MojoInvocationError.emptyMutableBuffer
                                 }
+                                try requireDisjointBuffers(inputBuffer, outputBuffer)
                                 let status = \(prefix)_call_f32_buffer_f32_buffer_i32(
                                     bindingID,
                                     inputBaseAddress,
@@ -195,8 +226,8 @@ package struct MojoStaticRegistryWriter: Sendable {
                     @inline(__always)
                     static func invokeDoubleBufferMutation(
                         bindingID: UInt64,
-                        input: borrowing [Double],
-                        output: inout [Double]
+                        input: borrowing Span<Double>,
+                        output: inout MutableSpan<Double>
                     ) throws {
                         try artifactPreflight.requireValid()
                         switch bindingID {
@@ -217,6 +248,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                                       !outputBuffer.isEmpty else {
                                     throw MojoInvocationError.emptyMutableBuffer
                                 }
+                                try requireDisjointBuffers(inputBuffer, outputBuffer)
                                 let status = \(prefix)_call_f64_buffer_f64_buffer_i32(
                                     bindingID,
                                     inputBaseAddress,
@@ -508,8 +540,8 @@ package struct MojoStaticRegistryWriter: Sendable {
                     static func invokeSessionFloatBufferMutation(
                         bindingID: UInt64,
                         session: MojoSessionOwner,
-                        input: borrowing [Float],
-                        output: inout [Float]
+                        input: borrowing Span<Float>,
+                        output: inout MutableSpan<Float>
                     ) throws {
                         try artifactPreflight.requireValid()
                         switch bindingID {
@@ -541,6 +573,7 @@ package struct MojoStaticRegistryWriter: Sendable {
                                           !outputBuffer.isEmpty else {
                                         throw MojoInvocationError.emptyMutableBuffer
                                     }
+                                    try requireDisjointBuffers(inputBuffer, outputBuffer)
                                     let status = \(prefix)_call_session_f32_buffer_f32_buffer_i32_v1(
                                         bindingID,
                                         handle,

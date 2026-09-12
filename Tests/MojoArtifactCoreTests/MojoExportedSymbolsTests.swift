@@ -75,13 +75,13 @@ struct MojoExportedSymbolsTests {
         }
 
         @mojo(package: "Fixture", function: "sum")
-        func sum(_ values: [Float]) throws -> Float
+        func sum(_ values: borrowing Span<Float>) throws -> Float
 
         @mojo(package: "Fixture", function: "scale_float")
-        func scaleFloat(_ input: [Float], into output: inout [Float]) throws
+        func scaleFloat(_ input: borrowing Span<Float>, into output: inout MutableSpan<Float>) throws
 
         @mojo(package: "Fixture", function: "scale_double")
-        func scaleDouble(_ input: [Double], into output: inout [Double]) throws
+        func scaleDouble(_ input: borrowing Span<Double>, into output: inout MutableSpan<Double>) throws
 
         @mojo(
             package: "Fixture",
@@ -114,8 +114,8 @@ struct MojoExportedSymbolsTests {
         )
         func execute(
             _ session: MojoSessionOwner,
-            _ input: [Float],
-            into output: inout [Float]
+            _ input: borrowing Span<Float>,
+            into output: inout MutableSpan<Float>
         ) throws
         """
     }

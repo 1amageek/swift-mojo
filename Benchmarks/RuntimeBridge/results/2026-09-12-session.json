@@ -1,0 +1,55 @@
+{
+  "date": "2026-09-12",
+  "mac": {
+    "cpu": "Apple M4 Max",
+    "os": "macOS 27.0",
+    "swift": "6.4.2-dev d2e983b81b18217"
+  },
+  "jetson": {
+    "os": "WendyOS 0.19.1",
+    "swift": "6.4-dev 424cae54c1a10da",
+    "target": "aarch64-unknown-linux-gnu"
+  },
+  "mojo": "1.0.0 (ed45d567)",
+  "optimization": "Swift -O; same prepared native Mojo function for both routes",
+  "benchmarkSourceSHA256": "c3cce831b23274a5d6e3ef9f1949f00a635de6c1ff5ae4e5c1efbec605eb398c",
+  "nativeArtifactSetSHA256": "5dfc7b180c29580f4cfbc9cfe84e5e775f91bc8d96b28ab735b3702834ad869e",
+  "allocationProbe": {
+    "platforms": [
+      "mac",
+      "jetson"
+    ],
+    "elements": [
+      1,
+      4096,
+      1048576
+    ],
+    "callsPerSize": 1000,
+    "observedAllocatorEntryCallsPerSize": [
+      0,
+      0,
+      0
+    ],
+    "positiveControlCalls": 1
+  },
+  "limits": [
+    "CPU synchronous fixture, not GPU or MAX inference",
+    "Direct timing excludes the outer session lease; public timing includes per-call admission",
+    "Median differences can be negative due to timing noise",
+    "Allocator interception covers its listed native entry points, not device allocation or arbitrary foreign implementations"
+  ],
+  "verification": {
+    "scopedTests": 116,
+    "scopedTestEvidence": [
+      ".build/direct-span-probe/final-tests.log (115 tests, one outdated generation golden failed)",
+      ".build/direct-span-probe/generation-green.log (updated golden passed)",
+      ".build/direct-span-probe/acceptance-grammar.log (one additional real acceptance-source test passed)"
+    ],
+    "nativeAcceptance": ".build/direct-span-probe/native.log",
+    "failedTransferRed": ".build/direct-span-probe/drain-behavior-red.log (next call rejected pending state with status 38)",
+    "failedTransferGreenMac": ".build/direct-span-probe/drain-behavior-green.log",
+    "failedTransferGreenJetson": ".build/direct-span-probe/native-resource.log (22 expected lines matched)",
+    "addressSanitizer": ".build/direct-span-probe/mac-asan.log (Swift side only)",
+    "readonlyBenchmark": ".build/direct-span-probe/sum-benchmark.log"
+  }
+}

@@ -25,6 +25,15 @@ public func integrationOpenSession(
 )
 public func integrationScale(
   _ session: MojoSessionOwner,
-  _ input: [Float],
-  into output: inout [Float]
+  _ input: borrowing Span<Float>,
+  into output: inout MutableSpan<Float>
+) throws
+
+@mojo(package: "SessionModel", function: "sum_values")
+public func integrationSum(_ values: borrowing Span<Float>) throws -> Float
+
+@mojo(package: "SessionModel", function: "scale_double")
+public func integrationScaleDouble(
+  _ input: borrowing Span<Double>,
+  into output: inout MutableSpan<Double>
 ) throws

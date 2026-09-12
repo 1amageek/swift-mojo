@@ -5,6 +5,19 @@ import Testing
 @Suite("Mojo session binding model")
 struct MojoSessionBindingTests {
     @Test(.timeLimit(.minutes(1)))
+    func acceptanceDeclarationsUseTheCurrentDirectGrammar() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent(
+            "Acceptance/RuntimeWorker/Fixtures/RuntimeWorkerAcceptanceModel/Sources/RuntimeWorkerAcceptanceModel/Bindings.swift"
+        ), encoding: .utf8)
+        let bindings = try parse(source).bindings
+        #expect(bindings.count == 3)
+        #expect(bindings.filter { $0.signature == .runtimeSessionFactory }.count == 1)
+        #expect(bindings.filter { $0.signature == .sessionBorrowedMutableFloat32Buffers }.count == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func factoryAndBoundCallProduceLinkedSessionMetadata() throws {
         let graph = try parse(
             """
@@ -24,8 +37,8 @@ struct MojoSessionBindingTests {
             )
             func scale(
                 _ session: MojoSessionOwner,
-                _ input: [Float],
-                into output: inout [Float]
+                _ input: borrowing Span<Float>,
+                into output: inout MutableSpan<Float>
             ) throws
             """
         )
@@ -122,8 +135,8 @@ struct MojoSessionBindingTests {
                 )
                 func scale(
                     _ session: MojoSessionOwner,
-                    _ input: [Float],
-                    into output: inout [Float]
+                    _ input: borrowing Span<Float>,
+                    into output: inout MutableSpan<Float>
                 ) throws
                 """
             )
@@ -156,8 +169,8 @@ struct MojoSessionBindingTests {
                 )
                 func scale(
                     _ session: MojoSessionOwner,
-                    _ input: [Float],
-                    into output: inout [Float]
+                    _ input: borrowing Span<Float>,
+                    into output: inout MutableSpan<Float>
                 ) throws
                 """
             )
@@ -218,8 +231,8 @@ struct MojoSessionBindingTests {
                 @mojo(package: "SessionModel", function: "scale")
                 func scale(
                     _ session: MojoSessionOwner,
-                    _ input: [Float],
-                    into output: inout [Float]
+                    _ input: borrowing Span<Float>,
+                    into output: inout MutableSpan<Float>
                 ) throws
                 """
             )

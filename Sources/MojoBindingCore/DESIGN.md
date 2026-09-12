@@ -1,5 +1,18 @@
 # MojoBindingCore
 
+## Scoped direct buffer contract (2026-09-12)
+
+Direct borrowed Float32/Float64 signatures use `borrowing Span<Float/Double>`
+and `inout MutableSpan<Float/Double>`. BindingCore validates these exact Swift
+ownership forms and includes them in canonical binding identity. Array signatures
+are replaced, without a compatibility dispatcher. Scalar/factory identities are
+unchanged. ArtifactCore emits scoped pointer/count calls from these views; C ABI
+payload layout remains typed pointer plus UInt64 element count. The generated
+registry must not allocate, resize or materialize buffer payloads. Empty-buffer
+and explicit Mojo-status failures retain their existing behavior. Regenerate
+prepared artifacts and check actual macro-to-native execution before completion.
+
+
 ## Purpose and Scope
 
 Parent: [package](../../DESIGN.md). No child design units. Own the binding source

@@ -1,5 +1,18 @@
 # MojoArtifactCore
 
+## Scoped direct buffer contract (2026-09-12)
+
+Direct borrowed Float32/Float64 signatures use `borrowing Span<Float/Double>`
+and `inout MutableSpan<Float/Double>`. BindingCore validates these exact Swift
+ownership forms and includes them in canonical binding identity. Array signatures
+are replaced, without a compatibility dispatcher. Scalar/factory identities are
+unchanged. ArtifactCore emits scoped pointer/count calls from these views; C ABI
+payload layout remains typed pointer plus UInt64 element count. The generated
+registry must not allocate, resize or materialize buffer payloads. Empty-buffer
+and explicit Mojo-status failures retain their existing behavior. Regenerate
+prepared artifacts and check actual macro-to-native execution before completion.
+
+
 ## Resource-binding generation delta (target design, 2026-09-12)
 
 [ProtocolCore](../MojoRuntimeProtocolCore/DESIGN.md#resource-invocation-protocol-target-design-2026-09-12)
@@ -186,3 +199,15 @@ failure, invalid lengths, output-count overflow and result-byte canaries.
 The worker socket endpoint and public operation factory remain unconnected;
 this native-call evidence does not establish IPC, GPU or public API performance.
 Existing Float32 worker invocation is not evidence for that integration.
+
+## Transfer completion on failure
+
+A generated host/resource transfer always calls its declared `synchronize` after
+the transfer function returns, including nonzero transfer status. The foreign
+synchronizer must stop all readers/writers before returning on every status.
+Only then may Swift end the host view and resource lease. The original transfer
+status takes precedence; when the transfer succeeds, synchronization status is
+returned. This preserves the operation's primary failure without skipping
+completion. The local-session acceptance fixture leaves a pending marker on
+both failing transfer directions; a subsequent operation rejects undrained
+state, so skipping completion is observable through the public API.

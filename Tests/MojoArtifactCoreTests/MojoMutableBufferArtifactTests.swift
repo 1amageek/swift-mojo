@@ -50,7 +50,7 @@ struct MojoMutableBufferArtifactTests {
         )
         try """
         @mojo(package: "MathModel", function: "scale")
-        func scale(_ input: [Float], into output: inout [Float]) throws
+        func scale(_ input: borrowing Span<Float>, into output: inout MutableSpan<Float>) throws
         """.write(to: source, atomically: true, encoding: .utf8)
         let target = try MojoTargetConfiguration(
             triple: "arm64-apple-macosx14.0",
@@ -114,8 +114,8 @@ struct MojoMutableBufferArtifactTests {
         )
         #expect(header.contains("const float *input"))
         #expect(header.contains("float *output"))
-        #expect(registry.contains("input: borrowing [Float]"))
-        #expect(registry.contains("output: inout [Float]"))
+        #expect(registry.contains("input: borrowing Span<Float>"))
+        #expect(registry.contains("output: inout MutableSpan<Float>"))
         #expect(registry.contains("input.withUnsafeBufferPointer"))
         #expect(registry.contains("output.withUnsafeMutableBufferPointer"))
         #expect(registry.contains("MojoInvocationError.emptyBorrowedBuffer"))

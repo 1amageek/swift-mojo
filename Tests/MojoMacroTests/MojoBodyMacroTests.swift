@@ -51,15 +51,15 @@ final class MojoBodyMacroTests: XCTestCase {
 
     func testBorrowedFloatBufferExpansionUsesThrowingScopedRegistry() {
         let bindingID = MojoCanonicalDigest.identifier(
-            "swift-mojo-binding-v1|sum|([Float])->throws Float"
+            "swift-mojo-binding-v1|sum|(borrowing Span<Float>)->throws Float"
         )
         assertMacroExpansion(
             """
             @mojo(package: "MathModel", function: "sum")
-            func sum(_ values: [Float]) throws -> Float
+            func sum(_ values: borrowing Span<Float>) throws -> Float
             """,
             expandedSource: """
-            func sum(_ values: [Float]) throws -> Float {
+            func sum(_ values: borrowing Span<Float>) throws -> Float {
                 return try __SwiftMojoGeneratedBindings.invokeFloatBuffer(
                     bindingID: UInt64(\(bindingID)),
                     values: values
@@ -73,20 +73,20 @@ final class MojoBodyMacroTests: XCTestCase {
 
     func testMutableFloatBufferExpansionUsesScopedRegistry() {
         let bindingID = MojoCanonicalDigest.identifier(
-            "swift-mojo-binding-v1|scale|([Float],inout [Float])->throws Void"
+            "swift-mojo-binding-v1|scale|(borrowing Span<Float>,inout MutableSpan<Float>)->throws Void"
         )
         assertMacroExpansion(
             """
             @mojo(package: "MathModel", function: "scale")
             func scale(
-                _ input: [Float],
-                into output: inout [Float]
+                _ input: borrowing Span<Float>,
+                into output: inout MutableSpan<Float>
             ) throws
             """,
             expandedSource: """
             func scale(
-                _ input: [Float],
-                into output: inout [Float]
+                _ input: borrowing Span<Float>,
+                into output: inout MutableSpan<Float>
             ) throws {
                 try __SwiftMojoGeneratedBindings.invokeFloatBufferMutation(
                     bindingID: UInt64(\(bindingID)),
@@ -102,20 +102,20 @@ final class MojoBodyMacroTests: XCTestCase {
 
     func testMutableDoubleBufferExpansionUsesScopedRegistry() {
         let bindingID = MojoCanonicalDigest.identifier(
-            "swift-mojo-binding-v1|execute|([Double],inout [Double])->throws Void"
+            "swift-mojo-binding-v1|execute|(borrowing Span<Double>,inout MutableSpan<Double>)->throws Void"
         )
         assertMacroExpansion(
             """
             @mojo(package: "Dynamics", function: "execute")
             func execute(
-                _ input: [Double],
-                into output: inout [Double]
+                _ input: borrowing Span<Double>,
+                into output: inout MutableSpan<Double>
             ) throws
             """,
             expandedSource: """
             func execute(
-                _ input: [Double],
-                into output: inout [Double]
+                _ input: borrowing Span<Double>,
+                into output: inout MutableSpan<Double>
             ) throws {
                 try __SwiftMojoGeneratedBindings.invokeDoubleBufferMutation(
                     bindingID: UInt64(\(bindingID)),
@@ -201,7 +201,7 @@ final class MojoBodyMacroTests: XCTestCase {
 
     func testSessionMutationExpansionBorrowsOwnerAndBuffers() {
         let bindingID = MojoCanonicalDigest.identifier(
-            "swift-mojo-binding-v1|scale|(MojoSessionOwner,[Float],inout [Float])->throws Void"
+            "swift-mojo-binding-v1|scale|(MojoSessionOwner,borrowing Span<Float>,inout MutableSpan<Float>)->throws Void"
         )
         assertMacroExpansion(
             """
@@ -212,15 +212,15 @@ final class MojoBodyMacroTests: XCTestCase {
             )
             func scale(
                 _ session: MojoSessionOwner,
-                _ input: [Float],
-                into output: inout [Float]
+                _ input: borrowing Span<Float>,
+                into output: inout MutableSpan<Float>
             ) throws
             """,
             expandedSource: """
             func scale(
                 _ session: MojoSessionOwner,
-                _ input: [Float],
-                into output: inout [Float]
+                _ input: borrowing Span<Float>,
+                into output: inout MutableSpan<Float>
             ) throws {
                 try __SwiftMojoGeneratedBindings.invokeSessionFloatBufferMutation(
                     bindingID: UInt64(\(bindingID)),

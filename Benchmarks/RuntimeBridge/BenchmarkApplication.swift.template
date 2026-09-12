@@ -3,15 +3,15 @@ import Mojo
 import SwiftMojo_RuntimeBridgeBenchmark_ABI
 
 @mojo(package: "BenchmarkModel", function: "sum")
-func mojoSum(_ values: [Float]) throws -> Float
+func mojoSum(_ values: borrowing Span<Float>) throws -> Float
 
 @inline(never)
-private func callWrapper(_ values: borrowing [Float]) throws -> Float {
+private func callWrapper(_ values: borrowing Span<Float>) throws -> Float {
     try mojoSum(values)
 }
 
 @inline(never)
-private func callDirectDispatcher(_ values: borrowing [Float]) throws -> Float {
+private func callDirectDispatcher(_ values: borrowing Span<Float>) throws -> Float {
     try values.withUnsafeBufferPointer { buffer in
         guard let baseAddress = buffer.baseAddress,
               !buffer.isEmpty else {
@@ -48,9 +48,10 @@ enum RuntimeBridgeBenchmark {
         let warmupCalls = max(1_000, callsPerSample * 5)
         let values = (0..<bufferCount).map { Float(($0 % 17) + 1) }
 
+        try values.withUnsafeBufferPointer { storage in
         for _ in 0..<warmupCalls {
-            _ = try callWrapper(values)
-            _ = try callDirectDispatcher(values)
+            _ = try callWrapper(storage.span)
+            _ = try callDirectDispatcher(storage.span)
         }
 
         var wrapperSamples: [Double] = []
@@ -64,11 +65,11 @@ enum RuntimeBridgeBenchmark {
             if sample.isMultiple(of: 2) {
                 let wrapper = try measure(
                     calls: callsPerSample,
-                    body: { try callWrapper(values) }
+                    body: { try callWrapper(storage.span) }
                 )
                 let direct = try measure(
                     calls: callsPerSample,
-                    body: { try callDirectDispatcher(values) }
+                    body: { try callDirectDispatcher(storage.span) }
                 )
                 wrapperSamples.append(wrapper.nanosecondsPerCall)
                 directSamples.append(direct.nanosecondsPerCall)
@@ -77,11 +78,11 @@ enum RuntimeBridgeBenchmark {
             } else {
                 let direct = try measure(
                     calls: callsPerSample,
-                    body: { try callDirectDispatcher(values) }
+                    body: { try callDirectDispatcher(storage.span) }
                 )
                 let wrapper = try measure(
                     calls: callsPerSample,
-                    body: { try callWrapper(values) }
+                    body: { try callWrapper(storage.span) }
                 )
                 directSamples.append(direct.nanosecondsPerCall)
                 wrapperSamples.append(wrapper.nanosecondsPerCall)
@@ -122,6 +123,7 @@ enum RuntimeBridgeBenchmark {
             throw BenchmarkError.outputEncodingFailed
         }
         print(output)
+        }
     }
 
     private static func positiveArgument(

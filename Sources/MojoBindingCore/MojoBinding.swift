@@ -19,17 +19,17 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                 // This spelling is part of the proven scalar binding identity.
                 "(Int32,Int32)->Int32"
             case .borrowedFloat32Buffer:
-                "([Float])->throws Float"
+                "(borrowing Span<Float>)->throws Float"
             case .borrowedMutableFloat32Buffers:
-                "([Float],inout [Float])->throws Void"
+                "(borrowing Span<Float>,inout MutableSpan<Float>)->throws Void"
             case .borrowedMutableFloat64Buffers:
-                "([Double],inout [Double])->throws Void"
+                "(borrowing Span<Double>,inout MutableSpan<Double>)->throws Void"
             case .runtimeSessionFactory:
                 "(MojoSessionRequirements)->throws MojoSessionOwner"
             case .sessionFloat32BufferFactory:
                 "(MojoSessionOwner,UInt64,MojoBufferMemoryKind)->throws MojoFloat32BufferOwner"
             case .sessionBorrowedMutableFloat32Buffers:
-                "(MojoSessionOwner,[Float],inout [Float])->throws Void"
+                "(MojoSessionOwner,borrowing Span<Float>,inout MutableSpan<Float>)->throws Void"
             case .resourceInvocation:
                 "(MojoRuntimeWorker)->throws MojoRuntimeWorkerOperation"
             }
@@ -550,7 +550,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     ) -> Bool {
         parameter.ellipsis == nil
             && parameter.defaultValue == nil
-            && parameter.type.trimmedDescription == "[Float]"
+            && parameter.type.trimmedDescription == "borrowing Span<Float>"
     }
 
     private static func isMutableFloat32BufferParameter(
@@ -558,7 +558,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     ) -> Bool {
         parameter.ellipsis == nil
             && parameter.defaultValue == nil
-            && parameter.type.trimmedDescription == "inout [Float]"
+            && parameter.type.trimmedDescription == "inout MutableSpan<Float>"
     }
 
     private static func isBorrowedFloat64BufferParameter(
@@ -566,7 +566,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     ) -> Bool {
         parameter.ellipsis == nil
             && parameter.defaultValue == nil
-            && parameter.type.trimmedDescription == "[Double]"
+            && parameter.type.trimmedDescription == "borrowing Span<Double>"
     }
 
     private static func isMutableFloat64BufferParameter(
@@ -574,7 +574,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
     ) -> Bool {
         parameter.ellipsis == nil
             && parameter.defaultValue == nil
-            && parameter.type.trimmedDescription == "inout [Double]"
+            && parameter.type.trimmedDescription == "inout MutableSpan<Double>"
     }
 
     private static func isSessionRequirementsParameter(

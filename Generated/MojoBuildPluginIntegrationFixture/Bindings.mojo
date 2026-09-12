@@ -1,7 +1,9 @@
 from std.memory import OpaquePointer, Pointer
+from SessionModel import scale as __swift_mojo_external_2867618991011413709
+from SessionModel import scale_double as __swift_mojo_external_3641678818880782478
 from SessionModel import create_session as __swift_mojo_session_create_4078450316648511580
 from SessionModel import shutdown_session as __swift_mojo_session_shutdown_4078450316648511580
-from SessionModel import scale as __swift_mojo_external_5660857492218414691
+from SessionModel import sum_values as __swift_mojo_external_8022657782034030130
 
 
 @export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_static_abi_version")
@@ -11,16 +13,20 @@ def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_
 
 @export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_input_graph_identifier")
 def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_input_graph_identifier() abi("C") -> UInt64:
-    return 6676104244661572363
+    return 6028056059219602649
 
 
 @export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_has_binding")
 def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_has_binding(binding_id: UInt64) abi("C") -> UInt32:
+    if binding_id == 2867618991011413709:
+        return 1
+    if binding_id == 3641678818880782478:
+        return 1
     if binding_id == 4078450316648511580:
         return 1
     if binding_id == 4309807554310999824:
         return 1
-    if binding_id == 5660857492218414691:
+    if binding_id == 8022657782034030130:
         return 1
     return 0
 
@@ -31,6 +37,32 @@ def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_
     if binding_id == 4309807554310999824:
         return lhs + rhs
     return 0
+
+
+# The borrowed pointer is valid only for the synchronous Swift call scope.
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_call_f32_buffer_f32")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_call_f32_buffer_f32(
+    binding_id: UInt64,
+    values: Pointer[Float32, ImmUntrackedOrigin],
+    count: UInt64,
+) abi("C") -> Float32:
+    if binding_id == 8022657782034030130:
+        return __swift_mojo_external_8022657782034030130(values, count)
+    return Float32(0)
+
+
+# Both Float64 pointers are valid only for the synchronous Swift call scope.
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_call_f64_buffer_f64_buffer_i32")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_call_f64_buffer_f64_buffer_i32(
+    binding_id: UInt64,
+    input: Pointer[Float64, ImmUntrackedOrigin],
+    input_count: UInt64,
+    output: Pointer[Float64, MutUntrackedOrigin],
+    output_count: UInt64,
+) abi("C") -> Int32:
+    if binding_id == 3641678818880782478:
+        return __swift_mojo_external_3641678818880782478(input, input_count, output, output_count)
+    return -1
 
 
 # Session creation transfers one opaque owned handle to Swift on status zero.
@@ -73,6 +105,6 @@ def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_
     output: Pointer[Float32, MutUntrackedOrigin],
     output_count: UInt64,
 ) abi("C") -> Int32:
-    if binding_id == 5660857492218414691:
-        return __swift_mojo_external_5660857492218414691(session, input, input_count, output, output_count)
+    if binding_id == 2867618991011413709:
+        return __swift_mojo_external_2867618991011413709(session, input, input_count, output, output_count)
     return -1

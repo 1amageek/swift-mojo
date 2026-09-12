@@ -67,8 +67,8 @@ struct MojoSessionArtifactTests {
         )
         func scale(
             _ session: MojoSessionOwner,
-            _ input: [Float],
-            into output: inout [Float]
+            _ input: borrowing Span<Float>,
+            into output: inout MutableSpan<Float>
         ) throws
         """.write(to: source, atomically: true, encoding: .utf8)
         let target = try MojoTargetConfiguration(
@@ -131,6 +131,8 @@ struct MojoSessionArtifactTests {
         #expect(generatedMojo.contains("__swift_mojo_resource_copy_to_host"))
         #expect(generatedMojo.contains("__swift_mojo_resource_synchronize"))
         #expect(generatedMojo.contains("if status != 0"))
+        #expect(generatedMojo.contains("var completion_status = __swift_mojo_resource_synchronize"))
+        #expect(generatedMojo.contains("return completion_status"))
         #expect(generatedMojo.contains("element_count: UInt64"))
         #expect(generatedMojo.contains("memory_kind: UInt32"))
         #expect(

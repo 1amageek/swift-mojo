@@ -59,7 +59,7 @@ public final class MojoFloat32BufferOwner: MojoFloat32Buffer, Sendable {
         try resource.shutdown()
     }
 
-    public func copy(from source: borrowing [Float]) throws {
+    public func copy(from source: borrowing Span<Float>) throws {
         let actualElementCount = UInt64(source.count)
         guard actualElementCount == elementCount else {
             throw MojoBufferError.elementCountMismatch(
@@ -84,7 +84,7 @@ public final class MojoFloat32BufferOwner: MojoFloat32Buffer, Sendable {
         }
     }
 
-    public func copy(into destination: inout [Float]) throws {
+    public func copy(into destination: inout MutableSpan<Float>) throws {
         let actualElementCount = UInt64(destination.count)
         guard actualElementCount == elementCount else {
             throw MojoBufferError.elementCountMismatch(
