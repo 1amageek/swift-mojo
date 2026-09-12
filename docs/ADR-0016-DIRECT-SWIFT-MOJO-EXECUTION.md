@@ -1,6 +1,6 @@
 # ADR-0016: Direct Swift–Mojo execution
 
-- Status: execution boundary selected by the user; MAX qualification pending
+- Status: direct Jetson detector lifecycle qualified; generic public API and full Lume integration pending
 - Date: 2026-09-12
 - Parent: [package design](../DESIGN.md)
 
@@ -66,3 +66,15 @@ After direct-path verification, remove superseded worker-only migration code and
 update package, Mojo, ArtifactCore and Lume designs together. Preserve unrelated
 worktrees and independent consumers until their actual call sites are reviewed.
 Do not claim direct execution from old worker, Python or C-only qualification.
+
+### Direct Jetson execution evidence
+
+[Lume's direct fixture](../../Lume/Tests/Fixtures/DirectMAX/README.md), commit
+`8cfd0ab`, runs Swift -> Mojo -> MAX in one process. It initializes both current
+models, invokes the detector on GPU, matches 35 outputs byte-for-byte, recovers
+from a missing-model initialization failure, rejects invalid extent/nonfinite
+input, and destroys the session before exit 0. This removes the assumption that
+MAX requires a worker for language interoperability. The fixture uses direct
+borrowed pointers and C declarations, with no C processing implementation.
+It does not yet qualify the generic public API, pose execution, cancellation,
+RAW integration or capture-to-matched-display latency.
