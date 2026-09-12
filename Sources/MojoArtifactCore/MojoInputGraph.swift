@@ -26,7 +26,9 @@ package struct MojoInputGraph: Equatable, Sendable {
                 package = externalPackage
             case .session(let sessionPackage, _, _):
                 package = sessionPackage
-            case .sessionExternal(let sessionPackage, _, _):
+            case .opaqueResource(let sessionPackage, _, _, _, _),
+                 .opaqueResourceExternal(let sessionPackage, _, _, _, _),
+                 .sessionExternal(let sessionPackage, _, _):
                 package = sessionPackage
             case .sessionResource(let sessionPackage, _, _, _, _, _, _):
                 package = sessionPackage

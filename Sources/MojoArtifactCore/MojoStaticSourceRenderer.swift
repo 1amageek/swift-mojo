@@ -56,7 +56,9 @@ package struct MojoStaticSourceRenderer: Sendable {
         for binding in inputGraph.bindingGraph.bindings where binding.signature == .resourceInvocation {
             suffixes.insert("invoke_resource_\(binding.bindingID)")
         }
-        return Set(suffixes.map { "\(prefix)_\($0)" })
+        return Set(suffixes.map { "\(prefix)_\($0)" }).union(
+            inputGraph.bindingGraph.bindings.flatMap { MojoOpaqueResourceRendering.symbols($0, prefix: prefix) }
+        )
     }
 
     package func mojoSource(for graph: MojoSourceGraph) -> String {
@@ -123,7 +125,7 @@ package struct MojoStaticSourceRenderer: Sendable {
         }
         for binding in graph.bindings {
             switch binding.implementation {
-            case .inline:
+            case .inline, .opaqueResource, .opaqueResourceExternal:
                 continue
             case .external(let package, let function):
                 lines.append(
@@ -220,7 +222,7 @@ package struct MojoStaticSourceRenderer: Sendable {
                     preconditionFailure(
                         "Scalar bindings cannot use a session-bound implementation"
                     )
-                case .sessionResource:
+                case .sessionResource, .opaqueResource, .opaqueResourceExternal:
                     preconditionFailure(
                         "Scalar bindings cannot use a session resource implementation"
                     )
@@ -543,6 +545,15 @@ package struct MojoStaticSourceRenderer: Sendable {
             }
         }
 
+        for binding in graph.bindings {
+            let generated = MojoOpaqueResourceRendering.source(binding, prefix: identity.symbolPrefix)
+            if !generated.isEmpty {
+                lines.append(contentsOf: generated)
+                if let source = binding.sourceReference {
+                    entries.append(MojoSourceMap.Entry(generatedLine: lines.count, bindingID: binding.bindingID, source: source))
+                }
+            }
+        }
         return MojoRenderedSource(
             source: lines.joined(separator: "\n") + "\n",
             sourceMap: MojoSourceMap(
@@ -563,14 +574,16 @@ package struct MojoStaticSourceRenderer: Sendable {
         header(
             identity: identity,
             signatures: Set(inputGraph.bindingGraph.bindings.map(\.signature)),
-            resourceBindings: inputGraph.bindingGraph.bindings.filter { $0.signature == .resourceInvocation }
+            resourceBindings: inputGraph.bindingGraph.bindings.filter { $0.signature == .resourceInvocation },
+            opaqueBindings: inputGraph.bindingGraph.bindings.filter { $0.signature == .opaqueResourceFactory || $0.signature == .opaqueResourceOperation }
         )
     }
 
     private func header(
         identity: MojoArtifactIdentity,
         signatures: Set<MojoBinding.Signature>,
-        resourceBindings: [MojoBinding] = []
+        resourceBindings: [MojoBinding] = [],
+        opaqueBindings: [MojoBinding] = []
     ) -> String {
         let prefix = identity.symbolPrefix
         var lines = [
@@ -688,6 +701,9 @@ package struct MojoStaticSourceRenderer: Sendable {
                 "    uint64_t output_count",
                 ");",
             ])
+        }
+        for binding in opaqueBindings {
+            lines.append(contentsOf: MojoOpaqueResourceRendering.header(binding, prefix: prefix))
         }
         for binding in resourceBindings {
             lines.append(contentsOf: resourceHeader(binding: binding, prefix: prefix))

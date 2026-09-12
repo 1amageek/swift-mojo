@@ -14,6 +14,12 @@ The SwiftSyntax dependency uses the exact stable version `603.0.2`. CI also veri
 
 GitHub-hosted workflows pin `actions/checkout` to a full commit object ID and disable persisted checkout credentials because no workflow writes to the repository. Before installing Swiftly, compiler-free CI verifies that the downloaded package is notarized and signed by the Swift Open Source Developer ID Installer identity (`V9AUD2URP3`). The selected Swift compiler, Swift Testing runtime, and macro plugin still come from the exact matrix toolchain described above.
 
+The generic-boundary guard scans production implementation files in `Sources`
+and `Plugins`. Vendor names in acceptance fixtures, benchmark reports and design
+references do not establish runtime policy and are outside this lexical guard.
+Source scan errors fail the gate; the guard's positive/negative checks are in
+`scripts/test-generic-boundary.sh`.
+
 ## CI ownership
 
 ```mermaid

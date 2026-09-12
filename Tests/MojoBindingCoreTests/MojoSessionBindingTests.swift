@@ -5,6 +5,32 @@ import Testing
 @Suite("Mojo session binding model")
 struct MojoSessionBindingTests {
     @Test(.timeLimit(.minutes(1)))
+    func opaqueResourceFactoriesAreResolvedBeforeGeneration() throws {
+        let source = """
+        @mojo(package: "Resource", function: "open", shutdown: "close")
+        func open(_ requirements: MojoSessionRequirements) throws -> MojoSessionOwner
+        @mojo(package: "Resource", function: "create", shutdown: "destroy", synchronize: "sync", sessionFactory: "open")
+        func create(_ session: MojoSessionOwner, _ config: borrowing Span<UInt8>) throws -> MojoSessionResourceOwner
+        @mojo(package: "Resource", function: "run", synchronize: "sync", sessionFactory: "open", resourceFactory: "create")
+        func run(_ session: MojoSessionOwner, _ resources: borrowing Span<MojoSessionResourceOwner>) throws
+        """
+        let graph = try parse(source)
+        #expect(graph.bindings.contains { $0.signature == .opaqueResourceFactory })
+        #expect(graph.bindings.contains { $0.signature == .opaqueResourceOperation })
+        #expect(throws: MojoBindingError.sessionFactoryNotFound("missing")) {
+            try parse(source.replacingOccurrences(of: "resourceFactory: \"create\"", with: "resourceFactory: \"missing\""))
+        }
+        #expect(throws: MojoBindingError.unsupportedSignature) {
+            try parse(source.replacingOccurrences(of: "borrowing Span<MojoSessionResourceOwner>", with: "[MojoSessionResourceOwner]"))
+        }
+        #expect(throws: MojoBindingError.invalidSessionArguments) {
+            try parse(source.replacingOccurrences(of: "synchronize: \"sync\", ", with: ""))
+        }
+        let changed = try parse(source.replacingOccurrences(of: "synchronize: \"sync\"", with: "synchronize: \"drain\""))
+        #expect(changed.digest != graph.digest)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func acceptanceDeclarationsUseTheCurrentDirectGrammar() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

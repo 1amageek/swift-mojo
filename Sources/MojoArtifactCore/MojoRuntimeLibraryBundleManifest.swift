@@ -14,7 +14,9 @@ package struct MojoRuntimeLibraryBundleManifest: Codable, Equatable, Sendable {
             self.functionName = binding.functionName
             self.signature = binding.signature.rawValue
             switch binding.implementation {
-            case .sessionExternal(_, _, let sessionFactory),
+            case .opaqueResource(_, _, _, _, let sessionFactory),
+                 .opaqueResourceExternal(_, _, _, let sessionFactory, _),
+                 .sessionExternal(_, _, let sessionFactory),
                  .sessionResource(_, _, _, _, _, _, let sessionFactory):
                 self.sessionFactoryFunctionName = sessionFactory
             case .inline, .external, .session:

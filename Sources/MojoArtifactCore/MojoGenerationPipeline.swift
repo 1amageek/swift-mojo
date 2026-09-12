@@ -84,6 +84,9 @@ package enum MojoGenerationPipeline {
                 "session-resource-c-abi=1",
             ])
         }
+        if signatures.contains(.opaqueResourceFactory) || signatures.contains(.opaqueResourceOperation) {
+            components.append("opaque-resources=1")
+        }
         return MojoCanonicalDigest.hex(components.joined(separator: "|"))
     }
 }

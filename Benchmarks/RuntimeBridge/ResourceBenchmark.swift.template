@@ -1,0 +1,145 @@
+import Foundation
+@_spi(SwiftMojoGenerated) import Mojo
+import SwiftMojo_MojoBuildPluginIntegrationFixture_ABI
+#if RESOURCE_ALLOCATIONS
+import MojoAllocationProbe
+#endif
+
+@main
+struct ResourceBenchmark {
+    static func make(_ session: MojoSessionOwner, value: UInt8 = 7, other: Bool = false) throws -> MojoSessionResourceOwner {
+        try [value].withUnsafeBufferPointer { config in
+            if other { return try integrationCreateOtherResource(session, config.span) }
+            return try integrationCreateResource(session, config.span)
+        }
+    }
+
+    static func session() throws -> MojoSessionOwner {
+        try integrationOpenSession(.init(device: .cpu,
+            requiredCapabilities: [.synchronousInvocation, .hostAccessibleMemory, .float32]))
+    }
+
+    static func main() throws {
+        try acceptance()
+        let identity = try integrationStaticArtifactAttestation()
+        print("RESOURCE_ACCEPTANCE_PASS target=\(identity.targetTriple) compiler=\(identity.compilerVersion)")
+        #if RESOURCE_ALLOCATIONS
+        swift_mojo_probe_begin()
+        let control = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: 8192)
+        let positive = swift_mojo_probe_end()
+        control.deallocate()
+        precondition(positive > 0)
+        print("positive_control=\(positive)")
+        #else
+        print("resources,calls_per_sample,samples,wrapper_p50_ns,wrapper_p95_ns,direct_p50_ns,direct_p95_ns,overhead_p50_ns")
+        #endif
+        for count in [2, 3, 8, 32, 128] { try benchmark(count: count) }
+    }
+
+    static func acceptance() throws {
+        let owner = try session()
+        let another = try session()
+        let resources = [try make(owner), try make(owner), try make(owner, value: 0)]
+        let wrongFactory = try make(owner, other: true)
+        let wrongSession = try make(another)
+        for (index, candidate) in [[resources[0], wrongFactory], [resources[0], wrongSession], [resources[0], resources[0]]].enumerated() {
+            var rejected = false
+            do {
+                try candidate.withUnsafeBufferPointer { try integrationSumResources(owner, $0.span) }
+            } catch let error as MojoSessionError {
+                switch (index, error) {
+                case (0, .resourceFactoryMismatch), (1, .resourceSessionMismatch), (2, .duplicateResource): rejected = true
+                default: throw error
+                }
+            }
+            precondition(rejected)
+        }
+        try wrongFactory.shutdown()
+        try wrongSession.shutdown()
+        try another.shutdown()
+        for value: UInt8 in [254, 255] {
+            var rejected = false
+            do { _ = try make(owner, value: value) }
+            catch let error as MojoInvocationError {
+                switch (value, error) {
+                case (254, .resourceCreationReturnedNoHandle): rejected = true
+                case (255, .invocationFailed(_, 41)): rejected = true
+                default: throw error
+                }
+            }
+            precondition(rejected)
+        }
+        try resources.withUnsafeBufferPointer { values in
+            try integrationCheckResourceCount(owner, values.span)
+            var failed = false
+            do { try integrationFailResources(owner, values.span) }
+            catch let error as MojoInvocationError {
+                guard case .invocationFailed(_, 43) = error else { throw error }
+                failed = true
+            }
+            precondition(failed)
+            try integrationSumResources(owner, values.span)
+            try integrationCheckResources(owner, values.span)
+        }
+        try resources.last!.shutdown()
+        var closedRejected = false
+        do { try resources.withUnsafeBufferPointer { try integrationSumResources(owner, $0.span) } }
+        catch let error as MojoSessionError {
+            precondition(error == .resourceShutdown)
+            closedRejected = true
+        }
+        precondition(closedRejected)
+        for resource in resources { try resource.shutdown() }
+        try [MojoSessionResourceOwner]().withUnsafeBufferPointer { try integrationCheckResourceCount(owner, $0.span) }
+        try owner.shutdown()
+    }
+
+    static func benchmark(count: Int) throws {
+        let owner = try session()
+        let resources = try (0..<count).map { try make(owner, value: $0 == count - 1 ? 0 : 7) }
+        try resources.withUnsafeBufferPointer { values in
+            for _ in 0..<20 { try integrationSumResources(owner, values.span) }
+            #if RESOURCE_ALLOCATIONS
+            swift_mojo_probe_begin()
+            for _ in 0..<1000 { try integrationSumResources(owner, values.span) }
+            let allocations = swift_mojo_probe_end()
+            print("resources=\(count) calls=1000 allocator_calls=\(allocations)")
+            // Report large metadata allocations rather than pretending all sizes
+            // have the same stack allocation behavior.
+            #else
+            let calls = 1000
+            let samples = 80
+            var wrapped: [Double] = []
+            var direct: [Double] = []
+            wrapped.reserveCapacity(samples)
+            direct.reserveCapacity(samples)
+            for sample in 0..<samples {
+                for useWrapper in sample.isMultiple(of: 2) ? [true, false] : [false, true] {
+                    if useWrapper {
+                        let start = DispatchTime.now().uptimeNanoseconds
+                        for _ in 0..<calls { try integrationSumResources(owner, values.span) }
+                        wrapped.append(Double(DispatchTime.now().uptimeNanoseconds - start) / Double(calls))
+                    } else {
+                        let elapsed = try owner.withResourceHandles(resources: values.span,
+                            expectedSessionDomainID: __SESSION_DOMAIN__, expectedFactoryBindingID: __RESOURCE_FACTORY_ID__) { handle, handles in
+                            let start = DispatchTime.now().uptimeNanoseconds
+                            for _ in 0..<calls {
+                                let status = __RESOURCE_SYMBOL__(handle, handles.baseAddress, UInt64(handles.count))
+                                guard status == 0 else { throw MojoInvocationError.invocationFailed(bindingID: __RESOURCE_OPERATION_ID__, status: status) }
+                            }
+                            return Double(DispatchTime.now().uptimeNanoseconds - start) / Double(calls)
+                        }
+                        direct.append(elapsed)
+                    }
+                    try integrationCheckResources(owner, values.span)
+                }
+            }
+            wrapped.sort(); direct.sort()
+            print("\(count),\(calls),\(samples),\(wrapped[40]),\(wrapped[75]),\(direct[40]),\(direct[75]),\(wrapped[40] - direct[40])")
+            #endif
+            try integrationCheckResources(owner, values.span)
+        }
+        for resource in resources { try resource.shutdown() }
+        try owner.shutdown()
+    }
+}

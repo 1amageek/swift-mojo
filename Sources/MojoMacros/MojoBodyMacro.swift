@@ -32,6 +32,17 @@ public struct MojoBodyMacro: BodyMacro {
         // expansion until the verified worker operation path is implemented.
         case .resourceInvocation:
             throw MojoBindingError.unsupportedSignature
+        case .opaqueResourceFactory, .opaqueResourceOperation:
+            let method = binding.signature == .opaqueResourceFactory ? "makeOpaqueResource" : "invokeOpaqueResources"
+            body.append(
+                """
+                return try __SwiftMojoGeneratedBindings.\(raw: method)(
+                    bindingID: UInt64(\(raw: String(binding.bindingID))),
+                    session: \(raw: binding.parameterNames[0]),
+                    values: \(raw: binding.parameterNames[1])
+                )
+                """
+            )
         case .int32Binary:
             body.append(
                 """

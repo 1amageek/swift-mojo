@@ -13,18 +13,30 @@ def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_
 
 @export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_input_graph_identifier")
 def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_input_graph_identifier() abi("C") -> UInt64:
-    return 6028056059219602649
+    return 2724223800370590252
 
 
 @export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_has_binding")
 def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_has_binding(binding_id: UInt64) abi("C") -> UInt32:
+    if binding_id == 962412470839809362:
+        return 1
     if binding_id == 2867618991011413709:
+        return 1
+    if binding_id == 3538556927784445112:
         return 1
     if binding_id == 3641678818880782478:
         return 1
     if binding_id == 4078450316648511580:
         return 1
     if binding_id == 4309807554310999824:
+        return 1
+    if binding_id == 4985786232365396030:
+        return 1
+    if binding_id == 6062013772035942840:
+        return 1
+    if binding_id == 6202277106033142579:
+        return 1
+    if binding_id == 6634603960240158218:
         return 1
     if binding_id == 8022657782034030130:
         return 1
@@ -108,3 +120,79 @@ def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_
     if binding_id == 2867618991011413709:
         return __swift_mojo_external_2867618991011413709(session, input, input_count, output, output_count)
     return -1
+
+from SessionModel import check_resources as __opaque_call_962412470839809362
+from SessionModel import synchronize_resources as __opaque_sync_962412470839809362
+
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_962412470839809362")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_962412470839809362(session: OpaquePointer[MutUntrackedOrigin], resources: Pointer[OpaquePointer[MutUntrackedOrigin], ImmUntrackedOrigin], count: UInt64) abi("C") -> Int32:
+    status = __opaque_call_962412470839809362(session, resources, count)
+    completion = __opaque_sync_962412470839809362(session)
+    if status != 0:
+        return status
+    return completion
+
+from SessionModel import create_resource as __opaque_create_3538556927784445112
+from SessionModel import destroy_resource as __opaque_destroy_3538556927784445112
+from SessionModel import synchronize_resources as __opaque_sync_3538556927784445112
+
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_create_3538556927784445112")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_create_3538556927784445112(session: OpaquePointer[MutUntrackedOrigin], config: Pointer[UInt8, ImmUntrackedOrigin], count: UInt64, result: Pointer[OpaquePointer[MutUntrackedOrigin], MutUntrackedOrigin]) abi("C") -> Int32:
+    status = __opaque_create_3538556927784445112(session, config, count, result)
+    completion = __opaque_sync_3538556927784445112(session)
+    if status != 0:
+        return status
+    return completion
+
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_destroy_3538556927784445112")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_destroy_3538556927784445112(session: OpaquePointer[MutUntrackedOrigin], resource: OpaquePointer[MutUntrackedOrigin]) abi("C"):
+    __opaque_destroy_3538556927784445112(session, resource)
+
+from SessionModel import check_resource_count as __opaque_call_4985786232365396030
+from SessionModel import synchronize_resources as __opaque_sync_4985786232365396030
+
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_4985786232365396030")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_4985786232365396030(session: OpaquePointer[MutUntrackedOrigin], resources: Pointer[OpaquePointer[MutUntrackedOrigin], ImmUntrackedOrigin], count: UInt64) abi("C") -> Int32:
+    status = __opaque_call_4985786232365396030(session, resources, count)
+    completion = __opaque_sync_4985786232365396030(session)
+    if status != 0:
+        return status
+    return completion
+
+from SessionModel import sum_resources as __opaque_call_6062013772035942840
+from SessionModel import synchronize_resources as __opaque_sync_6062013772035942840
+
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_6062013772035942840")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_6062013772035942840(session: OpaquePointer[MutUntrackedOrigin], resources: Pointer[OpaquePointer[MutUntrackedOrigin], ImmUntrackedOrigin], count: UInt64) abi("C") -> Int32:
+    status = __opaque_call_6062013772035942840(session, resources, count)
+    completion = __opaque_sync_6062013772035942840(session)
+    if status != 0:
+        return status
+    return completion
+
+from SessionModel import fail_resources as __opaque_call_6202277106033142579
+from SessionModel import synchronize_resources as __opaque_sync_6202277106033142579
+
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_6202277106033142579")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_6202277106033142579(session: OpaquePointer[MutUntrackedOrigin], resources: Pointer[OpaquePointer[MutUntrackedOrigin], ImmUntrackedOrigin], count: UInt64) abi("C") -> Int32:
+    status = __opaque_call_6202277106033142579(session, resources, count)
+    completion = __opaque_sync_6202277106033142579(session)
+    if status != 0:
+        return status
+    return completion
+
+from SessionModel import create_resource as __opaque_create_6634603960240158218
+from SessionModel import destroy_resource as __opaque_destroy_6634603960240158218
+from SessionModel import synchronize_resources as __opaque_sync_6634603960240158218
+
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_create_6634603960240158218")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_create_6634603960240158218(session: OpaquePointer[MutUntrackedOrigin], config: Pointer[UInt8, ImmUntrackedOrigin], count: UInt64, result: Pointer[OpaquePointer[MutUntrackedOrigin], MutUntrackedOrigin]) abi("C") -> Int32:
+    status = __opaque_create_6634603960240158218(session, config, count, result)
+    completion = __opaque_sync_6634603960240158218(session)
+    if status != 0:
+        return status
+    return completion
+
+@export("swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_destroy_6634603960240158218")
+def swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_destroy_6634603960240158218(session: OpaquePointer[MutUntrackedOrigin], resource: OpaquePointer[MutUntrackedOrigin]) abi("C"):
+    __opaque_destroy_6634603960240158218(session, resource)

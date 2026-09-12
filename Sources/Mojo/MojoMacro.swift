@@ -6,7 +6,8 @@ public macro mojo(
     copyFromHost: String? = nil,
     copyToHost: String? = nil,
     synchronize: String? = nil,
-    sessionFactory: String? = nil
+    sessionFactory: String? = nil,
+    resourceFactory: String? = nil
 ) = #externalMacro(
     module: "MojoMacros",
     type: "MojoBodyMacro"

@@ -5,9 +5,13 @@ from std.sys import size_of
 
 struct Session:
     var factor: Float32
+    var pending: Int32
+    var resource_count: Int64
 
     def __init__(out self, factor: Float32):
         self.factor = factor
+        self.pending = 0
+        self.resource_count = 0
 
 
 def create_session(
@@ -86,4 +90,82 @@ def scale_double(
         return 4
     for index in range(Int(input_count)):
         output[unsafe_offset=index] = input[unsafe_offset=index] * 2
+    return 0
+
+
+# Resources deliberately contain Int64 values, not Float32 host buffers.
+# Allocation belongs to create_resource and exactly one destroy_resource call.
+def create_resource(
+    handle: OpaquePointer[MutUntrackedOrigin],
+    config: Pointer[UInt8, ImmUntrackedOrigin], count: UInt64,
+    result: Pointer[OpaquePointer[MutUntrackedOrigin], MutUntrackedOrigin],
+) -> Int32:
+    session = handle.unsafe_bitcast[Session]()
+    if session[].pending != 0:
+        return 40
+    if count != 1:
+        return 45
+    session[].pending = 1
+    if config[] == 254:
+        return 0
+    address = external_call["malloc", UInt](UInt(size_of[Int64]()))
+    if address == 0:
+        return 3
+    value = Pointer[Int64, MutUntrackedOrigin](unsafe_from_address=Int(address))
+    value.unsafe_write(Int64(config[]))
+    result[] = value.unsafe_bitcast[NoneType]()
+    session[].resource_count += 1
+    if config[] == 255:
+        session[].pending = 42
+        return 41
+    return 0
+
+
+def destroy_resource(handle: OpaquePointer[MutUntrackedOrigin], resource: OpaquePointer[MutUntrackedOrigin]):
+    handle.unsafe_bitcast[Session]()[].resource_count -= 1
+    external_call["free", NoneType](resource)
+
+
+def synchronize_resources(handle: OpaquePointer[MutUntrackedOrigin]) -> Int32:
+    session = handle.unsafe_bitcast[Session]()
+    pending = session[].pending
+    session[].pending = 0
+    if pending == 42:
+        return 44
+    return 0
+
+
+def sum_resources(handle: OpaquePointer[MutUntrackedOrigin], resources: Pointer[OpaquePointer[MutUntrackedOrigin], ImmUntrackedOrigin], count: UInt64) -> Int32:
+    session = handle.unsafe_bitcast[Session]()
+    if session[].pending != 0:
+        return 40
+    if count < 2:
+        return 46
+    session[].pending = 1
+    var total = Int64(0)
+    for index in range(Int(count) - 1):
+        total += resources[unsafe_offset=index].unsafe_bitcast[Int64]()[]
+    resources[unsafe_offset=Int(count) - 1].unsafe_bitcast[Int64]()[] = total
+    return 0
+
+
+def check_resources(handle: OpaquePointer[MutUntrackedOrigin], resources: Pointer[OpaquePointer[MutUntrackedOrigin], ImmUntrackedOrigin], count: UInt64) -> Int32:
+    if count < 2:
+        return 46
+    var expected = Int64(0)
+    for index in range(Int(count) - 1):
+        expected += 7
+    if resources[unsafe_offset=Int(count) - 1].unsafe_bitcast[Int64]()[] != expected:
+        return 47
+    return 0
+
+
+def fail_resources(handle: OpaquePointer[MutUntrackedOrigin], resources: Pointer[OpaquePointer[MutUntrackedOrigin], ImmUntrackedOrigin], count: UInt64) -> Int32:
+    handle.unsafe_bitcast[Session]()[].pending = 42
+    return 43
+
+
+def check_resource_count(handle: OpaquePointer[MutUntrackedOrigin], resources: Pointer[OpaquePointer[MutUntrackedOrigin], ImmUntrackedOrigin], count: UInt64) -> Int32:
+    if handle.unsafe_bitcast[Session]()[].resource_count != Int64(count):
+        return 48
     return 0

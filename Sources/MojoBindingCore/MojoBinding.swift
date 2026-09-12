@@ -11,6 +11,8 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         case runtimeSessionFactory
         case sessionFloat32BufferFactory
         case sessionBorrowedMutableFloat32Buffers
+        case opaqueResourceFactory
+        case opaqueResourceOperation
         case resourceInvocation
 
         package var canonicalRecord: String {
@@ -30,6 +32,10 @@ package struct MojoBinding: Codable, Equatable, Sendable {
                 "(MojoSessionOwner,UInt64,MojoBufferMemoryKind)->throws MojoFloat32BufferOwner"
             case .sessionBorrowedMutableFloat32Buffers:
                 "(MojoSessionOwner,borrowing Span<Float>,inout MutableSpan<Float>)->throws Void"
+            case .opaqueResourceFactory:
+                "(MojoSessionOwner,borrowing Span<UInt8>)->throws MojoSessionResourceOwner"
+            case .opaqueResourceOperation:
+                "(MojoSessionOwner,borrowing Span<MojoSessionResourceOwner>)->throws Void"
             case .resourceInvocation:
                 "(MojoRuntimeWorker)->throws MojoRuntimeWorkerOperation"
             }
@@ -73,8 +79,21 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             sessionFactory: String
         )
 
+        case opaqueResource(
+            package: String, create: String, shutdown: String,
+            synchronize: String, sessionFactory: String
+        )
+        case opaqueResourceExternal(
+            package: String, function: String, synchronize: String,
+            sessionFactory: String, resourceFactory: String
+        )
+
         package var canonicalRecord: String {
             switch self {
+            case .opaqueResource(let package, let create, let shutdown, let synchronize, let factory):
+                "opaque-resource:\(package).\(create):\(shutdown):sync=\(synchronize):session=\(factory)"
+            case .opaqueResourceExternal(let package, let function, let synchronize, let sessionFactory, let resourceFactory):
+                "opaque-operation:\(package).\(function):sync=\(synchronize):session=\(sessionFactory):resource=\(resourceFactory)"
             case .inline(let operation):
                 "inline:\(operation.rawValue)"
             case .external(let package, let function):
@@ -159,7 +178,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         switch implementation {
         case .inline(let operation):
             implementationKey = "\(abiKey)|operation=\(operation.rawValue)"
-        case .external, .session, .sessionExternal, .sessionResource:
+        case .external, .session, .sessionExternal, .sessionResource, .opaqueResource, .opaqueResourceExternal:
             let resourceRecord = resourceSignature.map { "|resources=\($0.encoded.base64EncodedString())" } ?? ""
             implementationKey = "\(abiKey)|\(implementation.canonicalRecord)\(resourceRecord)"
         }
@@ -303,7 +322,7 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         parameterNames: [String]
     ) throws -> Implementation {
         let invalidArgumentsError: MojoBindingError = switch signature {
-        case .runtimeSessionFactory, .sessionFloat32BufferFactory,
+        case .runtimeSessionFactory, .sessionFloat32BufferFactory, .opaqueResourceFactory, .opaqueResourceOperation,
                 .sessionBorrowedMutableFloat32Buffers, .resourceInvocation:
             .invalidSessionArguments
         case .int32Binary, .borrowedFloat32Buffer,
@@ -316,6 +335,31 @@ package struct MojoBinding: Codable, Equatable, Sendable {
             invalidArgumentsError: invalidArgumentsError,
             resource: signature == .resourceInvocation
         )
+        if signature == .opaqueResourceFactory || signature == .opaqueResourceOperation {
+            let finalLabel = signature == .opaqueResourceFactory ? "shutdown" : "resourceFactory"
+            guard Set(arguments.keys) == Set(["package", "function", "synchronize", "sessionFactory", finalLabel]),
+                  let package = arguments["package"],
+                  let functionName = arguments["function"],
+                  let synchronize = arguments["synchronize"],
+                  let sessionFactory = arguments["sessionFactory"],
+                  let finalName = arguments[finalLabel] else {
+                throw MojoBindingError.invalidSessionArguments
+            }
+            for name in [package, functionName, synchronize, sessionFactory, finalName] {
+                guard MojoPortableIdentifier.isValid(name) else {
+                    throw MojoBindingError.unsupportedExternalFunctionName(name)
+                }
+            }
+            guard function.body == nil || function.body?.statements.isEmpty == true else {
+                throw MojoBindingError.externalBodyUnsupported
+            }
+            if signature == .opaqueResourceFactory {
+                return .opaqueResource(package: package, create: functionName,
+                    shutdown: finalName, synchronize: synchronize, sessionFactory: sessionFactory)
+            }
+            return .opaqueResourceExternal(package: package, function: functionName,
+                synchronize: synchronize, sessionFactory: sessionFactory, resourceFactory: finalName)
+        }
         if !arguments.isEmpty {
             let package: String
             let externalFunction: String
@@ -652,6 +696,17 @@ package struct MojoBinding: Codable, Equatable, Sendable {
         if parameters.count == 2 {
             let lhs = parameters[parameters.startIndex]
             let rhs = parameters[parameters.index(after: parameters.startIndex)]
+            if Self.isSessionOwnerParameter(lhs), rhs.ellipsis == nil,
+               rhs.defaultValue == nil, isUntypedThrowing {
+                if rhs.type.trimmedDescription == "borrowing Span<UInt8>",
+                   returnType == "MojoSessionResourceOwner" {
+                    return .opaqueResourceFactory
+                }
+                if rhs.type.trimmedDescription == "borrowing Span<MojoSessionResourceOwner>",
+                   returnType == nil || returnType == "Void" {
+                    return .opaqueResourceOperation
+                }
+            }
             if Self.isInt32Parameter(lhs),
                Self.isInt32Parameter(rhs),
                returnType == "Int32" {

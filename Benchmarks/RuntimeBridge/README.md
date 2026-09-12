@@ -64,3 +64,21 @@ zero allocator entry calls in each 1,000-call public invocation loop at 1,
 fixture; it does not count arbitrary device allocation or prove another authored
 Mojo operation's behavior. Span forwards the existing host pointer, while an
 Array caller may still incur COW before entering the binding.
+
+
+## Opaque resource boundary
+
+`run-session.py --resources` executes public macro-to-Mojo acceptance before a
+2/3/8/32/128-resource size sweep. The baseline uses the identical C ABI symbol
+while holding one resource lease outside the timed loop. Numeric checks run after
+each sample. Use `--resources --allocations` for separate host allocator interception,
+or `--resources --sanitize-address` to instrument the Swift ownership boundary.
+
+[Recorded timings](results/2026-09-13-resources.csv) and
+[provenance, allocation observations and limits](results/2026-09-13-resources.json)
+cover Mac and native Jetson. On the final Swift 6.4 snapshot, a two-resource public
+call measured 61.541 ns on Mac and 160.452 ns on Jetson (median). The corresponding
+additional cost over the direct dispatcher was 58.749 ns and 154.756 ns. All five
+sizes observed zero intercepted allocator calls over 1,000 warmed invocations on
+both hosts, with positive interception controls. This is CPU boundary evidence;
+it does not measure GPU work, MAX inference or camera-to-display latency.

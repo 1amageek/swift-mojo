@@ -95,6 +95,7 @@ public final class MojoSessionOwner: MojoSession, Sendable {
     @_spi(SwiftMojoGenerated)
     public func createResource(
         expectedSessionDomainID: UInt64,
+        factoryBindingID: UInt64 = 0,
         create: (UnsafeMutableRawPointer) throws -> UnsafeMutableRawPointer,
         destroy: @escaping @Sendable (
             UnsafeMutableRawPointer,
@@ -130,7 +131,8 @@ public final class MojoSessionOwner: MojoSession, Sendable {
         return MojoSessionResourceOwner(
             session: self,
             resourceID: resourceID,
-            sessionDomainID: expectedSessionDomainID
+            sessionDomainID: expectedSessionDomainID,
+            factoryBindingID: factoryBindingID
         )
     }
 
@@ -151,6 +153,77 @@ public final class MojoSessionOwner: MojoSession, Sendable {
             finishBorrow(sessionHandle: sessionHandle)
         }
         return try operation(sessionHandle.pointer, resourceHandle.pointer)
+    }
+
+    // The caller retains the nonescaping owner span. Resource records and the
+    // session remain protected by one admission until the synchronous foreign
+    // operation has completed on every exit. Only pointer metadata is copied;
+    // payload storage remains owned by the foreign resource destructor.
+    @_spi(SwiftMojoGenerated)
+    public func withResourceHandles<Result>(
+        resources: borrowing Span<MojoSessionResourceOwner>,
+        expectedSessionDomainID: UInt64,
+        expectedFactoryBindingID: UInt64,
+        _ operation: (
+            UnsafeMutableRawPointer,
+            UnsafeBufferPointer<UnsafeMutableRawPointer?>
+        ) throws -> Result
+    ) throws -> Result {
+        guard sessionDomainID == expectedSessionDomainID else {
+            throw MojoSessionError.sessionDomainMismatch(
+                expected: expectedSessionDomainID, actual: sessionDomainID
+            )
+        }
+        guard !resources.count.multipliedReportingOverflow(
+            by: MemoryLayout<UnsafeMutableRawPointer?>.stride
+        ).overflow else {
+            throw MojoInvocationError.invalidBufferExtent
+        }
+        return try resources.withUnsafeBufferPointer { owners in
+            try withUnsafeTemporaryAllocation(
+                of: UnsafeMutableRawPointer?.self, capacity: owners.count
+            ) { handles in
+                // Temporary storage is initialized before use and cannot escape.
+                handles.initialize(repeating: nil)
+                defer { handles.deinitialize() }
+                let sessionHandle = try state.withLock { state in
+                    guard let sessionHandle = state.handle else {
+                        throw MojoSessionError.shutdown
+                    }
+                    guard state.activeBorrowCount == 0 else {
+                        throw MojoSessionError.busy
+                    }
+                    for index in owners.indices {
+                        let owner = owners[index]
+                        guard owner.session === self else {
+                            throw MojoSessionError.resourceSessionMismatch
+                        }
+                        guard owner.factoryBindingID == expectedFactoryBindingID else {
+                            throw MojoSessionError.resourceFactoryMismatch(
+                                expected: expectedFactoryBindingID,
+                                actual: owner.factoryBindingID
+                            )
+                        }
+                        guard let resource = state.resources[owner.resourceID],
+                              !resource.isAbandoned else {
+                            throw MojoSessionError.resourceShutdown
+                        }
+                        // ponytail: quadratic duplicate check avoids a Set allocation;
+                        // replace with caller-owned scratch if large lists dominate.
+                        for prior in 0..<index {
+                            guard owners[prior].resourceID != owner.resourceID else {
+                                throw MojoSessionError.duplicateResource
+                            }
+                        }
+                        handles[index] = resource.handle.pointer
+                    }
+                    state.activeBorrowCount = 1
+                    return sessionHandle
+                }
+                defer { finishBorrow(sessionHandle: sessionHandle) }
+                return try operation(sessionHandle.pointer, UnsafeBufferPointer(handles))
+            }
+        }
     }
 
     @_spi(SwiftMojoGenerated)
@@ -283,10 +356,15 @@ public final class MojoSessionOwner: MojoSession, Sendable {
         while true {
             let abandoned = state.withLock { state -> ResourceRecord? in
                 precondition(state.activeBorrowCount == 1)
-                if let identifier = state.resources
-                    .filter({ $0.value.isAbandoned })
-                    .map(\.key)
-                    .min() {
+                var identifier: UInt64?
+                for (candidate, resource) in state.resources where resource.isAbandoned {
+                    if let previous = identifier {
+                        if candidate < previous { identifier = candidate }
+                    } else {
+                        identifier = candidate
+                    }
+                }
+                if let identifier {
                     return state.resources.removeValue(forKey: identifier)
                 }
                 state.activeBorrowCount = 0

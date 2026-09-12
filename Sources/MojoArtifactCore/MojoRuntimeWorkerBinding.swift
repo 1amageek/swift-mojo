@@ -15,7 +15,9 @@ package struct MojoRuntimeWorkerBinding: Codable, Equatable, Sendable {
         self.signature = binding.signature
         self.resourceSignature = binding.resourceSignature
         switch binding.implementation {
-        case .sessionExternal(_, _, let factory),
+        case .opaqueResource(_, _, _, _, let factory),
+                 .opaqueResourceExternal(_, _, _, let factory, _),
+                 .sessionExternal(_, _, let factory),
              .sessionResource(_, _, _, _, _, _, let factory):
             self.sessionFactoryFunctionName = factory
         case .inline, .external, .session:
@@ -120,7 +122,7 @@ package struct MojoRuntimeWorkerBindingTable: Equatable, Sendable {
                         binding.functionName
                     )
                 }
-            case .sessionFloat32BufferFactory,
+            case .opaqueResourceFactory, .opaqueResourceOperation, .sessionFloat32BufferFactory,
                  .sessionBorrowedMutableFloat32Buffers, .resourceInvocation:
                 guard let factory = binding.sessionFactoryFunctionName,
                       MojoRuntimeLoaderPolicy.isPortableCSymbol(factory) else {

@@ -2,8 +2,8 @@
 
 ## Active completion order
 
-Complete the generic direct-call public API and Mac/Jetson qualification before
-resuming Lume integration. [Mojo's direct-call contract](Sources/Mojo/DESIGN.md#direct-call-completion-work-2026-09-12)
+Release the qualified generic direct-call public API before resuming Lume
+integration. [Mojo's direct-call contract](Sources/Mojo/DESIGN.md#direct-call-completion-work-2026-09-12)
 owns the scoped buffer/resource boundary. BindingCore owns admitted source
 signatures; ArtifactCore owns generated C ABI and native artifacts. Reuse the
 existing RuntimeBridge benchmark for public-wrapper versus direct-dispatcher

@@ -51,6 +51,9 @@ package struct MojoRuntimeWorkerRenderer: Sendable {
         guard !inputGraph.bindingGraph.bindings.contains(where: { $0.signature == .resourceInvocation }) else {
             throw MojoRuntimeProtocolError.invalidPayload(kind: .ready, reason: "resource worker dispatch is not implemented")
         }
+        guard !inputGraph.bindingGraph.bindings.contains(where: { $0.signature == .opaqueResourceFactory || $0.signature == .opaqueResourceOperation }) else {
+            throw MojoRuntimeProtocolError.invalidPayload(kind: .ready, reason: "opaque resources require direct synchronous invocation")
+        }
         let limits = try MojoRuntimeProtocolLimits(
             maximumFramePayloadBytes: maximumFramePayloadBytes
         )
@@ -594,7 +597,7 @@ package struct MojoRuntimeWorkerRenderer: Sendable {
                     "        return swmo_send_invocation_result(send_storage, send_capacity, request_id, status, result_count);"
                 )
                 lines.append("    }")
-            case .runtimeSessionFactory, .sessionFloat32BufferFactory,
+            case .opaqueResourceFactory, .opaqueResourceOperation, .runtimeSessionFactory, .sessionFloat32BufferFactory,
                  .borrowedMutableFloat64Buffers, .int32Binary:
                 continue
             }

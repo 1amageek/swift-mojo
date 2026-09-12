@@ -19,7 +19,11 @@ def main():
     parser.add_argument('--products', type=pathlib.Path, default=root / '.build/out/Products/Debug')
     parser.add_argument('--swiftc', default='swiftc')
     parser.add_argument('--allocations', action='store_true', help='Run allocator interception separately from timing')
+    parser.add_argument('--resources', action='store_true', help='Qualify and benchmark direct opaque resources')
+    parser.add_argument('--sanitize-address', action='store_true', help='Instrument the Swift ownership boundary')
     options = parser.parse_args()
+    if options.sanitize_address and options.allocations:
+        parser.error('Run address sanitizer and allocator interception separately')
     products = options.products.resolve()
     proof = root / '.build/runtime-session-benchmark'
     proof.mkdir(parents=True, exist_ok=True)
@@ -41,12 +45,19 @@ def main():
     domain = re.search(r'case ' + ids['integrationOpenSession'] + r': sessionDomainID = (\d+)', registry.read_text())
     if domain is None:
         raise SystemExit('Verified registry did not emit the expected session factory')
-    text = (root / 'Benchmarks/RuntimeBridge/SessionBenchmark.swift.template').read_text()
+    template = 'ResourceBenchmark.swift.template' if options.resources else 'SessionBenchmark.swift.template'
+    text = (root / 'Benchmarks/RuntimeBridge' / template).read_text()
     text = text.replace('__SESSION_DOMAIN__', domain[1]).replace('__BINDING_ID__', ids['integrationScale'])
     text = text.replace('__DIRECT_SYMBOL__', manifest['artifactIdentity']['symbolPrefix'] + '_call_session_f32_buffer_f32_buffer_i32_v1')
-    benchmark = proof / 'SessionBenchmark.swift'
+    if options.resources:
+        text = text.replace('__RESOURCE_FACTORY_ID__', ids['integrationCreateResource'])
+        text = text.replace('__RESOURCE_OPERATION_ID__', ids['integrationSumResources'])
+        text = text.replace('__RESOURCE_SYMBOL__', manifest['artifactIdentity']['symbolPrefix'] + '_resources_call_' + ids['integrationSumResources'])
+    benchmark = proof / ('ResourceBenchmark.swift' if options.resources else 'SessionBenchmark.swift')
     benchmark.write_text(text)
     compiler = [options.swiftc, '-swift-version', '6', '-O', '-load-plugin-executable', str(products / 'MojoMacros') + '#MojoMacros']
+    if options.sanitize_address:
+        compiler += ['-sanitize=address']
     if apple:
         compiler += ['-target', machine + '-apple-macosx15.0']
     library = proof / ('libMojo.dylib' if apple else 'libMojo.so')
@@ -66,7 +77,10 @@ def main():
         flags = ['-dynamiclib', '-mmacosx-version-min=15.0'] if apple else ['-fPIC', '-shared', '-ldl', '-pthread']
         run(['cc', '-O2', *flags, probe / 'probe.c', '-o', probe_library])
         linkage += ['-I', probe, '-lAllocationProbe']
-        benchmark = probe / 'AllocationAcceptance.swift'
+        if options.resources:
+            compiler += ['-D', 'RESOURCE_ALLOCATIONS']
+        else:
+            benchmark = probe / 'AllocationAcceptance.swift'
         environment['DYLD_INSERT_LIBRARIES' if apple else 'LD_PRELOAD'] = str(probe_library)
     binary = proof / ('allocation-acceptance' if options.allocations else 'session-benchmark')
     run(compiler + ['-parse-as-library', '-I', proof, source, registry, benchmark,

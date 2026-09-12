@@ -1,6 +1,6 @@
 {
   "abiVersion" : 1,
-  "artifactDigest" : "5dfc7b180c29580f4cfbc9cfe84e5e775f91bc8d96b28ab735b3702834ad869e",
+  "artifactDigest" : "0e03bdebcbe7be76d239affe525e52ee738a0637522a062b06bacb4a0a8f5465",
   "artifactIdentity" : {
     "artifactName" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework",
     "libraryName" : "libSwiftMojo_MojoBuildPluginIntegrationFixture_ABI.a",
@@ -11,21 +11,33 @@
   "artifacts" : [
     {
       "adapter" : "appleXCFramework",
-      "digest" : "9b0b902909e41c15b48f1fc226d4cff15e33c2b294b4c31679a508ce2c0bc6b0",
+      "digest" : "bbf10b0659614fb4691ec3015ab2e74cb417a805a2dafae74741347f35fb7af6",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.xcframework"
     },
     {
       "adapter" : "linuxStaticLibraryBundle",
-      "digest" : "24fc2a741c6713f5d8b07b9ca30350250941acc4e2ba09e0aad78adaa4377458",
+      "digest" : "bc8792a106199205ebf708ca9fdee46b9993922b3a8373ca08933ce49765156d",
       "name" : "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI.artifactbundle"
     }
   ],
   "bindings" : [
     {
+      "abiDigest" : "0d5b2d0b0bd0155275530d93c1ea2f8d6cdc0ebc7e67b13af7636e1d48b4c406",
+      "bindingID" : 962412470839809362,
+      "functionName" : "integrationCheckResources",
+      "implementationDigest" : "0f4dfaf2f9afb107fe032ab335af7fdd80e7fadec279e4adfadb8e41d449a06c"
+    },
+    {
       "abiDigest" : "a7cbd4476e663ecdb354f2074bdef9bdac750867b69cb313dfc81b728765ea48",
       "bindingID" : 2867618991011413709,
       "functionName" : "integrationScale",
       "implementationDigest" : "f3bd551927fe86194b8a2eb64a45c2df9a9a1c4c7b7fe11281dc188d0bbcb10e"
+    },
+    {
+      "abiDigest" : "311b7ac71a16e4b8d135cbd63fd759514f227f46e6c78e224bafbf0ec9665ee2",
+      "bindingID" : 3538556927784445112,
+      "functionName" : "integrationCreateResource",
+      "implementationDigest" : "09b2c13b6a4772aaeaa3807cb3f77cfa4327c95a61a2a337571be8defe38c6e1"
     },
     {
       "abiDigest" : "b289d7976174008e2d4c797cd86098a5a891884527e908936319a44083c4d00c",
@@ -46,6 +58,30 @@
       "implementationDigest" : "5a7d70ba2c27ecb73b73bbf94e2fbbbbc3f7dd452dd48c26cc6bb7d825ae1c4c"
     },
     {
+      "abiDigest" : "c53112299a2c303efb1c215066b22977135922de03317f9e5b870baa19144dc1",
+      "bindingID" : 4985786232365396030,
+      "functionName" : "integrationCheckResourceCount",
+      "implementationDigest" : "16ba576f95f82ae380abb61d470d45ddea4550bdf4f540bfbab3c132af84170d"
+    },
+    {
+      "abiDigest" : "d420996861ba69b8f21e016cfe6f5d2a82de46aca1c3d2083a7e089bfecb36b2",
+      "bindingID" : 6062013772035942840,
+      "functionName" : "integrationSumResources",
+      "implementationDigest" : "5b4a7e8eccb4bee78415cd93af140851c27b64d3367f415229b36fb6bd40458a"
+    },
+    {
+      "abiDigest" : "5612ea2ab7a4ab33498abbdf07965692444d19de996af1611d69913e3fbe7d1d",
+      "bindingID" : 6202277106033142579,
+      "functionName" : "integrationFailResources",
+      "implementationDigest" : "c48c7980d8734eadf707e4f172b75a20ebc22ca855934a41876785842f5c0409"
+    },
+    {
+      "abiDigest" : "5c12d9267383b60a7b7aa46abb32b280de1cd8e73d5658772d2b3a1645d17940",
+      "bindingID" : 6634603960240158218,
+      "functionName" : "integrationCreateOtherResource",
+      "implementationDigest" : "a26f68ef1eacccb1c7edbbfa9cf7ecea8299e1ea6b3ac03056e83e2cf3781edd"
+    },
+    {
       "abiDigest" : "ef5634bf34a95e32c52d268124acfe037b99625b8896b8c653e9eb79919b6f3f",
       "bindingID" : 8022657782034030130,
       "functionName" : "integrationSum",
@@ -55,18 +91,18 @@
   "compilerVersion" : "Mojo 1.0.0 (ed45d567)",
   "externalPackages" : [
     {
-      "digest" : "fab300c8fb185191af8159eff4f1f4efafeed53d8a468acc86da9a80b8328ca7",
+      "digest" : "e06e703af00e5b590009b14a1f586b084ef54b2c6dc8765a52d61393fd35ac2d",
       "name" : "SessionModel"
     }
   ],
-  "generatedSourceDigest" : "893a9dad58a0e9214c42ccc11a1540ab9d55b5b78880107dd12b6ee72abff68b",
-  "generationPipelineDigest" : "cf43b33f4148192c01fa6ec0d1ae42ab92e2c453636a24076f305daf4f82a4e8",
-  "inputGraphDigest" : "53a7f50c3fececd920cd00bec3465b7e498654396cb541bfaf1b7ef31745dc65",
-  "inputGraphIdentifier" : 6028056059219602649,
+  "generatedSourceDigest" : "f2db98369a171133a9fa1e0b8022f52e686cc0c1ed117cf298331a8200b0daf4",
+  "generationPipelineDigest" : "53e0e946c85a8b8cdf4b61a1a780789999d8619976b2365aeb2f06bb357ebaf6",
+  "inputGraphDigest" : "25ce631ce5c0f22c85770135e4a1fcd668df49bed43edc28089a5adf3a4e050c",
+  "inputGraphIdentifier" : 2724223800370590252,
   "schemaVersion" : 5,
   "slices" : [
     {
-      "archiveDigest" : "2eb253cb4050a1e9f38e542e2d0976dded2f18cd403e6f5724f3420295f43505",
+      "archiveDigest" : "13f9bb853ee06379e9f2cc02babcec25107bee1b2ffaaaf29884531ab5b1a7eb",
       "libraryIdentifier" : "linux-234e17a28cd31bbdd7861545e26b882a5e96f4b155fa3922926bac590e206378",
       "target" : {
         "cpu" : "generic",
@@ -74,7 +110,7 @@
       }
     },
     {
-      "archiveDigest" : "b48e682e5a3da4188b4894a1a724c73f661bf517d52d94104779a26dde5cd0f0",
+      "archiveDigest" : "07b68ea5b920b0b29c978a514613adf779c39635ea1797ea1c06ee7af00d3837",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "generic",
@@ -82,7 +118,7 @@
       }
     },
     {
-      "archiveDigest" : "b48e682e5a3da4188b4894a1a724c73f661bf517d52d94104779a26dde5cd0f0",
+      "archiveDigest" : "07b68ea5b920b0b29c978a514613adf779c39635ea1797ea1c06ee7af00d3837",
       "libraryIdentifier" : "macos-arm64_x86_64",
       "target" : {
         "cpu" : "x86-64",
@@ -90,7 +126,7 @@
       }
     }
   ],
-  "sourceGraphDigest" : "626cd7ccd2d1fe6d558cc273232354d7e9187bf854d4f89c156d289d4702801b",
-  "sourceGraphIdentifier" : 7092280787911966317,
-  "sourceMapDigest" : "4d90dc56cbe19a32c5ef0d86cc86e9895b4fef1234714322f0cc8de80e1d6535"
+  "sourceGraphDigest" : "34ce3bee62095862899788699c2e62bd62eda6268b0e090b88957dfca23ad978",
+  "sourceGraphIdentifier" : 3805044630207682658,
+  "sourceMapDigest" : "e4094bf5ae709e7f11503b2008e32be1b475860f6d383af5c02e3a7df2ace746"
 }

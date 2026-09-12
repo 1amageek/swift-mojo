@@ -1,6 +1,6 @@
 # ADR-0016: Direct Swift–Mojo execution
 
-- Status: direct Jetson detector lifecycle qualified; generic public API and full Lume integration pending
+- Status: generic direct API qualified on Mac and Jetson; release and full Lume integration pending
 - Date: 2026-09-12
 - Parent: [package design](../DESIGN.md)
 

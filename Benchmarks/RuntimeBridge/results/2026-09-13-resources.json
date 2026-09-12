@@ -1,0 +1,102 @@
+{
+  "date": "2026-09-13",
+  "parent_commit": "0dcced3",
+  "artifact_sha256": "0e03bdebcbe7be76d239affe525e52ee738a0637522a062b06bacb4a0a8f5465",
+  "mojo": "Mojo 1.0.0 (ed45d567)",
+  "mac": "Apple M4 Max; macOS 27; Swift 6.4.2-dev d2e983b81b18217 and Apple Swift 6.3.3 swiftlang-6.3.3.1.3",
+  "jetson": "WendyOS 0.19.1; aarch64 Linux; Swift 6.4-dev 424cae54c1a10da",
+  "source_sha256": {
+    "Sources/Mojo/MojoSessionOwner.swift": "50b983fee389ece6b8684727ed25cdc735adc2bf1220470b2ca40a097bce0fa7",
+    "Sources/Mojo/MojoSessionResourceOwner.swift": "9d8d42fef0951b57258bd71b498fa14e91498f2cebe08a5036fad6c126fcd05c",
+    "Sources/MojoBindingCore/MojoBinding.swift": "cd19b7e5ce7dce7f2f9a41d983a29db35898ae90f4060cf4d89176eb47705eb4",
+    "Sources/MojoArtifactCore/MojoOpaqueResourceRendering.swift": "f44df386e16bba46fb011c825f9c5bff80861e9ac4596bc796debe4d3015ed9e",
+    "Mojo/SessionModel/__init__.mojo": "34b16695b288449a0b1cf4ade0b4b9d51b4f50c8abb50acd3cf9b9feec213a3d",
+    "Sources/MojoBuildPluginIntegrationFixture/MojoBuildPluginIntegrationFixture.swift": "15a5898aca837ce903c9a50d984026d31eecc01e93b8ad07dba720966beb346e",
+    "Benchmarks/RuntimeBridge/ResourceBenchmark.swift.template": "4a69c487489b73a9607868620d78732f39a799e41456a47421dc39fe63342270"
+  },
+  "method": {
+    "samples": 80,
+    "calls_per_sample": 1000,
+    "warmup_calls": 20,
+    "order": "alternating public then direct / direct then public",
+    "baseline": "the same linked C ABI symbol, with one resource lease held outside the timed loop",
+    "reference": "independent Int64 sum check after each sample",
+    "clock": "DispatchTime monotonic nanoseconds"
+  },
+  "allocator_observations": {
+    "macos": {
+      "positive_control": 1,
+      "observations": [
+        {
+          "resources": 2,
+          "calls": 1000,
+          "allocator_calls": 0
+        },
+        {
+          "resources": 3,
+          "calls": 1000,
+          "allocator_calls": 0
+        },
+        {
+          "resources": 8,
+          "calls": 1000,
+          "allocator_calls": 0
+        },
+        {
+          "resources": 32,
+          "calls": 1000,
+          "allocator_calls": 0
+        },
+        {
+          "resources": 128,
+          "calls": 1000,
+          "allocator_calls": 0
+        }
+      ]
+    },
+    "jetson": {
+      "positive_control": 1,
+      "observations": [
+        {
+          "resources": 2,
+          "calls": 1000,
+          "allocator_calls": 0
+        },
+        {
+          "resources": 3,
+          "calls": 1000,
+          "allocator_calls": 0
+        },
+        {
+          "resources": 8,
+          "calls": 1000,
+          "allocator_calls": 0
+        },
+        {
+          "resources": 32,
+          "calls": 1000,
+          "allocator_calls": 0
+        },
+        {
+          "resources": 128,
+          "calls": 1000,
+          "allocator_calls": 0
+        }
+      ]
+    }
+  },
+  "verification": {
+    "swift_testing_tests": 383,
+    "xctest_tests": 11,
+    "package_test_exit": 0,
+    "mac_swift_address_sanitizer": "passed actual opaque-resource acceptance; Mojo code is not instrumented",
+    "native_acceptance": "Mac and Jetson passed correct results, wrong factory/session, duplicate resources, no-handle creation, partial failed creation rollback, first-error precedence, drain after failure, resource count, shutdown and use-after-shutdown"
+  },
+  "limits": [
+    "CPU fixture, not GPU kernel or model inference latency",
+    "No payload materialization in resource invocation; pointer metadata is temporary",
+    "Allocation counts cover the intercepted host allocator entry points only",
+    "Large argument-count temporary allocations and authored resource allocations are not universally zero",
+    "Swift 6.3.3 runtime probe used the existing macro executable; the release consumer gate owns rebuilding package tooling"
+  ]
+}

@@ -45,8 +45,41 @@ The admitted static host signatures are Int32 binary addition, readonly
 session-bound Float32 input/output calls. Existing session and Float32 resource
 factories remain available; their host transfers now take Span/MutableSpan.
 Other type/signature combinations fail binding validation. General multi-resource
-operation generation remains open; the existing worker resource-token declaration
-is not evidence of a completed direct resource API.
+operation generation follows the factory-provenanced contract below. The worker
+resource-token declaration remains separate from this direct API.
+
+### Direct opaque resources
+
+The admitted factory takes a session and a borrowed byte configuration and returns
+`MojoSessionResourceOwner`. The operation takes a session and a borrowed span of
+resource owners. Its `resourceFactory` attribute identifies the exact producing
+factory; every participant must have that identity and the same session instance.
+An operation may accept any number of resources of that factory. Payload layout,
+resource roles and device allocation remain the authored Mojo implementation's
+responsibility. No untyped pointer is exposed to application callers.
+
+Generated adapters validate factory identity, session identity, liveness and
+unique resource IDs before acquiring one exclusive session lease. Duplicate
+resources are rejected because these operations permit mutation. A scoped array
+of pointer metadata is passed through C ABI; resource payloads are not copied.
+The temporary metadata may allocate for large argument counts. No zero-allocation
+claim is made without the corresponding argument-count measurement.
+
+Factory and operation adapters invoke their declared synchronizer on every status.
+A failed factory destroys any returned partial resource after synchronization.
+The first operation/create failure wins over a subsequent synchronization failure.
+A synchronizer must finish all uses even when it returns an error. Destruction
+and foreign calls execute outside the session mutex. Single-resource and aggregate
+borrows share the same admission and deferred-destruction state.
+
+The ownership implementation and synchronization primitive are identical on all
+supported native targets. WASM/Embedded are not supported prepared Mojo targets;
+this change adds no conditional storage or Sendable contract. Tests must reject
+wrong factory, different session instance, duplicates, closed resources and busy
+admission without invoking foreign code; also prove release after throwing calls.
+Actual macro-to-Mojo and direct-dispatcher benchmarks on Mac and Jetson own the
+completion evidence, including failed calls followed by successful calls. The
+ResourceBenchmark acceptance checks those paths before collecting measurements.
 
 Actual macro-to-Mojo execution was verified on Mac Swift 6.4.2-dev
 `d2e983b81b18217` and native Jetson Swift 6.4-dev `424cae54c1a10da`.

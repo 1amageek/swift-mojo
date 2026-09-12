@@ -38,7 +38,7 @@
     },
     {
       "bindingID" : 4309807554310999824,
-      "generatedLine" : 38,
+      "generatedLine" : 50,
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
@@ -47,7 +47,7 @@
     },
     {
       "bindingID" : 8022657782034030130,
-      "generatedLine" : 50,
+      "generatedLine" : 62,
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
@@ -56,7 +56,7 @@
     },
     {
       "bindingID" : 3641678818880782478,
-      "generatedLine" : 64,
+      "generatedLine" : 76,
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
@@ -65,7 +65,7 @@
     },
     {
       "bindingID" : 4078450316648511580,
-      "generatedLine" : 83,
+      "generatedLine" : 95,
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
@@ -74,15 +74,69 @@
     },
     {
       "bindingID" : 2867618991011413709,
-      "generatedLine" : 109,
+      "generatedLine" : 121,
       "source" : {
         "column" : 1,
         "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
         "line" : 21
       }
+    },
+    {
+      "bindingID" : 962412470839809362,
+      "generatedLine" : 133,
+      "source" : {
+        "column" : 1,
+        "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
+        "line" : 54
+      }
+    },
+    {
+      "bindingID" : 3538556927784445112,
+      "generatedLine" : 149,
+      "source" : {
+        "column" : 1,
+        "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
+        "line" : 42
+      }
+    },
+    {
+      "bindingID" : 4985786232365396030,
+      "generatedLine" : 160,
+      "source" : {
+        "column" : 1,
+        "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
+        "line" : 62
+      }
+    },
+    {
+      "bindingID" : 6062013772035942840,
+      "generatedLine" : 171,
+      "source" : {
+        "column" : 1,
+        "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
+        "line" : 50
+      }
+    },
+    {
+      "bindingID" : 6202277106033142579,
+      "generatedLine" : 182,
+      "source" : {
+        "column" : 1,
+        "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
+        "line" : 58
+      }
+    },
+    {
+      "bindingID" : 6634603960240158218,
+      "generatedLine" : 198,
+      "source" : {
+        "column" : 1,
+        "file" : "Sources\/MojoBuildPluginIntegrationFixture\/MojoBuildPluginIntegrationFixture.swift",
+        "line" : 46
+      }
     }
   ],
   "generatedFile" : "Bindings.mojo",
-  "inputGraphDigest" : "53a7f50c3fececd920cd00bec3465b7e498654396cb541bfaf1b7ef31745dc65",
+  "inputGraphDigest" : "25ce631ce5c0f22c85770135e4a1fcd668df49bed43edc28089a5adf3a4e050c",
   "schemaVersion" : 1
 }

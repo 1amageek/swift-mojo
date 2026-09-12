@@ -37,3 +37,28 @@ public func integrationScaleDouble(
   _ input: borrowing Span<Double>,
   into output: inout MutableSpan<Double>
 ) throws
+
+
+@mojo(package: "SessionModel", function: "create_resource", shutdown: "destroy_resource",
+      synchronize: "synchronize_resources", sessionFactory: "integrationOpenSession")
+public func integrationCreateResource(_ session: MojoSessionOwner, _ config: borrowing Span<UInt8>) throws -> MojoSessionResourceOwner
+
+@mojo(package: "SessionModel", function: "create_resource", shutdown: "destroy_resource",
+      synchronize: "synchronize_resources", sessionFactory: "integrationOpenSession")
+public func integrationCreateOtherResource(_ session: MojoSessionOwner, _ config: borrowing Span<UInt8>) throws -> MojoSessionResourceOwner
+
+@mojo(package: "SessionModel", function: "sum_resources", synchronize: "synchronize_resources",
+      sessionFactory: "integrationOpenSession", resourceFactory: "integrationCreateResource")
+public func integrationSumResources(_ session: MojoSessionOwner, _ resources: borrowing Span<MojoSessionResourceOwner>) throws
+
+@mojo(package: "SessionModel", function: "check_resources", synchronize: "synchronize_resources",
+      sessionFactory: "integrationOpenSession", resourceFactory: "integrationCreateResource")
+public func integrationCheckResources(_ session: MojoSessionOwner, _ resources: borrowing Span<MojoSessionResourceOwner>) throws
+
+@mojo(package: "SessionModel", function: "fail_resources", synchronize: "synchronize_resources",
+      sessionFactory: "integrationOpenSession", resourceFactory: "integrationCreateResource")
+public func integrationFailResources(_ session: MojoSessionOwner, _ resources: borrowing Span<MojoSessionResourceOwner>) throws
+
+@mojo(package: "SessionModel", function: "check_resource_count", synchronize: "synchronize_resources",
+      sessionFactory: "integrationOpenSession", resourceFactory: "integrationCreateResource")
+public func integrationCheckResourceCount(_ session: MojoSessionOwner, _ resources: borrowing Span<MojoSessionResourceOwner>) throws

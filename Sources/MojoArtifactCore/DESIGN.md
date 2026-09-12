@@ -1,5 +1,11 @@
 # MojoArtifactCore
 
+## Direct opaque resources
+
+Generate direct opaque factory/operation C ABI entry points, typed macro wrappers and factory-provenance checks from one binding graph. Every status passes through declared synchronization; failed partial creation is destroyed only after completion. These signatures are direct-only and worker publication rejects them explicitly. Artifact family identity includes this generation contract.
+The [Mojo ownership contract](../Mojo/DESIGN.md#direct-opaque-resources) owns lifecycle and admission guarantees.
+
+
 ## Scoped direct buffer contract (2026-09-12)
 
 Direct borrowed Float32/Float64 signatures use `borrowing Span<Float/Double>`

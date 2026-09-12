@@ -1,5 +1,11 @@
 # MojoBindingCore
 
+## Direct opaque resources
+
+Validate opaque factory/operation declarations against the exact signatures in the linked contract. Operations reference a resource factory in the same package and session factory. Include factory, destroy and completion symbols in canonical identity; reject missing or mismatched relationships before generation.
+The [Mojo ownership contract](../Mojo/DESIGN.md#direct-opaque-resources) owns lifecycle and admission guarantees.
+
+
 ## Scoped direct buffer contract (2026-09-12)
 
 Direct borrowed Float32/Float64 signatures use `borrowing Span<Float/Double>`

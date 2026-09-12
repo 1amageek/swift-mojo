@@ -36,7 +36,9 @@ package struct MojoSourceGraph: Equatable, Sendable {
             let package: String
             let sessionFactory: String
             switch binding.implementation {
-            case .sessionExternal(
+            case .opaqueResource(let bindingPackage, _, _, _, let bindingSessionFactory),
+                 .opaqueResourceExternal(let bindingPackage, _, _, let bindingSessionFactory, _),
+                 .sessionExternal(
                 let bindingPackage,
                 _,
                 let bindingSessionFactory
@@ -62,6 +64,14 @@ package struct MojoSourceGraph: Equatable, Sendable {
                     binding: package,
                     factory: factoryPackage
                 )
+            }
+        }
+        for binding in sorted {
+            guard case .opaqueResourceExternal(let package, _, _, let sessionFactory, let resourceFactory) = binding.implementation else { continue }
+            guard let factory = sorted.first(where: { $0.functionName == resourceFactory && $0.signature == .opaqueResourceFactory }),
+                  case .opaqueResource(let factoryPackage, _, _, _, let factorySession) = factory.implementation,
+                  package == factoryPackage, sessionFactory == factorySession else {
+                throw MojoBindingError.sessionFactoryNotFound(resourceFactory)
             }
         }
         let canonical = sorted.map(\.canonicalRecord).joined(separator: "\n")

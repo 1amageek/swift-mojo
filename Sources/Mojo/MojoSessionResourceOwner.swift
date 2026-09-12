@@ -1,16 +1,19 @@
 public final class MojoSessionResourceOwner: MojoSessionResource, Sendable {
-    private let session: MojoSessionOwner
-    private let resourceID: UInt64
+    let session: MojoSessionOwner
+    let resourceID: UInt64
+    let factoryBindingID: UInt64
     private let sessionDomainID: UInt64
 
     init(
         session: MojoSessionOwner,
         resourceID: UInt64,
-        sessionDomainID: UInt64
+        sessionDomainID: UInt64,
+        factoryBindingID: UInt64
     ) {
         self.session = session
         self.resourceID = resourceID
         self.sessionDomainID = sessionDomainID
+        self.factoryBindingID = factoryBindingID
     }
 
     public var isShutdown: Bool {

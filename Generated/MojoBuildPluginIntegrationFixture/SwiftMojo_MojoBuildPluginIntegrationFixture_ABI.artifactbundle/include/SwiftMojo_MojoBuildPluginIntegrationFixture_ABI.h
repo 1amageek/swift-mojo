@@ -51,6 +51,14 @@ int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4
     float *output,
     uint64_t output_count
 );
+int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_962412470839809362(void *session, void *const *resources, uint64_t count);
+int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_create_3538556927784445112(void *session, const uint8_t *config, uint64_t count, void **result);
+void swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_destroy_3538556927784445112(void *session, void *resource);
+int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_4985786232365396030(void *session, void *const *resources, uint64_t count);
+int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_6062013772035942840(void *session, void *const *resources, uint64_t count);
+int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resources_call_6202277106033142579(void *session, void *const *resources, uint64_t count);
+int32_t swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_create_6634603960240158218(void *session, const uint8_t *config, uint64_t count, void **result);
+void swift_mojo_0d3826565dae9a79e3476cad158d11cf6bd3198ccb12185d0bcb1e4f9c3c4de6_resource_destroy_6634603960240158218(void *session, void *resource);
 
 #ifdef __cplusplus
 }

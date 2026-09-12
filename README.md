@@ -9,7 +9,37 @@ same Swift session contract is used on every accelerator platform. Concrete
 backend implementation, hardware qualification, and deployment policy belong to
 the consuming package, not to `swift-mojo`.
 
-> **Current status:** the macOS scalar, borrowed-buffer, mutable-output, synchronous session, and session-owned Float32-buffer paths are verified through real Mojo compile, static link, and runtime execution. The session path includes typed capability negotiation, factory-domain isolation, child-before-parent ownership, exactly-once shutdown, concurrent-use rejection, and separate Swift-side and Mojo-side Address Sanitizer runs. Schema 5 also generates and verifies a SwiftPM `staticLibrary` artifact bundle from a real Mojo `aarch64-unknown-linux-gnu` cross-compile. A clean native Linux ARM64 Swift 6.2.4 consumer now verifies the build plugin, statically links the artifact, runs scalar invocation and opaque-session create/use/shutdown, and has no Mojo compiler or dynamic dependency. Linux owned-buffer transfer, async execution, tensors, allocation/copy measurement, and dedicated sanitizer coverage for the standalone borrowed-buffer families remain pending bridge work. Model behavior and hardware acceptance are downstream responsibilities.
+> **Current status:** direct scalar, Span/MutableSpan, session, owned Float32-buffer and opaque-resource calls are implemented. Actual Mojo numeric, factory-provenance, synchronization-failure and lifecycle paths run on Mac and native Jetson Linux. CPU boundary benchmarks compare the public API with the same C ABI entry point; see [measurements and limits](Benchmarks/RuntimeBridge/README.md). Device kernels, model accuracy and end-to-end inference latency remain consumer responsibilities. Synchronous direct calls are the foundation; asynchronous cancellation and worker-only resource tokens are not part of this direct API.
+
+## Direct resource calls
+
+Opaque resources retain their authored Mojo representation between calls, including
+any device memory and metadata owned by that implementation. The session owns
+admission and destruction; an operation validates all resources together before
+calling Mojo. A resource operation accepts resources from its declared factory
+and session instance, with no duplicate mutable resource. Only pointer metadata
+crosses the ABI; payloads stay in their original storage.
+
+```swift
+@mojo(package: "Compute", function: "create", shutdown: "destroy",
+      synchronize: "synchronize", sessionFactory: "openSession")
+func createResource(_ session: MojoSessionOwner,
+                    _ configuration: borrowing Span<UInt8>) throws -> MojoSessionResourceOwner
+
+@mojo(package: "Compute", function: "execute", synchronize: "synchronize",
+      sessionFactory: "openSession", resourceFactory: "createResource")
+func execute(_ session: MojoSessionOwner,
+             _ resources: borrowing Span<MojoSessionResourceOwner>) throws
+```
+
+`openSession` is a declared session factory in the same Mojo package. The
+configuration is borrowed only until factory completion. Authored synchronizers
+must finish every pending use on success and failure; generated adapters always
+call them and preserve the original operation error. Partial failed creations
+are destroyed after synchronization. Resources must shut down before their session.
+The [ownership contract](Sources/Mojo/DESIGN.md#direct-opaque-resources) specifies
+these guarantees. The actual [Swift fixture](Sources/MojoBuildPluginIntegrationFixture/MojoBuildPluginIntegrationFixture.swift)
+and [Mojo implementation](Mojo/SessionModel/__init__.mojo) provide executable ABI definitions.
 
 ## Start with a Swift function
 
@@ -761,8 +791,8 @@ The following state was observed on this machine on 2026-08-21:
 | Test evidence | Fresh `xcodebuild build-for-testing` plus three guarded complete-suite runs passed on both local Swift 6.3.1 and the pinned Swift 6.4 snapshot, with unchanged source/artifact hashes and no timeout or stale helper |
 | Remote release acceptance | An immutable pushed revision passed real external-package compilation, universal static-framework and Linux artifact-bundle packaging, read-only release verification, compiler-free relocation, scalar/immutable/mutable/session execution, typed failures, and static-link inspection; the release process reruns this gate on the final tag commit |
 | Legacy compatibility | The committed schema-3 example passed current plugin verification, Xcode build/link, and runtime `42` |
-| Borrowed buffer change | Source, generated ABI, macro lowering, typed errors, real compile/link/runtime, and failure behavior are verified; allocation/copy counts and sanitizers remain pending |
-| Mutable output change | IR, macro, generated Mojo/C/Registry, real Mojo 1.0 universal compile, static link, runtime mutation, typed status, both empty-buffer failures, immutable-revision release acceptance, symbol inspection, and no-Mojo-dylib inspection passed; allocation/copy measurement and standalone-buffer sanitizers remain pending |
+| Borrowed buffer change | Source, generated ABI, macro lowering, typed errors, real compile/link/runtime, and failure behavior are verified; measured host boundary costs and Swift-side sanitizer evidence are recorded in `Benchmarks/RuntimeBridge/results` |
+| Mutable output change | IR, macro, generated Mojo/C/Registry, real Mojo 1.0 universal compile, static link, runtime mutation, typed status, both empty-buffer failures, immutable-revision release acceptance, symbol inspection, and no-Mojo-dylib inspection passed; host-view measurement and Swift-side sanitizer evidence are recorded in `Benchmarks/RuntimeBridge/results` |
 | Runtime session change | IR, macro, generated Mojo/C/Registry, session/resource lifecycle tests, real Mojo 1.0 CPU session and host-buffer create/copy/use/shutdown, copy and synchronization status propagation, typed failures, ten-symbol static link, no-Mojo-dylib inspection, Swift Address Sanitizer, and Mojo Address Sanitizer passed locally; concrete device implementation and hardware acceptance remain downstream |
 | Linux artifact change | Real Mojo cross-compiled `aarch64-unknown-linux-gnu`; schema-5 artifact-bundle layout/digest/package wiring and a KGEN-free archive passed locally. A clean native Linux ARM64 Swift 6.2.4 consumer verified the plugin, statically linked the archive, ran scalar and opaque-session create/use/shutdown paths, exported seven bridge symbols, and had no Mojo dynamic dependency. Linux owned-buffer transfer and device execution remain separate gates |
 | Multi-target change | An immutable pushed revision prepared, linked, and executed two independent Mojo-enabled targets in one consumer; both returned `42` without module or symbol collision, and the release process repeats this on the final tag commit |

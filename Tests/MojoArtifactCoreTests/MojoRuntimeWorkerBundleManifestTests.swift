@@ -24,7 +24,8 @@ struct MojoRuntimeWorkerBundleManifestTests {
                 functionName: "resource", signature: .resourceInvocation,
                 sessionFactoryFunctionName: "createSession", resourceSignature: schema
             )
-            return try fixture.semanticIdentity(bindings: [fixture.bindings[0], binding].sorted { $0.bindingID < $1.bindingID })
+            let factory = try #require(fixture.bindings.first { $0.signature == .runtimeSessionFactory })
+            return try fixture.semanticIdentity(bindings: [factory, binding].sorted { $0.bindingID < $1.bindingID })
         }
         let original = try semantic(signature)
         let decoded = try JSONDecoder().decode(
@@ -53,7 +54,7 @@ struct MojoRuntimeWorkerBundleManifestTests {
         )
         #expect(
             manifest.digest
-                == "f774bd0022285246b1d9225ba103ff8bed2b0f1430a8b537b64585a6c8ed72bb"
+                == "6803978b25fadfd623e0ae3defaf786265e3a34440261aca1c8e4c7bf3a9b801"
         )
         #expect(expectedDigest == manifest.digest)
 
@@ -231,7 +232,7 @@ private struct Fixture {
                 fromSHA256Hex: inputGraphDigest
             )
         )
-        self.bindings = [
+        self.bindings = [MojoRuntimeWorkerBundleManifest.Binding]([
             .init(
                 bindingID: MojoBinding.bindingIdentifier(
                     functionName: "createSession",
@@ -250,7 +251,7 @@ private struct Fixture {
                 signature: .sessionBorrowedMutableFloat32Buffers,
                 sessionFactoryFunctionName: "createSession"
             ),
-        ]
+        ]).sorted { $0.bindingID < $1.bindingID }
     }
 
     func semanticIdentity<S: Sequence>(
