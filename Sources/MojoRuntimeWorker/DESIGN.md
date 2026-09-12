@@ -5,7 +5,7 @@
 ### Authority, scope and current findings
 
 This is the target invocation design. Input ownership is implemented through
-`MojoBufferSource` and `MojoReadOnlyBuffer`; the session still invokes v1 Float32
+`MojoBufferSource`, `MojoReadOnlyBuffer` and `MojoBufferView`; the session still invokes v1 Float32
 operations until the subsequent worker migration. Native input qualification is
 owned by [WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md).
 It supersedes the Float32-only invocation and invocation-input lifetime rules

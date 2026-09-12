@@ -1,7 +1,8 @@
 import MojoRuntimeProtocolCore
 
-public enum MojoBufferError: Error, Equatable, Sendable {
+public enum MojoInputBufferError: Error, Equatable, Sendable {
   case invalidByteCount
+  case invalidLayout(diagnostic: String)
 }
 
 /// Retains immutable input storage. Native sharing is granted only by an importer.
@@ -15,7 +16,7 @@ public final class MojoReadOnlyBuffer: Sendable {
   }
 
   /// Selects host storage for explicit copied transport; no copy occurs here.
-  public init(hostSource: any MojoBufferSource) throws(MojoBufferError) {
+  public init(hostSource: any MojoBufferSource) throws(MojoInputBufferError) {
     let byteCount = hostSource.byteCount
     guard byteCount >= 0 else { throw .invalidByteCount }
     self.byteCount = byteCount
@@ -25,7 +26,7 @@ public final class MojoReadOnlyBuffer: Sendable {
   package init(
     sharedDescriptor: Int32, kind: MojoRuntimeBufferStorageKind,
     byteCount: Int, owner: any AnyObject & Sendable
-  ) throws(MojoBufferError) {
+  ) throws(MojoInputBufferError) {
     guard byteCount > 0, sharedDescriptor >= 0, kind != .copied else {
       throw .invalidByteCount
     }

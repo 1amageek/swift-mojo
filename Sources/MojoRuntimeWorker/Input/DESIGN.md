@@ -10,6 +10,7 @@ worker invocation or qualify its completion.
 
 Host sources provide scoped initialized bytes, stable size and immutable contents.
 Native importers grant sharing eligibility and retain the real producer lease.
+MojoBufferView owns an immutable typed layout over that admitted buffer.
 This component stores those owners without mapping, copying, hashing, scheduling,
 model knowledge or direct platform admission.
 
@@ -38,6 +39,14 @@ API. A native import stores its descriptor and producer lease without forcing
 CPU mapping in the producer process. Native mappings belong to the worker
 invocation; this avoids duplicating map/sync lifecycle in both public products.
 The package-only shared constructor cannot be invoked by external conformers.
+
+`MojoBufferElementType` projects supported numeric types without exposing wire
+identifiers. `MojoBufferView` retains the buffer and its offset/dimensions/byte
+strides, using ProtocolCore's checked extent validator against the actual owner
+size. Construction permits empty layouts; binding admission must independently
+apply its verified empty/rank/type/size restrictions. Layout errors are exposed as
+`MojoInputBufferError.invalidLayout` with the original diagnostic. No borrow, mapping,
+copy, normalization or repacking occurs at view construction.
 
 The native importer owns one duplicate for the admitted buffer lifetime.
 Transport borrows that descriptor for sendmsg; it does not create a redundant

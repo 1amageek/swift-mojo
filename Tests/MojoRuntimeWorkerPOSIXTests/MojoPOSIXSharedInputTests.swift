@@ -88,7 +88,7 @@ struct MojoPOSIXSharedInputTests {
     buffer = nil
     #expect(counter.count == 1)
     #expect(try MojoReadOnlyBuffer(hostSource: Data()).byteCount == 0)
-    #expect(throws: MojoBufferError.invalidByteCount) {
+    #expect(throws: MojoInputBufferError.invalidByteCount) {
       try MojoReadOnlyBuffer(hostSource: HostSource(counter: ReleaseCounter(), byteCount: -1))
     }
   }
