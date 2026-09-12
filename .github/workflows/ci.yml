@@ -145,3 +145,7 @@ jobs:
               /usr/bin/xcrun swift test \
               --build-system swiftbuild --skip-build --no-parallel \
               --scratch-path "$SWIFT_MOJO_CI_SCRATCH"
+
+      - name: Verify external package boundaries
+        run: |
+          TOOLCHAINS="$SWIFT_MOJO_CI_TOOLCHAIN" scripts/test-public-package-boundary.sh

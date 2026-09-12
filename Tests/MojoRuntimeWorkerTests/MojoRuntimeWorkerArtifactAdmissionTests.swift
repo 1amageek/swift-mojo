@@ -638,16 +638,19 @@ struct MojoRuntimeWorkerArtifactAdmissionTests {
             }
         )
 
-        #expect(
-            throws: MojoRuntimeWorkerError.readyMismatch(
-                field: "executionContractDigest"
-            )
-        ) {
-            try admit(
-                admission,
-                verification: fixture.verification,
-                timeout: .seconds(3)
-            )
+        let mismatch = MojoRuntimeWorkerError.readyMismatch(field: "executionContractDigest")
+        do {
+            _ = try admit(admission, verification: fixture.verification, timeout: .seconds(3))
+            Issue.record("Mismatched worker identity was accepted")
+        } catch let error as MojoRuntimeWorkerError {
+            // Signal failure is reported even if the group subsequently exits.
+            // Check the primary failure and require actual cleanup below.
+            if case .cleanupFailed(let primary, let failures) = error {
+                #expect(primary == .worker(mismatch))
+                #expect(failures == [.processGroupTerminationFailed])
+            } else {
+                #expect(error == mismatch)
+            }
         }
         let spawned = try #require(process)
         #expect(!MojoPOSIXSupport.processGroupIsAlive(spawned.processID))
