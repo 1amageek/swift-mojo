@@ -48,12 +48,17 @@ int32_t swift_mojo_posix_shared_duplicate(
     }
 #if defined(__linux__)
     if (!*error_code && kind == 3) {
+        /* Qualify the kind before size discovery: seeking an incorrectly
+         * labelled regular file would mutate the producer's shared offset. */
+        if (swift_mojo_posix_shared_sync(fd, 0, error_code) == 0)
+            (void)swift_mojo_posix_shared_sync(fd, 1, error_code);
+    }
+    if (!*error_code && kind == 3) {
         /* dma-buf supports only these two size-discovery seeks. */
         off_t extent = lseek(fd, 0, SEEK_END);
         if (extent < 0) *error_code = errno;
         else if (lseek(fd, 0, SEEK_SET) < 0) *error_code = errno;
         else if ((uint64_t)extent < byte_count) *error_code = EINVAL;
-        /* Kind is additionally qualified by DMA_BUF_IOCTL_SYNC before access. */
     }
 #endif
     if (*error_code) {

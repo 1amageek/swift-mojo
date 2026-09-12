@@ -2,6 +2,14 @@
 
 ## Purpose and Scope
 
+`Fixtures/NativeInput` is a separate native-input qualification fixture for
+[WorkerPOSIX](../../Sources/MojoRuntimeWorkerPOSIX/DESIGN.md), outside the RT4
+receipt pipeline below. It compiles the original input-owner/POSIX sources in a
+focused package, uses public native admission and package-only mapping primitives,
+and compares a real Linux DMA-BUF marker across processes. Its C V4L2 producer
+is a hardware fixture, not a production dependency or generic bridge policy.
+Passing it must not be reported as public worker-v2 or RT4 acceptance.
+
 `Acceptance/RuntimeWorker` is the RT4 host-process/protocol acceptance package
 for ADR-0015. It is a separate Swift package under that directory; it is not a
 target or product of the parent `swift-mojo` package. The package has two

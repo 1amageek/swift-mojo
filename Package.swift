@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "Mojo", targets: ["Mojo"]),
         .library(name: "MojoRuntime", targets: ["MojoRuntime"]),
         .library(name: "MojoRuntimeWorker", targets: ["MojoRuntimeWorker"]),
+        .library(name: "MojoRuntimeWorkerPOSIX", targets: ["MojoRuntimeWorkerPOSIX"]),
         .plugin(name: "MojoBuildPlugin", targets: ["MojoBuildPlugin"]),
         .plugin(name: "MojoCommandPlugin", targets: ["MojoCommandPlugin"]),
     ],
@@ -115,7 +116,16 @@ let package = Package(
                 "MojoPOSIXSupport",
                 "MojoRuntimeProtocolCore",
             ],
+            exclude: ["DESIGN.md", "Input/DESIGN.md"]
+        ),
+        .target(
+            name: "MojoRuntimeWorkerPOSIX",
+            dependencies: ["MojoRuntimeWorker", "MojoPOSIXSupport", "MojoRuntimeProtocolCore"],
             exclude: ["DESIGN.md"]
+        ),
+        .testTarget(
+            name: "MojoRuntimeWorkerPOSIXTests",
+            dependencies: ["MojoRuntimeWorkerPOSIX", "MojoRuntimeWorker"]
         ),
         .binaryTarget(
             name: "SwiftMojo_MojoBuildPluginIntegrationFixture_ABI",

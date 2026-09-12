@@ -10,7 +10,7 @@ package enum MojoPOSIXSynchronizationResult: Equatable, Sendable {
 }
 
 /// Native primitives; the importing owner retains the producer and closes the
-/// returned duplicate. DMA-BUF identity is qualified by sync before any access.
+/// returned duplicate. DMA-BUF identity is qualified before size discovery.
 package enum MojoPOSIXSharedInputSupport {
   package static func duplicate(
     descriptor: Int32, kind: UInt16, byteCount: Int

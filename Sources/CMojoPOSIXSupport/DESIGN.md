@@ -17,9 +17,9 @@ in the native regression. The implementation receives the kernel-bounded set,
 then closes every excess descriptor. Linux retains its kernel truncation
 behavior. Reference: [XNU Unix socket implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/uipc_usrreq.c).
 
-Readonly duplication checks access and accessible extent. DMA-BUF size discovery
-is not type qualification: the importer must complete the separate sync
-operation before admission/access. START/END preserve EINTR/EAGAIN for the
+Readonly duplication checks access and accessible extent. DMA-BUF identity is
+qualified with START/END before its size-discovery seeks; a mislabeled regular
+file fails without changing the producer's shared file offset. START/END preserve EINTR/EAGAIN for the
 owner's bounded retry; the native primitive never retries without a deadline.
 [Kernel DMA-BUF contract](https://docs.kernel.org/driver-api/dma-buf.html)
 requires cache-coherency bracketing and separate producer-completion ownership.

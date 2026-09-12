@@ -3,10 +3,11 @@
 ## Generic resource invocation revision (2026-09-12)
 
 This target design responds to streaming numerical workloads without adding
-application semantics to swift-mojo. It is not implemented. The authoritative
+application semantics to swift-mojo. Protocol codecs and native input ownership
+are implemented; v2 worker invocation and performance qualification are pending. The authoritative
 contracts are [Worker](Sources/MojoRuntimeWorker/DESIGN.md#resource-invocation-revision-2026-09-12),
 [Protocol v2](Sources/MojoRuntimeProtocolCore/DESIGN.md#resource-invocation-protocol-v2-target-design-2026-09-12)
-and the proposed child [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md).
+and the child [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md).
 WorkerPOSIX is a native resource ingress product; its narrowly scoped descriptor
 import supersedes the earlier blanket public-descriptor prohibition only there.
 
@@ -121,7 +122,7 @@ public Mojo, compiler, artifact, command, or runtime APIs.
 
 | Design | Relationship | Contract Used | Summary | Cautions |
 |---|---|---|---|---|
-| [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md) | proposed child module | Native readonly resource ingress | Platform-specific admission into portable worker buffers | Target design only; no current product/capability claim |
+| [WorkerPOSIX](Sources/MojoRuntimeWorkerPOSIX/DESIGN.md) | child module | Native readonly resource ingress | Platform-specific admission into portable worker buffers | Input ownership implemented; v2 worker consumption pending |
 | [`Mojo`](Sources/Mojo/DESIGN.md) | child | Public macro, immutable static-artifact attestation, session and buffer ownership | Exposes the safe Swift surface consumed by generated registries and application targets. | Only generated code may construct an attestation; it is provenance evidence, not device-execution evidence. |
 | [`MojoArtifactCore`](Sources/MojoArtifactCore/DESIGN.md) | child | Canonical graph, render, package, and verification transactions | Owns static and runtime-dependent artifact generation and the ADR-0015 W1 boundary. | It does not launch deployed workers or own application semantics. |
 | [`MojoRuntimeProtocolCore`](Sources/MojoRuntimeProtocolCore/DESIGN.md) | child | Package-internal worker protocol semantics and endpoint generation | Owns protocol-v1 constants, payload layouts, validation, C rendering, and Swift codec/types. | It has no public product, transport I/O, or mutable runtime state. |

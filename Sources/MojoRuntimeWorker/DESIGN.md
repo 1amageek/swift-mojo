@@ -4,7 +4,10 @@
 
 ### Authority, scope and current findings
 
-This is the target design, not an implemented API or hardware qualification.
+This is the target invocation design. Input ownership is implemented through
+`MojoBufferSource` and `MojoReadOnlyBuffer`; the session still invokes v1 Float32
+operations until the subsequent worker migration. Native input qualification is
+owned by [WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md).
 It supersedes the Float32-only invocation and invocation-input lifetime rules
 for the next worker protocol. Static synchronous calls in Mojo are unchanged.
 This module owns public data/lifetime/performance contracts; ProtocolCore owns
@@ -22,7 +25,8 @@ wire representation; [WorkerPOSIX](../MojoRuntimeWorkerPOSIX/DESIGN.md) owns nat
 
 ### Proposed public API contracts
 
-These names describe proposed APIs, not existing declarations. Generated signatures
+The invocation/result/metrics names below describe target APIs; the input owner
+APIs identified above are implemented. Generated signatures
 must compile against the pinned Swift/Mojo toolchains before implementation promotion.
 
 | Surface | Meaning |
@@ -56,13 +60,10 @@ These checks establish memory safety, not application semantics.
 The bridge assigns no meaning to calibration, sample rate, image channels,
 tensor operators, model weights, thresholds or output coordinates.
 
-The portable immutable buffer contract is the proposed public MojoBufferSource
-protocol (byteCount plus scoped readonly bytes); the admitted
-readonly buffer is its concrete owner implementation. External conformers
-provide scoped host read access and stable size/lifetime, not unchecked native
-handles. Shared eligibility is granted only by the qualified native importer
-before dispatch. A protocol conformance alone
-cannot assert native sharing, synchronization or device access capability.
+Input ownership is defined by the child [Input](Input/DESIGN.md).
+It owns host-source borrowing and admitted storage retention; native eligibility
+is supplied by WorkerPOSIX. Invocation, wire layout and reader completion remain
+module/ProtocolCore responsibilities.
 
 ### Ownership and execution
 
@@ -92,7 +93,7 @@ not separate early-release ACKs or a new completion-event API.
 | Resource | Owner | Release |
 |---|---|---|
 | Input lease | Producer, retained independently by attempt | Before dispatch, accepted terminal result, or confirmed worker lifetime end |
-| Sender duplicated handle | Transport | Transfer success/failure; does not release producer lease |
+| Sender duplicated handle | Admitted native buffer, borrowed by transport | Last buffer release after all attempt readers end |
 | Receiver mapping/handle | Worker invocation | All readers complete, then unmap/close |
 | Persistent compute/device buffers | User Mojo session | Graceful destruction or confirmed process death |
 | Result storage | Swift result | Ordinary owned-value lifetime |
@@ -167,7 +168,7 @@ Existing test owners are Tests/MojoRuntimeProtocolCoreTests,
 Tests/MojoPOSIXSupportTests, Tests/MojoRuntimeWorkerTests,
 Tests/MojoArtifactCoreTests and Tests/MojoRuntimeTests; real public-client
 fixtures belong to Acceptance/RuntimeWorker. Tests added for native ingress
-belong to the proposed MojoRuntimeWorkerPOSIXTests target. Extend these owners,
+belong to the MojoRuntimeWorkerPOSIXTests target. Extend these owners,
 not an application-only shadow transport suite.
 
 
@@ -178,7 +179,8 @@ not an application-only shadow transport suite.
 
 `MojoRuntimeWorker` is the public SwiftPM product that owns W3, the
 generic client and lifecycle boundary for ADR-0015 direct-linked workers. Its
-parent is [`DESIGN.md`](../../DESIGN.md); it has no child component designs.
+parent is [`DESIGN.md`](../../DESIGN.md); its input ownership child is
+[Input](Input/DESIGN.md).
 
 It consumes the trusted immutable worker projection produced by the read-only
 [`MojoRuntime`](../MojoRuntime/DESIGN.md) verifier. It does not author or verify
