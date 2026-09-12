@@ -11,6 +11,8 @@ the consuming package, not to `swift-mojo`.
 
 > **Current status:** direct scalar, Span/MutableSpan, session, owned Float32-buffer and opaque-resource calls are implemented. Actual Mojo numeric, factory-provenance, synchronization-failure and lifecycle paths run on Mac and native Jetson Linux. CPU boundary benchmarks compare the public API with the same C ABI entry point; see [measurements and limits](Benchmarks/RuntimeBridge/README.md). Device kernels, model accuracy and end-to-end inference latency remain consumer responsibilities. Synchronous direct calls are the foundation; asynchronous cancellation and worker-only resource tokens are not part of this direct API.
 
+Requires **Swift 6.4 or newer**. The qualified compiler snapshots and native execution evidence are listed in [TOOLCHAINS.md](docs/TOOLCHAINS.md).
+
 ## Direct resource calls
 
 Opaque resources retain their authored Mojo representation between calls, including
@@ -514,7 +516,7 @@ swift package --allow-writing-to-package-directory mojo init --target MyTarget
 ### 2. Wire Package.swift
 
 ```swift
-// swift-tools-version: 6.2
+// swift-tools-version: 6.4
 import PackageDescription
 
 let package = Package(
@@ -526,7 +528,7 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/1amageek/swift-mojo.git",
-            exact: "0.2.1"
+            exact: "0.3.0"
         ),
     ],
     targets: [
@@ -550,7 +552,7 @@ let package = Package(
 
 The generated module, archive, and C symbols are derived from the Swift target identity. Common ASCII identifiers stay readable; a target name containing `-` receives its full target digest in the module/archive component so names such as `Model-Core` and `Model_Core` cannot normalize to the same binary identity. This prevents collisions when a package graph links more than one Mojo-enabled target.
 
-Released consumers should use the stable semantic-version requirement shown above; `0.2.1` is the current usable release. A consumer intentionally evaluating an unreleased commit may instead pin its full Git object ID. Release verification rejects moving branches and symbolic or abbreviated revisions, and semantic-version requirements must be syntactically valid. The remote acceptance gates additionally prove that SwiftPM's `Package.resolved` version and revision match the advertised release.
+Released consumers should use the stable semantic-version requirement shown above; the direct APIs documented here target `0.3.0`. A consumer intentionally evaluating an unreleased commit may instead pin its full Git object ID. Release verification rejects moving branches and symbolic or abbreviated revisions, and semantic-version requirements must be syntactically valid. The remote acceptance gates additionally prove that SwiftPM's `Package.resolved` version and revision match the advertised release.
 
 ### 3. Pin the authoring contract
 
@@ -755,13 +757,14 @@ The DSL will grow incrementally, while production-scale full Mojo implementation
 | Platform adapter | Apple XCFramework for arm64/aarch64/x86_64 macOS/iOS; SwiftPM static-library artifact bundle for aarch64/x86_64 Linux |
 | Package layout | Target-scoped static frameworks, modules, archives, symbols, and output directories |
 | Declaration | File-scope, non-generic, non-`async`; scalar is nonthrowing and buffer/session signatures are throwing |
-| Signature | Scalar addition, immutable/mutable host `Float` borrows, runtime-session factory/use, and session-owned Float32-buffer factory with synchronous host transfer |
+| Signature | Scalar addition, host `Float`/`Double` views, runtime-session factory/use, owned Float32-buffer transfer, and factory-provenanced opaque resources |
 | Inline DSL | Exactly one direct `return lhs + rhs`; operand order may be reversed |
 | External implementation | `@mojo(package:function:)` plus `Mojo/<Package>/__init__.mojo` |
-| Borrowed buffer | Non-empty `borrowing Span<Float>`; pointer is immutable and scoped to one synchronous call |
-| Mutable output | Non-empty caller-owned `inout MutableSpan<Float>`; mutable pointer is scoped to the same synchronous call and nonzero Mojo status throws |
+| Borrowed buffer | Non-empty `borrowing Span<Float>` or `Span<Double>`; pointer is immutable and scoped to one synchronous call |
+| Mutable output | Non-empty caller-owned `inout MutableSpan<Float>` or `MutableSpan<Double>`; mutable pointer is scoped to the same synchronous call and nonzero Mojo status throws |
 | Runtime session | Opaque Mojo-created handle with capability validation, factory-domain isolation, one synchronous lease, and exactly-once shutdown |
 | Owned Float32 buffer | Session-owned opaque handle with host/device/pinned-host memory kind, capability/size/count validation, synchronous host copies, parent-shutdown exclusion, and paired idempotent destruction |
+| Opaque resources | Factory/session provenance, shared admission, completion on every status, and child-before-parent destruction; payload representation belongs to authored Mojo |
 | Artifact | Adapter-specific XCFramework/artifact bundle, canonical generated Mojo, schema-5 manifest/source map, and declared compiler slices; Apple same-platform architectures share a universal static binary |
 | Build | Committed artifact, plugin verification, and no build-time Mojo compiler |
 | Release | Pinned compiler, configuration, all slices/adapters, inputs, source map, native metadata/interface, and local-dependency gate |
@@ -770,9 +773,9 @@ The DSL will grow incrementally, while production-scale full Mojo implementation
 
 CPU variants for the same Apple platform/architecture are not a SwiftPM selection mechanism. Configuration and preparation reject slices that collapse to the same XCFramework platform/architecture/variant identity before invoking the compiler. During a configured build, the verifier checks the complete slice set and Xcode selects the destination slice; `SWIFT_MOJO_TARGET_*` is an optional stricter destination assertion rather than a host-architecture default.
 
-## Development status
+## Historical development evidence
 
-The following state was observed on this machine on 2026-08-21:
+The following observations predate the direct API release. Current compiler support is defined in [TOOLCHAINS.md](docs/TOOLCHAINS.md), and current runtime measurements are recorded in [RuntimeBridge](Benchmarks/RuntimeBridge/README.md):
 
 | Item | Observed status |
 |---|---|

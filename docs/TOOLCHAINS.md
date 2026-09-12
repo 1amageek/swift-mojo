@@ -1,11 +1,12 @@
 # Toolchain and CI contract
 
+The minimum supported Swift version is **6.4**. Swift 6.3 and earlier are outside the supported surface.
+
 ## Supported development matrix
 
 | Lane | Swift | Purpose | Release blocking |
 |---|---|---|---:|
-| Stable | Swift 6.3.3 release toolchain, Xcode 27 host | Detect regressions against the latest stable compiler that supports the public macro surface | Yes after the lane has passed on the release commit |
-| Snapshot | `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-08-14-a`, Xcode 27 host | Reproduce the repository's current development baseline | Yes |
+| Snapshot | `swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-09-04-a`, Xcode 27 host | Reproduce the repository's current development baseline | Yes |
 | Real Mojo | Mojo version pinned per target in `SwiftMojo.json` | Compile, link, relocate, and execute prepared artifacts | Yes for a release; scheduled/manual rather than per pull request |
 | Runtime benchmark | Same host/toolchain/compiler as the result record | Measure wrapper/direct-dispatcher p50 and p95 | No automatic threshold; explicit evidence review only |
 | Cold-build benchmark | Explicitly selected consumer and host | Measure fresh-scratch consumer build time | Manual only; never a correctness gate |
@@ -24,19 +25,18 @@ Source scan errors fail the gate; the guard's positive/negative checks are in
 
 ```mermaid
 flowchart LR
-    PR["Pull request / main push"] --> C["Compiler-free xcodebuild tests"]
-    C --> S["Stable Swift 6.3.3"]
+    PR["Pull request / main push"] --> C["Compiler-free SwiftPM tests"]
     C --> N["Pinned Swift 6.4 snapshot"]
     M["Monthly or manual"] --> A["Real Mojo acceptance"]
     B["Manual only"] --> P["Release runtime benchmark"]
     B --> D["Cold consumer build benchmark"]
 ```
 
-The normal CI workflow does not install or execute Mojo and does not run performance measurements. It verifies the committed generated artifact through the normal build plugin, macro, static link, and correctness tests. The hosted compiler lanes use the `xcode-27` image and require Xcode 27.0 build 27A5252f exactly. The 27A5252f host was observed in CI run 34703711298; its package graph, compiler isolation and runtime tests must pass before tagging this release. The image is a GitHub public preview, so an image update fails the explicit version check until the new host has been reviewed rather than silently changing release evidence.
+The normal CI workflow does not install or execute Mojo and does not run performance measurements. It verifies committed generated artifacts through the public build plugin, macro, static link and correctness tests. The compiler lane uses SwiftPM's Swift Build engine, with the selected toolchain supplying the compiler, Swift Testing runtime and plugins together. Xcode 27.0 build 27A5252f remains the pinned SDK host on the `xcode-27` preview image.
 
-Xcode 26.3 and 26.6 were both observed to place host-only `MojoMacros.o` into a consumer test bundle for this package graph without the macro's local `MojoBindingCore` dependency. A target that also uses the build-tool plugin can additionally receive `swift-mojo.o`, producing duplicate `_main` symbols. Adding compiler-side SwiftSyntax parsing code to the public `Mojo` runtime would hide the first link error while violating the package boundary and would not solve the duplicate-main path. Xcode 27 keeps those host executable objects out of consumer link-file lists. CI verifies that isolation after `build-for-testing` so a future graph regression cannot pass merely because another dependency happens to satisfy the leaked symbols.
+Build and test execution are separate bounded steps. Test execution disables cross-test parallelism because the process/compiler fixtures share host CPU and process resources; tests still exercise their explicitly constructed concurrency. Public API compile checks consume the test-bundle path and Swift Build products supplied by SwiftPM. The test command and its compiler subprocesses inherit the same explicit `TOOLCHAINS` selection. Toolchain installation runs in the runner temporary directory so Swiftly selection does not modify the release checkout.
 
-Xcode 27 owns package-manifest evaluation, package resolution, build-tool-plugin hosting, and link-graph generation. `SWIFT_EXEC` pins package libraries, macros, generated code, and test bundles to the selected matrix compiler. The selected toolchain's matching `Testing.swiftmodule`, `libTesting.dylib`, and testing macro plugin are passed through `SWIFT_INCLUDE_PATHS`, `LIBRARY_SEARCH_PATHS`, `LD_RUNPATH_SEARCH_PATHS`, and `OTHER_SWIFT_FLAGS`; mixing those components with Xcode's built-in Swift Testing ABI is not a supported lane. Custom testing paths preserve inherited package build settings, including target-specific experimental language features. Toolchain installation runs in the runner temporary directory so Swiftly selection does not modify the release checkout. The exact-version rehearsal explicitly selects the matrix toolchain through `TOOLCHAINS`. The host version and selected Swift version are separate release inputs and both are recorded. The hosted compiler lanes target macOS 15 but run on the macOS 26 preview host; they do not constitute runtime execution evidence on macOS 15.
+The previous Xcode test lane did not provide SwiftPM's test-bundle arguments and bypassed the artifact-discovery assumptions of external-consumer tests. Older Xcode/Swift Build graphs also leaked host macro objects into consumer link lists. The qualified SwiftPM/Swift Build graph owns the complete compiler and test path; compilation, linking and actual public calls remain release gates. The hosted lane targets macOS 15 but executes on the preview host, so it does not establish runtime behavior on macOS 15.
 
 Real-Mojo acceptance runs on a repository-owned macOS runner labelled `self-hosted`, `macOS`, and `swift-mojo`. The runner must define the repository variable `SWIFT_MOJO_EXECUTABLE` as an absolute executable path. The workflow verifies the public command-plugin path, a custom SwiftPM source layout, full remote revision resolution, universal static packaging, immutable and mutable buffer execution, owned-session and owned-buffer creation/use/transfer/shutdown, typed copy and synchronization failure propagation, relocation, two target-scoped artifacts, absence of a Mojo dynamic dependency in the consumer, and separate Swift-side and Mojo-side Address Sanitizer lanes for the current-checkout session path.
 

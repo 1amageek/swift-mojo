@@ -83,6 +83,8 @@ promise independent of hardware, load, data layout and completion semantics.
 
 ## Purpose and Scope
 
+The supported compiler baseline and release lanes are owned by [TOOLCHAINS.md](docs/TOOLCHAINS.md); Package.swift enforces its minimum tools version.
+
 This file is the system and Swift package master design for `swift-mojo`.
 The repository root is both the system root and the SwiftPM package root, so
 this design has no parent design. Its direct child component designs are listed
