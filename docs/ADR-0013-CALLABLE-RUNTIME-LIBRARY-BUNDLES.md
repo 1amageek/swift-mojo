@@ -1,5 +1,8 @@
 # ADR-0013: Callable accelerator runtime library bundles
 
+> Current authority: [ADR-0016](ADR-0016-DIRECT-SWIFT-MOJO-EXECUTION.md).
+> The active migration uses direct Swift–Mojo calls; isolation is consumer-owned.
+
 - Status: generated-source transaction, macOS link, relocation, verification, and C invocation implemented
 - Date: 2026-08-22
 - Scope: generated C ABI objects that require an explicit accelerator runtime closure

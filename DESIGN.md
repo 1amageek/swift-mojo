@@ -1,5 +1,13 @@
 # Swift Mojo
 
+## Current execution decision
+
+[ADR-0016](docs/ADR-0016-DIRECT-SWIFT-MOJO-EXECUTION.md) supersedes the worker-first
+resource migration below. Swift calls Mojo directly through C ABI; process
+isolation belongs to consumers. MAX/GPU direct lifecycle qualification is pending.
+The following worker migration sections describe the superseded target and do
+not authorize additional IPC work for the active Lume integration.
+
 ## In-development protocol replacement
 
 The user requested a single current worker contract on 2026-09-12. Replace the

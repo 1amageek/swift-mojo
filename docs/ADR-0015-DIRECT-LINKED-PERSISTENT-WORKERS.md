@@ -1,5 +1,8 @@
 # ADR-0015: Direct-linked persistent accelerator workers
 
+> Current authority: [ADR-0016](ADR-0016-DIRECT-SWIFT-MOJO-EXECUTION.md).
+> The active migration uses direct Swift–Mojo calls; isolation is consumer-owned.
+
 > Target revision (2026-09-12): the [package resource design](../DESIGN.md#generic-resource-invocation-revision-2026-09-12)
 > supersedes this ADR's v1-only wire/Float32 surface and permits native descriptor
 > ingress only through WorkerPOSIX. Direct-linked isolation and verification
